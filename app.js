@@ -2854,6 +2854,16 @@
     }
   }
 
+  const PAGE_STACK_GAP = 36;
+
+  function getBoundedDeskBackdropColor() {
+    const isAppDark = typeof document !== 'undefined' &&
+      document.documentElement &&
+      typeof document.documentElement.getAttribute === 'function' &&
+      document.documentElement.getAttribute('data-theme') === 'dark';
+    return isAppDark ? '#1d1f25' : '#e6e5e4';
+  }
+
   function isBoundedPage(page) {
     if (!page) return false;
     return (page.viewMode && page.viewMode !== 'infinite') || Boolean(page.pdfId || page.isPdfPage);
@@ -2863,6 +2873,122 @@
     const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
     const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
     return { minX: 0, minY: 0, maxX: pw, maxY: ph, width: pw, height: ph };
+  }
+
+  function getBoundedStackInfo(refPage = getActivePage()) {
+    if (!isBoundedPage(refPage)) return null;
+    const allPages = getActiveNotebookPages();
+    const boundedPages = allPages.filter((p) => isBoundedPage(p));
+    const list = boundedPages.length > 0 ? boundedPages : [refPage];
+    let maxW = 0;
+    for (let i = 0; i < list.length; i++) {
+      const b = getPageBounds(list[i]);
+      if (b.width > maxW) maxW = b.width;
+    }
+    const items = [];
+    let curY = 0;
+    let activeIdx = 0;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      const b = getPageBounds(p);
+      const xOffset = Math.round((maxW - b.width) * 0.5);
+      items.push({ page: p, index: i, width: b.width, height: b.height, xOffset, yOffset: curY, relX: 0, relY: 0 });
+      if (p.id === refPage.id) activeIdx = i;
+      curY += b.height + PAGE_STACK_GAP;
+    }
+    const totalHeight = Math.max(0, curY - PAGE_STACK_GAP);
+    const activeItem = items[activeIdx] || items[0];
+    for (let i = 0; i < items.length; i++) {
+      items[i].relX = items[i].xOffset - activeItem.xOffset;
+      items[i].relY = items[i].yOffset - activeItem.yOffset;
+    }
+    return {
+      items,
+      activeIdx,
+      activeItem,
+      maxWidth: maxW,
+      totalHeight,
+      minRelY: -activeItem.yOffset,
+      maxRelY: totalHeight - activeItem.yOffset
+    };
+  }
+
+  function findStackPageAtWorldPoint(wx, wy, margin = 4) {
+    const stack = getBoundedStackInfo(getActivePage());
+    if (!stack) return null;
+    for (let i = 0; i < stack.items.length; i++) {
+      const it = stack.items[i];
+      if (
+        wx >= it.relX - margin &&
+        wx <= it.relX + it.width + margin &&
+        wy >= it.relY - margin &&
+        wy <= it.relY + it.height + margin
+      ) {
+        return it;
+      }
+    }
+    return null;
+  }
+
+  function switchActivePageInStack(targetPageId) {
+    const curPage = getActivePage();
+    if (!curPage || !targetPageId || curPage.id === targetPageId) return false;
+    const stack = getBoundedStackInfo(curPage);
+    if (!stack) return false;
+    const targetItem = stack.items.find((it) => it.page.id === targetPageId);
+    if (!targetItem) return false;
+
+    const shiftX = targetItem.relX * state.zoom;
+    const shiftY = targetItem.relY * state.zoom;
+    state.panX += shiftX;
+    state.panY += shiftY;
+    if (state.isPanning && state.panStartOffset) {
+      state.panStartOffset.x += shiftX;
+      state.panStartOffset.y += shiftY;
+    }
+    if (staticInkCache.valid && staticInkCache.zoom > 0) {
+      staticInkCache.originPanX += targetItem.relX * staticInkCache.zoom;
+      staticInkCache.originPanY += targetItem.relY * staticInkCache.zoom;
+      staticInkCache.pageId = targetPageId;
+      staticInkCache.effectiveDark = !targetItem.page.pdfId && (targetItem.page.paperTone === 'dark' || targetItem.page.paperTone === 'blueprint');
+    }
+
+    state.activePageId = targetPageId;
+    ensureActiveAndAdjacentPdfPagesLoaded(targetItem.page);
+    renderPagesSidebar();
+    updateUndoRedoButtons();
+    renderWorldTextCards();
+    syncWorldLayerTransform();
+    return true;
+  }
+
+  function syncActivePageFromStackViewport() {
+    if (state.isDrawing || state.currentStroke || state.currentShape || hasAnyLassoSelection()) return false;
+    const curPage = getActivePage();
+    const stack = getBoundedStackInfo(curPage);
+    if (!stack || stack.items.length <= 1 || !dom.canvasViewport) return false;
+    const rect = dom.canvasViewport.getBoundingClientRect();
+    if (!rect || rect.height <= 0) return false;
+    const viewProbeY = (rect.height * 0.45 - state.panY) / state.zoom;
+    let bestItem = stack.activeItem;
+    let bestDist = Infinity;
+    for (let i = 0; i < stack.items.length; i++) {
+      const it = stack.items[i];
+      if (viewProbeY >= it.relY - PAGE_STACK_GAP * 0.5 && viewProbeY <= it.relY + it.height + PAGE_STACK_GAP * 0.5) {
+        bestItem = it;
+        break;
+      }
+      const center = it.relY + it.height * 0.5;
+      const d = Math.abs(viewProbeY - center);
+      if (d < bestDist) {
+        bestDist = d;
+        bestItem = it;
+      }
+    }
+    if (bestItem && bestItem.page.id !== state.activePageId) {
+      return switchActivePageInStack(bestItem.page.id);
+    }
+    return false;
   }
 
   function isPointInsidePage(page, x, y, margin = 0) {
@@ -2967,25 +3093,48 @@
     const vw = rect.width;
     const vh = rect.height;
     const topSafe = 58;
-    const bottomPad = 14;
+    const bottomPad = 24;
     const b = getPageBounds(page);
+    const stack = getBoundedStackInfo(page);
+    if (stack && stack.items.length > 1) {
+      const scaledW = stack.maxWidth * zoom;
+      const scaledTotalH = stack.totalHeight * zoom;
+      const availH = vh - topSafe - bottomPad;
+      if (scaledTotalH <= availH) {
+        const centerY = Math.round(topSafe + (availH - scaledTotalH) / 2 - stack.minRelY * zoom);
+        return { minPanY: centerY, maxPanY: centerY, scaledW, scaledH: scaledTotalH, vw, vh, topSafe, bottomPad, pageBounds: b, stack };
+      }
+      return {
+        minPanY: Math.round(vh - bottomPad - stack.maxRelY * zoom),
+        maxPanY: Math.round(topSafe + 16 - stack.minRelY * zoom),
+        scaledW,
+        scaledH: scaledTotalH,
+        vw,
+        vh,
+        topSafe,
+        bottomPad,
+        pageBounds: b,
+        stack
+      };
+    }
     const scaledW = b.width * zoom;
     const scaledH = b.height * zoom;
     const availH = vh - topSafe - bottomPad;
     if (scaledH <= availH) {
       const centerY = Math.round(topSafe + (availH - scaledH) / 2);
-      return { minPanY: centerY, maxPanY: centerY, scaledW, scaledH, vw, vh, topSafe, bottomPad, pageBounds: b };
+      return { minPanY: centerY, maxPanY: centerY, scaledW, scaledH, vw, vh, topSafe, bottomPad, pageBounds: b, stack };
     }
     return {
       minPanY: Math.round(vh - scaledH - bottomPad),
-      maxPanY: topSafe + 12,
+      maxPanY: topSafe + 16,
       scaledW,
       scaledH,
       vw,
       vh,
       topSafe,
       bottomPad,
-      pageBounds: b
+      pageBounds: b,
+      stack
     };
   }
 
@@ -3044,7 +3193,8 @@
     }
 
     const pageCenterX = Math.max(115, Math.min(limits.vw - 115, state.panX + limits.scaledW * 0.5));
-    const pageBottomY = state.panY + limits.scaledH;
+    const stackBottomWorldY = limits.stack ? limits.stack.maxRelY : limits.pageBounds.height;
+    const pageBottomY = state.panY + stackBottomWorldY * state.zoom;
     const bannerTop = isTop
       ? Math.max(limits.topSafe + 8, Math.min(limits.vh - 116, state.panY - 102))
       : Math.max(limits.topSafe + 16, Math.min(limits.vh - 108, pageBottomY + 14));
@@ -3067,36 +3217,17 @@
     const limits = getBoundedVerticalScrollLimits(state.zoom, page);
     if (!limits) return;
     const clampedX = clampViewportPan(rawPanX, limits.minPanY, state.zoom, page).panX;
-    const pages = getActiveNotebookPages();
-    const curIdx = pages.findIndex((p) => p.id === state.activePageId);
 
+    // En défilement vertical continu multi-pages : le "Tirer pour ajouter une page" se déclenche en bas de la DERNIÈRE page
     if (rawPanY < limits.minPanY) {
       const rawExcess = limits.minPanY - rawPanY;
       const visualOffset = Math.min(GN_PULL_TO_ADD_MAX_VISUAL_PX, rawExcess * GN_PULL_TO_ADD_RUBBER_FACTOR);
       const percentage = rawExcess / GN_PULL_TO_ADD_THRESHOLD_PX;
-      const isLastPage = curIdx < 0 || curIdx >= pages.length - 1;
       state.panX = clampedX;
       state.panY = limits.minPanY - visualOffset;
       state.pullToAdd.active = rawExcess > 2;
       state.pullToAdd.direction = 'bottom';
-      state.pullToAdd.action = isLastPage ? 'add' : 'next';
-      state.pullToAdd.rawExcess = rawExcess;
-      state.pullToAdd.visualOffset = visualOffset;
-      state.pullToAdd.percentage = percentage;
-      state.pullToAdd.source = source;
-      updatePullToAddBannerUi();
-      return;
-    }
-
-    if (rawPanY > limits.maxPanY && curIdx > 0) {
-      const rawExcess = rawPanY - limits.maxPanY;
-      const visualOffset = Math.min(GN_PULL_TO_ADD_MAX_VISUAL_PX, rawExcess * GN_PULL_TO_ADD_RUBBER_FACTOR);
-      const percentage = rawExcess / GN_PULL_TO_ADD_THRESHOLD_PX;
-      state.panX = clampedX;
-      state.panY = limits.maxPanY + visualOffset;
-      state.pullToAdd.active = rawExcess > 2;
-      state.pullToAdd.direction = 'top';
-      state.pullToAdd.action = 'prev';
+      state.pullToAdd.action = 'add';
       state.pullToAdd.rawExcess = rawExcess;
       state.pullToAdd.visualOffset = visualOffset;
       state.pullToAdd.percentage = percentage;
@@ -3108,6 +3239,7 @@
     state.panX = clampedX;
     state.panY = Math.max(limits.minPanY, Math.min(limits.maxPanY, rawPanY));
     if (state.pullToAdd.active) resetPullToAddState();
+    syncActivePageFromStackViewport();
   }
 
   function positionBoundedPageAfterTransition(align = 'top') {
@@ -3120,9 +3252,11 @@
     }
     const targetPanX = limits.scaledW <= limits.vw - 24
       ? Math.round((limits.vw - limits.scaledW) / 2)
-      : clampViewportPan(state.panX, limits.maxPanY, state.zoom, page).panX;
-    const targetPanY = align === 'bottom' ? limits.minPanY : limits.maxPanY;
-    const slideOffset = align === 'bottom' ? -56 : 56;
+      : clampViewportPan(state.panX, limits.topSafe + 16, state.zoom, page).panX;
+    const pageTopPanY = Math.max(limits.minPanY, Math.min(limits.maxPanY, limits.topSafe + 16));
+    const pageBottomPanY = Math.max(limits.minPanY, Math.min(limits.maxPanY, Math.round(limits.vh - limits.pageBounds.height * state.zoom - limits.bottomPad)));
+    const targetPanY = align === 'bottom' ? pageBottomPanY : pageTopPanY;
+    const slideOffset = align === 'bottom' ? -48 : 48;
     state.panX = targetPanX;
     state.panY = targetPanY + slideOffset;
     syncWorldLayerTransform();
@@ -3258,6 +3392,7 @@
       const moved = Math.hypot(nextPan.panX - state.panX, nextPan.panY - state.panY);
       state.panX = nextPan.panX;
       state.panY = nextPan.panY;
+      syncActivePageFromStackViewport();
       syncWorldLayerTransform();
       requestRender();
       if (moved < 0.1) return;
@@ -3791,7 +3926,7 @@
     };
   }
 
-  function drawPaperBackground(targetCtx, page, viewportWidth, viewportHeight, isThumbnail = false) {
+  function drawPaperBackground(targetCtx, page, viewportWidth, viewportHeight, isThumbnail = false, skipDeskFill = false) {
     const palette = getPaperPalette(page.paperTone || 'ivory');
     const baseSpacing = Math.max(14, page.gridSize || 28);
     // Adapte le pas de grille en cas de fort dézoom (ex: 13%) pour éviter l'effet de moiré/points gris et garder une grille nette
@@ -3801,6 +3936,7 @@
     const pageW = (page && Number.isFinite(page.pdfWidth) && page.pdfWidth > 0) ? page.pdfWidth : PAGE_WIDTH;
     const pageH = (page && Number.isFinite(page.pdfHeight) && page.pdfHeight > 0) ? page.pdfHeight : PAGE_HEIGHT;
     const isInfinite = (page.viewMode || 'infinite') === 'infinite' && !isThumbnail;
+    const invZoom = isThumbnail ? 1 : Math.min(2.5, Math.max(0.5, 1 / state.zoom));
     let minX = 0, minY = 0, maxX = pageW, maxY = pageH;
 
     if (isInfinite) {
@@ -3815,12 +3951,24 @@
       targetCtx.fillStyle = palette.bg;
       targetCtx.fillRect(minX, minY, maxX - minX, maxY - minY);
     } else {
-      // Même en mode A4, on remplit le fond autour de la feuille sans motif à points
-      if (!isThumbnail) {
+      // Format A4 / Page bornée : fond neutre constant style GoodNotes (#e6e5e4 clair / #1d1f25 sombre)
+      // qui NE change jamais lorsqu'on modifie la couleur de la feuille
+      if (!isThumbnail && !skipDeskFill) {
         const tl = { x: -state.panX / state.zoom, y: -state.panY / state.zoom };
         const br = { x: (viewportWidth - state.panX) / state.zoom, y: (viewportHeight - state.panY) / state.zoom };
-        targetCtx.fillStyle = palette.bg;
+        targetCtx.fillStyle = getBoundedDeskBackdropColor();
         targetCtx.fillRect(tl.x - 100, tl.y - 100, (br.x - tl.x) + 200, (br.y - tl.y) + 200);
+      }
+      if (!isThumbnail) {
+        const isAppDark = getBoundedDeskBackdropColor() === '#1d1f25';
+        targetCtx.save();
+        targetCtx.shadowColor = isAppDark ? 'rgba(0, 0, 0, 0.45)' : 'rgba(15, 23, 42, 0.16)';
+        targetCtx.shadowBlur = 12 * invZoom;
+        targetCtx.shadowOffsetX = 0;
+        targetCtx.shadowOffsetY = 3 * invZoom;
+        targetCtx.fillStyle = palette.bg;
+        targetCtx.fillRect(0, 0, pageW, pageH);
+        targetCtx.restore();
       } else {
         targetCtx.fillStyle = palette.bg;
         targetCtx.fillRect(0, 0, pageW, pageH);
@@ -3835,7 +3983,6 @@
     }
 
     const paperType = page.paperType || 'grid';
-    const invZoom = isThumbnail ? 1 : Math.min(2.5, Math.max(0.5, 1 / state.zoom));
 
     if (paperType === 'grid') {
       targetCtx.lineWidth = 1 * invZoom;
@@ -4035,13 +4182,20 @@
       targetCtx.stroke();
     }
 
-    // Aucun carré / bordure en mode Page Infinie pour que la feuille prenne 100% de l'écran sans limite
-    if (!isInfinite && isThumbnail) {
-      targetCtx.strokeStyle = 'rgba(100, 116, 139, 0.25)';
-      targetCtx.lineWidth = 1;
+    // Bordure nette autour de la feuille en format A4 / page bornée (jamais en mode Page Infinie)
+    if (!isInfinite) {
+      targetCtx.restore();
+      const isAppDark = getBoundedDeskBackdropColor() === '#1d1f25';
+      targetCtx.save();
+      targetCtx.strokeStyle = isThumbnail
+        ? 'rgba(100, 116, 139, 0.25)'
+        : (isAppDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(15, 23, 42, 0.10)');
+      targetCtx.lineWidth = isThumbnail ? 1 : invZoom;
       targetCtx.strokeRect(0, 0, pageW, pageH);
+      targetCtx.restore();
+    } else {
+      targetCtx.restore();
     }
-    targetCtx.restore();
   }
 
   function getShapeVertices(sh) {
@@ -5218,6 +5372,32 @@
     }
   }
 
+  function drawStackStaticElements(targetCtx, activePage, fallbackEffectiveDark, viewBounds) {
+    const stack = getBoundedStackInfo(activePage);
+    if (!stack || stack.items.length <= 1) {
+      drawStaticElementsInWorldRect(targetCtx, activePage, fallbackEffectiveDark, viewBounds);
+      return;
+    }
+    const minY = viewBounds ? viewBounds.minY : -Infinity;
+    const maxY = viewBounds ? viewBounds.maxY : Infinity;
+    for (let i = 0; i < stack.items.length; i++) {
+      const it = stack.items[i];
+      if (it.relY + it.height < minY - 64 || it.relY > maxY + 64) continue;
+      const p = it.page;
+      const pDark = !p.pdfId && (p.paperTone === 'dark' || p.paperTone === 'blueprint');
+      const localBounds = viewBounds ? {
+        minX: viewBounds.minX - it.relX,
+        minY: viewBounds.minY - it.relY,
+        maxX: viewBounds.maxX - it.relX,
+        maxY: viewBounds.maxY - it.relY
+      } : null;
+      targetCtx.save();
+      targetCtx.translate(it.relX, it.relY);
+      drawStaticElementsInWorldRect(targetCtx, p, pDark, localBounds);
+      targetCtx.restore();
+    }
+  }
+
   function ensureStaticInkBitmapCacheReady(page, rect, dpr, effectiveDark) {
     const pad = staticInkCache.pad;
     const cacheW = Math.max(1, Math.floor((rect.width + pad * 2) * dpr));
@@ -5264,7 +5444,7 @@
     cCtx.clearRect(0, 0, rect.width + pad * 2, rect.height + pad * 2);
     cCtx.translate(originPanX + pad, originPanY + pad);
     cCtx.scale(state.zoom, state.zoom);
-    drawStaticElementsInWorldRect(cCtx, page, effectiveDark, viewBounds);
+    drawStackStaticElements(cCtx, page, effectiveDark, viewBounds);
     cCtx.restore();
 
     staticInkCache.valid = true;
@@ -5285,7 +5465,10 @@
     const { dpr, rect } = ensureCanvasDimensionsSynced();
     const isDark = page.paperTone === 'dark' || page.paperTone === 'blueprint';
     const effectiveDark = page.pdfId ? false : isDark;
-    const hasElements = ((page.strokes && page.strokes.length) || (page.shapes && page.shapes.length) || (page.tapes && page.tapes.length)) > 0;
+    const stackForElements = getBoundedStackInfo(page);
+    const hasElements = stackForElements && stackForElements.items.length > 1
+      ? stackForElements.items.some((it) => ((it.page.strokes && it.page.strokes.length) || (it.page.shapes && it.page.shapes.length) || (it.page.tapes && it.page.tapes.length)) > 0)
+      : ((page.strokes && page.strokes.length) || (page.shapes && page.shapes.length) || (page.tapes && page.tapes.length)) > 0;
 
     // Pendant un zoom actif : blitte instantanément le cache bitmap redimensionné (0.05 ms, 120 FPS) au lieu de reconstruire un énorme canvas hors-écran à chaque cran de molette/pincement
     if (isZoomInteracting && bgCtx && activeCtx && hasElements && !hasAnyLassoSelection()) {
@@ -5347,11 +5530,29 @@
     ctx.scale(state.zoom, state.zoom);
 
     if (!bgCtx) {
-      drawPaperBackground(ctx, page, rect.width, rect.height, false);
-      if (page.pdfId) drawLockedPdfBackground(ctx, page, false);
+      const fallbackStack = getBoundedStackInfo(page);
+      if (fallbackStack && fallbackStack.items.length > 1) {
+        ctx.save();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.fillStyle = getBoundedDeskBackdropColor();
+        ctx.fillRect(0, 0, rect.width, rect.height);
+        ctx.restore();
+        for (let i = 0; i < fallbackStack.items.length; i++) {
+          const it = fallbackStack.items[i];
+          if (it.relY + it.height < viewBounds.minY - 120 || it.relY > viewBounds.maxY + 120) continue;
+          ctx.save();
+          ctx.translate(it.relX, it.relY);
+          drawPaperBackground(ctx, it.page, rect.width, rect.height, false, true);
+          if (it.page.pdfId) drawLockedPdfBackground(ctx, it.page, false);
+          ctx.restore();
+        }
+      } else {
+        drawPaperBackground(ctx, page, rect.width, rect.height, false);
+        if (page.pdfId) drawLockedPdfBackground(ctx, page, false);
+      }
     }
 
-    drawStaticElementsInWorldRect(ctx, page, effectiveDark, viewBounds);
+    drawStackStaticElements(ctx, page, effectiveDark, viewBounds);
 
     if (!activeCtx) {
       if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape) {
@@ -5450,16 +5651,37 @@
 
     syncWorldLayerTransform();
 
-    // 1. CALQUE DE FOND VERROUILLÉ (#pdfBgCanvas) : Papier + Rendu PDF Haute Résolution
+    // 1. CALQUE DE FOND VERROUILLÉ (#pdfBgCanvas) : Fond neutre GoodNotes + Empilement vertical A4 + PDF Haute Résolution
     if (bgCtx) {
       bgCtx.save();
       bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      bgCtx.clearRect(0, 0, rect.width, rect.height);
-      bgCtx.translate(state.panX, state.panY);
-      bgCtx.scale(state.zoom, state.zoom);
-      drawPaperBackground(bgCtx, page, rect.width, rect.height, false);
-      if (page.pdfId) {
-        drawLockedPdfBackground(bgCtx, page, false);
+      const boundedStack = getBoundedStackInfo(page);
+      if (boundedStack) {
+        bgCtx.fillStyle = getBoundedDeskBackdropColor();
+        bgCtx.fillRect(0, 0, rect.width, rect.height);
+        bgCtx.translate(state.panX, state.panY);
+        bgCtx.scale(state.zoom, state.zoom);
+        const viewMinY = -state.panY / state.zoom - 120;
+        const viewMaxY = (rect.height - state.panY) / state.zoom + 120;
+        for (let i = 0; i < boundedStack.items.length; i++) {
+          const it = boundedStack.items[i];
+          if (it.relY + it.height < viewMinY || it.relY > viewMaxY) continue;
+          bgCtx.save();
+          bgCtx.translate(it.relX, it.relY);
+          drawPaperBackground(bgCtx, it.page, rect.width, rect.height, false, true);
+          if (it.page.pdfId) {
+            drawLockedPdfBackground(bgCtx, it.page, false);
+          }
+          bgCtx.restore();
+        }
+      } else {
+        bgCtx.clearRect(0, 0, rect.width, rect.height);
+        bgCtx.translate(state.panX, state.panY);
+        bgCtx.scale(state.zoom, state.zoom);
+        drawPaperBackground(bgCtx, page, rect.width, rect.height, false);
+        if (page.pdfId) {
+          drawLockedPdfBackground(bgCtx, page, false);
+        }
       }
       bgCtx.restore();
     }
@@ -6031,10 +6253,18 @@
       if (!page) return;
     }
 
-    const rawWorldPt = screenToWorld(e.clientX, e.clientY);
-    // En format A4 / page bornée (ou PDF), interdit de commencer à écrire en dehors de la feuille
-    if (isBoundedPage(page) && !isPointInsidePage(page, rawWorldPt.x, rawWorldPt.y, 4)) {
-      return;
+    let rawWorldPt = screenToWorld(e.clientX, e.clientY);
+    // En format A4 empilé verticalement : si le stylet touche une autre page visible de la pile, bascule sans saut sur cette page
+    if (isBoundedPage(page)) {
+      const hitStackItem = findStackPageAtWorldPoint(rawWorldPt.x, rawWorldPt.y, 4);
+      if (hitStackItem && hitStackItem.page.id !== page.id) {
+        switchActivePageInStack(hitStackItem.page.id);
+        page = getActivePage();
+        rawWorldPt = screenToWorld(e.clientX, e.clientY);
+      }
+      if (!isPointInsidePage(page, rawWorldPt.x, rawWorldPt.y, 4)) {
+        return;
+      }
     }
     const worldPt = clampPointToPage(page, rawWorldPt);
     const pressure = extractEffectivePressure(e, worldPt);
@@ -9129,7 +9359,8 @@
   }
 
   function selectPage(pageId) {
-    if (state.activePageId !== pageId) {
+    const changed = state.activePageId !== pageId;
+    if (changed) {
       // Finalise immédiatement le trait en cours sur l'ancienne page et lance sa sauvegarde isolée
       finalizeActiveDrawingOnCurrentPage();
       flushPendingPageSaves();
@@ -9138,7 +9369,18 @@
     }
     state.activePageId = pageId;
     clearLassoSelection();
-    ensureActiveAndAdjacentPdfPagesLoaded(getActivePage());
+    const targetPage = getActivePage();
+    ensureActiveAndAdjacentPdfPagesLoaded(targetPage);
+    if (changed && isBoundedPage(targetPage) && dom.canvasViewport) {
+      const limits = getBoundedVerticalScrollLimits(state.zoom, targetPage);
+      if (limits) {
+        state.panX = limits.scaledW <= limits.vw - 24
+          ? Math.round((limits.vw - limits.scaledW) / 2)
+          : clampViewportPan(state.panX, limits.topSafe + 16, state.zoom, targetPage).panX;
+        state.panY = Math.max(limits.minPanY, Math.min(limits.maxPanY, limits.topSafe + 16));
+        syncWorldLayerTransform();
+      }
+    }
     renderPagesSidebar();
     updateUndoRedoButtons();
     renderWorldTextCards();
@@ -10480,10 +10722,6 @@
               const overshoot = state.panY <= limits.minPanY + 1 ? dy * 0.65 : (limits.minPanY - (state.panY - dy));
               applyBoundedPanWithPullToAdd(state.panX - dx, limits.minPanY - overshoot, 'wheel');
               handledPull = true;
-            } else if (dy < 0 && curIdx > 0 && (state.panY - dy) > limits.maxPanY + 0.5) {
-              const overshoot = state.panY >= limits.maxPanY - 1 ? (-dy) * 0.65 : ((state.panY - dy) - limits.maxPanY);
-              applyBoundedPanWithPullToAdd(state.panX - dx, limits.maxPanY + overshoot, 'wheel');
-              handledPull = true;
             }
           }
 
@@ -10501,6 +10739,7 @@
             const clampedWheel = clampViewportPan(state.panX - dx, state.panY - dy, state.zoom, page);
             state.panX = clampedWheel.panX;
             state.panY = clampedWheel.panY;
+            syncActivePageFromStackViewport();
           }
         } else {
           const clampedWheel = clampViewportPan(state.panX - dx, state.panY - dy, state.zoom, page);
@@ -10791,7 +11030,15 @@
     });
     dom.viewModeBtns.forEach((b) => b.addEventListener('click', () => {
       const p = getActivePage(); if (!p) return;
-      p.viewMode = b.dataset.viewmode;
+      const nextMode = b.dataset.viewmode;
+      const nbPages = getActiveNotebookPages();
+      nbPages.forEach((pg) => {
+        if (!pg.pdfId && !pg.isPdfPage) {
+          pg.viewMode = nextMode;
+          db.savePage(pg);
+        }
+      });
+      p.viewMode = nextMode;
       invalidateStaticInkCache();
       resetPullToAddState();
       updateBreadcrumbs();
@@ -13073,6 +13320,9 @@
       moveFolderToParent,
       moveFolderToTrash,
       restoreFolderFromTrash,
+      getBoundedStackInfo,
+      getBoundedDeskBackdropColor,
+      PAGE_STACK_GAP,
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,

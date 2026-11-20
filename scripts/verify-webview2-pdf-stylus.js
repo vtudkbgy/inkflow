@@ -427,7 +427,28 @@ async function runVerification() {
     throw new Error('La fermeture de la page plein écran des fichiers GoodNotes a échoué');
   }
 
-  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran + Gestionnaire GoodNotes vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+  // Vérification de l'empilement vertical A4 (avec espace PAGE_STACK_GAP) + fond de bureau constant (#e6e5e4)
+  const pdfStack = api.getBoundedStackInfo(pdfPages[0]);
+  if (!pdfStack || pdfStack.items.length !== 2) {
+    throw new Error('L\'empilement vertical des pages bornées/A4 n\'a pas retourné les 2 pages attendues');
+  }
+  const expectedDeltaY = pdfStack.items[0].height + api.PAGE_STACK_GAP;
+  const actualDeltaY = pdfStack.items[1].relY - pdfStack.items[0].relY;
+  if (actualDeltaY !== expectedDeltaY) {
+    throw new Error(`Espacement vertical inter-pages inattendu: ${actualDeltaY} au lieu de ${expectedDeltaY}`);
+  }
+  const prevTone = pdfPages[0].paperTone;
+  const deskLightBefore = api.getBoundedDeskBackdropColor();
+  pdfPages[0].paperTone = 'dark';
+  const deskLightAfterDarkPaper = api.getBoundedDeskBackdropColor();
+  pdfPages[0].paperTone = 'blueprint';
+  const deskLightAfterBlueprint = api.getBoundedDeskBackdropColor();
+  pdfPages[0].paperTone = prevTone;
+  if (deskLightBefore !== '#e6e5e4' || deskLightAfterDarkPaper !== '#e6e5e4' || deskLightAfterBlueprint !== '#e6e5e4') {
+    throw new Error(`La couleur du fond autour de la feuille A4 ne doit pas changer avec la couleur du papier (${deskLightBefore} / ${deskLightAfterDarkPaper} / ${deskLightAfterBlueprint})`);
+  }
+
+  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran + Gestionnaire GoodNotes + Pile A4 vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {
