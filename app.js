@@ -2027,6 +2027,7 @@
     eraserMode: 'stroke',
     eraserHighlighterOnly: false,
     eraserAutoDeselect: false,
+    eraserFilters: { pen: true, pencil: true, highlighter: true, tape: true },
     lassoMode: 'freehand',
     lassoStartWorld: null,
     shapeType: 'auto',
@@ -2038,7 +2039,10 @@
     circleToLasso: true,
     gnPenPopoverOpen: false,
     gnStrokePopoverOpen: false,
-    activeSizeSlotByTool: { pen: 1, highlighter: 1, shape: 1, tape: 1 },
+    gnEraserModePopoverOpen: false,
+    gnEraserAdvPopoverOpen: false,
+    gnEraserSizePopoverOpen: false,
+    activeSizeSlotByTool: { pen: 1, highlighter: 1, shape: 1, tape: 1, eraser: 1 },
     palmRejection: true,
     lastPenSeenTime: 0,
     laserTrail: [],
@@ -2060,6 +2064,17 @@
     isPanning: false,
     panStartScreen: { x: 0, y: 0 },
     panStartOffset: { x: 0, y: 0 },
+    pullToAdd: {
+      active: false,
+      direction: null,
+      action: null,
+      percentage: 0,
+      visualOffset: 0,
+      rawExcess: 0,
+      source: null,
+      wheelTimer: null,
+      isCommitting: false
+    },
     activePointerId: null,
     isDrawing: false,
     strokeStartTime: 0,
@@ -2105,12 +2120,44 @@
     lastExportedPdfBytes: null
   };
 
+  const ERASER_PREFS_STORAGE_KEY = 'inkflow_eraser_prefs_v1';
+  function saveEraserPrefsToStorage() {
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      localStorage.setItem(ERASER_PREFS_STORAGE_KEY, JSON.stringify({
+        eraserMode: state.eraserMode,
+        eraserAutoDeselect: Boolean(state.eraserAutoDeselect),
+        eraserFilters: { ...(state.eraserFilters || { pen: true, pencil: true, highlighter: true, tape: true }) }
+      }));
+    } catch (_) {}
+  }
+
   try {
     const savedAutoShape = localStorage.getItem('plume_auto_shape_enabled');
     if (savedAutoShape === 'false') state.autoShapeEnabled = false;
     const savedSmoothing = parseFloat(localStorage.getItem('inkflow_smoothing_v1'));
     if (Number.isFinite(savedSmoothing) && savedSmoothing >= 0 && savedSmoothing <= 1) {
       state.smoothing = savedSmoothing;
+    }
+    const savedEraserRaw = localStorage.getItem(ERASER_PREFS_STORAGE_KEY);
+    if (savedEraserRaw) {
+      const ep = JSON.parse(savedEraserRaw);
+      if (ep && typeof ep === 'object') {
+        if (ep.eraserMode === 'stroke' || ep.eraserMode === 'segment' || ep.eraserMode === 'partial') {
+          state.eraserMode = ep.eraserMode;
+        }
+        if (typeof ep.eraserAutoDeselect === 'boolean') {
+          state.eraserAutoDeselect = ep.eraserAutoDeselect;
+        }
+        if (ep.eraserFilters && typeof ep.eraserFilters === 'object') {
+          state.eraserFilters = {
+            pen: ep.eraserFilters.pen !== false,
+            pencil: ep.eraserFilters.pencil !== false,
+            highlighter: ep.eraserFilters.highlighter !== false,
+            tape: ep.eraserFilters.tape !== false
+          };
+        }
+      }
     }
   } catch (_) {}
 
@@ -2631,6 +2678,7 @@
     state.lassoInitialBounds = null;
     state.lassoDragStartWorld = null;
     state.touchPoints.clear();
+    if (typeof resetPullToAddState === 'function') resetPullToAddState();
     if (dom.canvasViewport) dom.canvasViewport.classList.remove('panning');
     if (dom.eraserCursor) dom.eraserCursor.style.display = 'none';
     if (state.temporaryEraserOverride) {
@@ -2897,6 +2945,219 @@
     return { minZoom: 0.35, maxZoom: 4.5 };
   }
 
+  const GN_PULL_TO_ADD_THRESHOLD_PX = 128;
+  const GN_PULL_TO_ADD_MAX_VISUAL_PX = 132;
+  const GN_PULL_TO_ADD_RUBBER_FACTOR = 0.54;
+
+  function getBoundedVerticalScrollLimits(zoom, page) {
+    const rect = dom.canvasViewport ? dom.canvasViewport.getBoundingClientRect() : null;
+    if (!rect || rect.width <= 0 || rect.height <= 0 || !isBoundedPage(page)) return null;
+    const vw = rect.width;
+    const vh = rect.height;
+    const topSafe = 58;
+    const bottomPad = 14;
+    const b = getPageBounds(page);
+    const scaledW = b.width * zoom;
+    const scaledH = b.height * zoom;
+    const availH = vh - topSafe - bottomPad;
+    if (scaledH <= availH) {
+      const centerY = Math.round(topSafe + (availH - scaledH) / 2);
+      return { minPanY: centerY, maxPanY: centerY, scaledW, scaledH, vw, vh, topSafe, bottomPad, pageBounds: b };
+    }
+    return {
+      minPanY: Math.round(vh - scaledH - bottomPad),
+      maxPanY: topSafe + 12,
+      scaledW,
+      scaledH,
+      vw,
+      vh,
+      topSafe,
+      bottomPad,
+      pageBounds: b
+    };
+  }
+
+  function resetPullToAddState() {
+    if (!state.pullToAdd) return;
+    if (state.pullToAdd.wheelTimer) {
+      clearTimeout(state.pullToAdd.wheelTimer);
+      state.pullToAdd.wheelTimer = null;
+    }
+    state.pullToAdd.active = false;
+    state.pullToAdd.direction = null;
+    state.pullToAdd.action = null;
+    state.pullToAdd.percentage = 0;
+    state.pullToAdd.visualOffset = 0;
+    state.pullToAdd.rawExcess = 0;
+    state.pullToAdd.source = null;
+    const banner = document.getElementById('gnPullToAddBanner');
+    if (banner) banner.classList.add('hidden');
+  }
+
+  function updatePullToAddBannerUi() {
+    const banner = document.getElementById('gnPullToAddBanner');
+    const inner = document.getElementById('gnPtaInner');
+    const ringActive = document.getElementById('gnPtaRingActive');
+    const label = document.getElementById('gnPtaLabel');
+    if (!banner || !inner || !ringActive || !label) return;
+    const pta = state.pullToAdd;
+    const page = getActivePage();
+    if (!pta || !pta.active || !isBoundedPage(page)) {
+      banner.classList.add('hidden');
+      return;
+    }
+    const limits = getBoundedVerticalScrollLimits(state.zoom, page);
+    if (!limits) {
+      banner.classList.add('hidden');
+      return;
+    }
+    // Formules exactes issues de GoodNotes (PullToAddDecorator: shouldReleaseToAdd = p > 1, clipPath = p^3 * 100%)
+    const pct = Math.max(0, pta.percentage);
+    const ready = pct > 1.0;
+    const clipPct = Math.min(Math.round(100 * Math.pow(pct, 3)), 100);
+    const isTop = pta.direction === 'top';
+
+    banner.classList.remove('hidden');
+    inner.classList.toggle('is-ready', ready);
+    inner.classList.toggle('dir-top', isTop);
+    if (ringActive.style) {
+      ringActive.style.clipPath = `polygon(0 0, 100% 0, 100% ${clipPct}%, 0% ${clipPct}%)`;
+    }
+    if (pta.action === 'add') {
+      label.textContent = ready ? 'Relâcher pour ajouter une page' : 'Tirer pour ajouter une page';
+    } else if (pta.action === 'next') {
+      label.textContent = ready ? 'Relâcher pour la page suivante' : 'Tirer pour la page suivante';
+    } else {
+      label.textContent = ready ? 'Relâcher pour la page précédente' : 'Tirer pour la page précédente';
+    }
+
+    const pageCenterX = Math.max(115, Math.min(limits.vw - 115, state.panX + limits.scaledW * 0.5));
+    const pageBottomY = state.panY + limits.scaledH;
+    const bannerTop = isTop
+      ? Math.max(limits.topSafe + 8, Math.min(limits.vh - 116, state.panY - 102))
+      : Math.max(limits.topSafe + 16, Math.min(limits.vh - 108, pageBottomY + 14));
+    if (banner.style) {
+      banner.style.left = `${Math.round(pageCenterX)}px`;
+      banner.style.top = `${Math.round(bannerTop)}px`;
+      banner.style.opacity = String(Math.max(0.12, Math.min(1, pct * 2.2)));
+    }
+  }
+
+  function applyBoundedPanWithPullToAdd(rawPanX, rawPanY, source = 'pan') {
+    const page = getActivePage();
+    if (!isBoundedPage(page)) {
+      const clamped = clampViewportPan(rawPanX, rawPanY, state.zoom, page);
+      state.panX = clamped.panX;
+      state.panY = clamped.panY;
+      resetPullToAddState();
+      return;
+    }
+    const limits = getBoundedVerticalScrollLimits(state.zoom, page);
+    if (!limits) return;
+    const clampedX = clampViewportPan(rawPanX, limits.minPanY, state.zoom, page).panX;
+    const pages = getActiveNotebookPages();
+    const curIdx = pages.findIndex((p) => p.id === state.activePageId);
+
+    if (rawPanY < limits.minPanY) {
+      const rawExcess = limits.minPanY - rawPanY;
+      const visualOffset = Math.min(GN_PULL_TO_ADD_MAX_VISUAL_PX, rawExcess * GN_PULL_TO_ADD_RUBBER_FACTOR);
+      const percentage = rawExcess / GN_PULL_TO_ADD_THRESHOLD_PX;
+      const isLastPage = curIdx < 0 || curIdx >= pages.length - 1;
+      state.panX = clampedX;
+      state.panY = limits.minPanY - visualOffset;
+      state.pullToAdd.active = rawExcess > 2;
+      state.pullToAdd.direction = 'bottom';
+      state.pullToAdd.action = isLastPage ? 'add' : 'next';
+      state.pullToAdd.rawExcess = rawExcess;
+      state.pullToAdd.visualOffset = visualOffset;
+      state.pullToAdd.percentage = percentage;
+      state.pullToAdd.source = source;
+      updatePullToAddBannerUi();
+      return;
+    }
+
+    if (rawPanY > limits.maxPanY && curIdx > 0) {
+      const rawExcess = rawPanY - limits.maxPanY;
+      const visualOffset = Math.min(GN_PULL_TO_ADD_MAX_VISUAL_PX, rawExcess * GN_PULL_TO_ADD_RUBBER_FACTOR);
+      const percentage = rawExcess / GN_PULL_TO_ADD_THRESHOLD_PX;
+      state.panX = clampedX;
+      state.panY = limits.maxPanY + visualOffset;
+      state.pullToAdd.active = rawExcess > 2;
+      state.pullToAdd.direction = 'top';
+      state.pullToAdd.action = 'prev';
+      state.pullToAdd.rawExcess = rawExcess;
+      state.pullToAdd.visualOffset = visualOffset;
+      state.pullToAdd.percentage = percentage;
+      state.pullToAdd.source = source;
+      updatePullToAddBannerUi();
+      return;
+    }
+
+    state.panX = clampedX;
+    state.panY = Math.max(limits.minPanY, Math.min(limits.maxPanY, rawPanY));
+    if (state.pullToAdd.active) resetPullToAddState();
+  }
+
+  function positionBoundedPageAfterTransition(align = 'top') {
+    const page = getActivePage();
+    if (!isBoundedPage(page) || !dom.canvasViewport) return;
+    const limits = getBoundedVerticalScrollLimits(state.zoom, page);
+    if (!limits) {
+      fitPageToViewport(false);
+      return;
+    }
+    const targetPanX = limits.scaledW <= limits.vw - 24
+      ? Math.round((limits.vw - limits.scaledW) / 2)
+      : clampViewportPan(state.panX, limits.maxPanY, state.zoom, page).panX;
+    const targetPanY = align === 'bottom' ? limits.minPanY : limits.maxPanY;
+    const slideOffset = align === 'bottom' ? -56 : 56;
+    state.panX = targetPanX;
+    state.panY = targetPanY + slideOffset;
+    syncWorldLayerTransform();
+    requestRender();
+    animateViewportTo(state.zoom, targetPanX, targetPanY, 220);
+  }
+
+  function commitOrResetPullToAdd() {
+    const pta = state.pullToAdd;
+    if (!pta || !pta.active) return false;
+    const { direction, action, percentage } = pta;
+    resetPullToAddState();
+
+    const page = getActivePage();
+    if (!isBoundedPage(page)) return false;
+
+    if (percentage > 1.0 && !pta.isCommitting) {
+      const pages = getActiveNotebookPages();
+      const curIdx = pages.findIndex((p) => p.id === state.activePageId);
+      if (action === 'add') {
+        pta.isCommitting = true;
+        Promise.resolve(addNewPageToActiveNotebook({ fromPullToAdd: true })).finally(() => {
+          state.pullToAdd.isCommitting = false;
+        });
+        return true;
+      }
+      if (action === 'next' && curIdx >= 0 && curIdx < pages.length - 1) {
+        selectPage(pages[curIdx + 1].id);
+        positionBoundedPageAfterTransition('top');
+        return true;
+      }
+      if (action === 'prev' && curIdx > 0) {
+        selectPage(pages[curIdx - 1].id);
+        positionBoundedPageAfterTransition('bottom');
+        return true;
+      }
+    }
+
+    // Retour élastique doux vers le bord de la feuille si le seuil n'est pas atteint
+    const limits = getBoundedVerticalScrollLimits(state.zoom, page);
+    if (limits) {
+      const snapY = direction === 'top' ? limits.maxPanY : limits.minPanY;
+      animateViewportTo(state.zoom, state.panX, snapY, 200);
+    }
+    return true;
+  }
+
   function clampViewportPan(panX, panY, zoom, page) {
     const rect = dom.canvasViewport ? dom.canvasViewport.getBoundingClientRect() : null;
     if (!rect || rect.width <= 0 || rect.height <= 0) return { panX, panY };
@@ -2907,31 +3168,23 @@
     if (isBoundedPage(page)) {
       const b = getPageBounds(page);
       const scaledW = b.width * zoom;
-      const scaledH = b.height * zoom;
       let clampedX = panX;
-      let clampedY = panY;
 
       if (scaledW <= vw - 32) {
         const centerX = (vw - scaledW) / 2;
-        const slackX = Math.min(140, vw * 0.2);
+        const slackX = Math.min(120, vw * 0.16);
         clampedX = Math.max(centerX - slackX, Math.min(centerX + slackX, panX));
       } else {
-        const marginX = Math.min(160, vw * 0.22);
+        const marginX = Math.min(140, vw * 0.18);
         const minPanX = vw - scaledW - marginX;
         const maxPanX = marginX;
         clampedX = Math.max(minPanX, Math.min(maxPanX, panX));
       }
 
-      if (scaledH <= vh - topSafe - 24) {
-        const centerY = topSafe + (vh - topSafe - scaledH) / 2;
-        const slackY = Math.min(120, vh * 0.18);
-        clampedY = Math.max(centerY - slackY, Math.min(centerY + slackY, panY));
-      } else {
-        const marginY = Math.min(150, vh * 0.2);
-        const minPanY = vh - scaledH - marginY;
-        const maxPanY = topSafe + marginY;
-        clampedY = Math.max(minPanY, Math.min(maxPanY, panY));
-      }
+      const vLimits = getBoundedVerticalScrollLimits(zoom, page);
+      const clampedY = vLimits
+        ? Math.max(vLimits.minPanY, Math.min(vLimits.maxPanY, panY))
+        : panY;
       return { panX: clampedX, panY: clampedY };
     }
 
@@ -5724,6 +5977,7 @@
       (isPen && e.button === 1 && !isPenLassoButton(e));
     const isTouchPan = e.pointerType === 'touch';
     if (isMiddleOrMouseRight || state.isSpacePressed || state.tool === 'pan' || isTouchPan) {
+      resetPullToAddState();
       state.isPanning = true;
       state.activePointerId = e.pointerId;
       state.panStartScreen = { x: e.clientX, y: e.clientY };
@@ -5928,14 +6182,16 @@
 
     if (state.isPanning && (e.pointerId === state.activePointerId || state.activePointerId === null)) {
       if (e.cancelable) e.preventDefault();
-      const clampedPan = clampViewportPan(
-        state.panStartOffset.x + (e.clientX - state.panStartScreen.x),
-        state.panStartOffset.y + (e.clientY - state.panStartScreen.y),
-        state.zoom,
-        getActivePage()
-      );
-      state.panX = clampedPan.panX;
-      state.panY = clampedPan.panY;
+      const rawPanX = state.panStartOffset.x + (e.clientX - state.panStartScreen.x);
+      const rawPanY = state.panStartOffset.y + (e.clientY - state.panStartScreen.y);
+      const activePg = getActivePage();
+      if (isBoundedPage(activePg)) {
+        applyBoundedPanWithPullToAdd(rawPanX, rawPanY, 'pan');
+      } else {
+        const clampedPan = clampViewportPan(rawPanX, rawPanY, state.zoom, activePg);
+        state.panX = clampedPan.panX;
+        state.panY = clampedPan.panY;
+      }
       recordPanVelocitySample(e.clientX, e.clientY);
       syncWorldLayerTransform();
       requestRender();
@@ -6240,6 +6496,7 @@
       state.activePointerId = null;
       dom.canvasViewport.classList.remove('panning');
       try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (commitOrResetPullToAdd()) return;
       startPanInertiaLoop();
       return;
     }
@@ -6462,6 +6719,23 @@
     dom.eraserCursor.style.top = `${clientY}px`;
   }
 
+  function canEraserEraseStroke(s) {
+    if (!s) return false;
+    if (state.eraserHighlighterOnly) return s.tool === 'highlighter';
+    const f = state.eraserFilters || { pen: true, pencil: true, highlighter: true, tape: true };
+    if (s.tool === 'highlighter') return f.highlighter !== false;
+    if (s.penStyle === 'ballpoint' || s.penStyle === 'pencil') return f.pencil !== false;
+    return f.pen !== false;
+  }
+
+  function canEraserEraseShape(sh) {
+    if (!sh) return false;
+    if (state.eraserHighlighterOnly) return Boolean(sh.isHighlighter);
+    const f = state.eraserFilters || { pen: true, pencil: true, highlighter: true, tape: true };
+    if (sh.isHighlighter) return f.highlighter !== false;
+    return f.pen !== false;
+  }
+
   function applyEraserAtPoint(wx, wy) {
     const page = getActivePage();
     if (!page) return;
@@ -6473,7 +6747,7 @@
     if (state.eraserMode === 'stroke') {
       const beforeLen = (page.strokes || []).length;
       page.strokes = (page.strokes || []).filter((s) => {
-        if (hlOnly && s.tool !== 'highlighter') return true;
+        if (!canEraserEraseStroke(s)) return true;
         const b = getCachedStrokeBounds(s);
         if (b && (wx < b.minX - radius || wx > b.maxX + radius || wy < b.minY - radius || wy > b.maxY + radius)) {
           return true;
@@ -6490,7 +6764,7 @@
     } else {
       const next = [];
       for (const s of page.strokes || []) {
-        if (hlOnly && s.tool !== 'highlighter') {
+        if (!canEraserEraseStroke(s)) {
           next.push(s);
           continue;
         }
@@ -6580,12 +6854,13 @@
 
     const prevShapesLen = (page.shapes || []).length;
     page.shapes = (page.shapes || []).filter((sh) => {
-      if (hlOnly && !sh.isHighlighter) return true;
+      if (!canEraserEraseShape(sh)) return true;
       return !isPointNearShape(sh, wx, wy, radius);
     });
     if (page.shapes.length !== prevShapesLen) changed = true;
 
-    if (!hlOnly) {
+    const canEraseTape = !hlOnly && (!state.eraserFilters || state.eraserFilters.tape !== false);
+    if (canEraseTape) {
       const prevTapesLen = (page.tapes || []).length;
       if (prevTapesLen > 0) {
         page.tapes = page.tapes.filter((tp) => !isPointOnTape(tp, wx, wy, radius));
@@ -8723,7 +8998,7 @@
     return { notebook: newNb, firstPage: p1 };
   }
 
-  async function addNewPageToActiveNotebook() {
+  async function addNewPageToActiveNotebook(options = {}) {
     const nb = getActiveNotebook();
     if (!nb) return null;
     finalizeActiveDrawingOnCurrentPage();
@@ -8733,6 +9008,7 @@
     const pages = getActiveNotebookPages();
     const cur = getActivePage();
     const num = pages.length + 1;
+    const inheritedViewMode = options.viewMode || (cur ? (cur.viewMode || 'infinite') : 'infinite');
     const np = {
       id: createUid('page'),
       notebookId: nb.id,
@@ -8741,24 +9017,32 @@
       paperType: cur ? cur.paperType : 'grid',
       paperTone: cur ? cur.paperTone : 'ivory',
       gridSize: cur ? cur.gridSize : 28,
-      viewMode: 'infinite',
+      viewMode: inheritedViewMode,
       strokes: [],
       shapes: [],
       texts: [],
+      tapes: [],
+      images: [],
+      bookmarked: false,
       updatedAt: Date.now()
     };
     np.thumbnail = generatePageThumbnail(np);
     pages.push(np);
     state.pagesByNotebook.set(nb.id, pages);
     state.activePageId = np.id;
+    invalidateStaticInkCache();
     cleanupPdfRenderCache(np, 2);
     await db.savePage(np);
     renderNotebooksSidebar();
     renderPagesSidebar();
     updateUndoRedoButtons();
     renderWorldTextCards();
-    requestRender();
-    showToast(`Page ${num} (Infinie) créée`);
+    if (options.fromPullToAdd && isBoundedPage(np)) {
+      positionBoundedPageAfterTransition('top');
+    } else {
+      requestRender();
+    }
+    showToast(`Page ${num} (${inheritedViewMode === 'page' ? 'A4' : 'Infinie'}) créée`);
     return np;
   }
 
@@ -8899,8 +9183,8 @@
       syncCanonicalToToolMemory(state.tool);
       state.tool = t;
       applyToolMemoryToCanonical(t);
-      // Ouvre directement la sous-barre flottante GoodNotes au clic utilisateur sur le bouton Formes (mais reste fermé par défaut au démarrage / autres outils)
-      state.toolOptionsOpen = Boolean(t === 'shape' && toggleOptionsIfSame);
+      // Ouvre directement la sous-barre flottante GoodNotes au clic utilisateur sur Formes ou Gomme (mais reste fermé par défaut au démarrage / autres outils)
+      state.toolOptionsOpen = Boolean((t === 'shape' || t === 'eraser') && toggleOptionsIfSame);
     }
     if (state.tool === 'pen' || state.tool === 'highlighter') {
       state.previousWritingTool = state.tool;
@@ -8945,17 +9229,26 @@
 
     const isGnPenBarTool = state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'tape';
     const isGnShapeBarTool = state.tool === 'shape';
+    const isGnEraserBarTool = state.tool === 'eraser';
     const showGnSubBar = Boolean(state.toolOptionsOpen && isGnPenBarTool);
     const showGnShapeBar = Boolean(state.toolOptionsOpen && isGnShapeBarTool);
-    const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan' && !isGnPenBarTool && !isGnShapeBarTool);
+    const showGnEraserBar = Boolean(state.toolOptionsOpen && isGnEraserBarTool);
+    const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan' && !isGnPenBarTool && !isGnShapeBarTool && !isGnEraserBarTool);
     dom.toolOptionsDock.classList.toggle('hidden', !showDock);
     const gnSubBarEl = document.getElementById('gnPenSubBar');
     if (gnSubBarEl) gnSubBarEl.classList.toggle('hidden', !showGnSubBar);
     const gnShapeBarEl = document.getElementById('gnShapeSubBar');
     if (gnShapeBarEl) gnShapeBarEl.classList.toggle('hidden', !showGnShapeBar);
+    const gnEraserBarEl = document.getElementById('gnEraserSubBar');
+    if (gnEraserBarEl) gnEraserBarEl.classList.toggle('hidden', !showGnEraserBar);
     if (!showGnSubBar) {
       state.gnPenPopoverOpen = false;
       state.gnStrokePopoverOpen = false;
+    }
+    if (!showGnEraserBar) {
+      state.gnEraserModePopoverOpen = false;
+      state.gnEraserAdvPopoverOpen = false;
+      state.gnEraserSizePopoverOpen = false;
     }
     const gnPopoverEl = document.getElementById('gnPenPopover');
     const showGnPopover = Boolean(showGnSubBar && state.gnPenPopoverOpen);
@@ -8963,6 +9256,12 @@
     const gnStrokePopoverEl = document.getElementById('gnStrokePopover');
     const showGnStrokePopover = Boolean(showGnSubBar && state.gnStrokePopoverOpen);
     if (gnStrokePopoverEl) gnStrokePopoverEl.classList.toggle('hidden', !showGnStrokePopover);
+    const gnEraserModePopoverEl = document.getElementById('gnEraserModePopover');
+    if (gnEraserModePopoverEl) gnEraserModePopoverEl.classList.toggle('hidden', !Boolean(showGnEraserBar && state.gnEraserModePopoverOpen));
+    const gnEraserAdvPopoverEl = document.getElementById('gnEraserAdvPopover');
+    if (gnEraserAdvPopoverEl) gnEraserAdvPopoverEl.classList.toggle('hidden', !Boolean(showGnEraserBar && state.gnEraserAdvPopoverOpen));
+    const gnEraserSizePopoverEl = document.getElementById('gnEraserSizePopover');
+    if (gnEraserSizePopoverEl) gnEraserSizePopoverEl.classList.toggle('hidden', !Boolean(showGnEraserBar && state.gnEraserSizePopoverOpen));
     if (!showGnPopover) {
       const gesturesEl = document.getElementById('gnPenGesturesView');
       if (gesturesEl) gesturesEl.classList.add('hidden');
@@ -8970,9 +9269,10 @@
       if (openGestBtn) openGestBtn.classList.remove('active-nav');
     }
     if (typeof syncGnPenSubBarUi === 'function') syncGnPenSubBarUi();
+    if (typeof syncGnEraserSubBarUi === 'function') syncGnEraserSubBarUi();
     if (dom.btnToggleToolOptions) {
-      dom.btnToggleToolOptions.classList.toggle('open', showDock || showGnSubBar || showGnShapeBar);
-      dom.btnToggleToolOptions.setAttribute('aria-expanded', String(showDock || showGnSubBar || showGnShapeBar));
+      dom.btnToggleToolOptions.classList.toggle('open', showDock || showGnSubBar || showGnShapeBar || showGnEraserBar);
+      dom.btnToggleToolOptions.setAttribute('aria-expanded', String(showDock || showGnSubBar || showGnShapeBar || showGnEraserBar));
       dom.btnToggleToolOptions.disabled = state.tool === 'pan';
     }
 
@@ -9151,7 +9451,8 @@
     pen: [2.5, 5, 12],
     highlighter: [12, 22, 34],
     shape: [2, 4, 8],
-    tape: [18, 26, 36]
+    tape: [18, 26, 36],
+    eraser: [10, 18, 32]
   };
 
   function getToolSizeSliderConfig(tool = state.tool) {
@@ -9335,6 +9636,100 @@
     if (scribShSw) scribShSw.checked = Boolean(state.scribbleEraseShapesAndHl);
     const lassoSw = document.getElementById('gnCircleLassoSwitch');
     if (lassoSw) lassoSw.checked = Boolean(state.circleToLasso);
+  }
+
+  function syncGnEraserSubBarUi() {
+    const eraserBar = document.getElementById('gnEraserSubBar');
+    if (!eraserBar) return;
+
+    const modeLabels = { stroke: 'Trait', segment: 'Segment', partial: 'Précision' };
+    const modeLabelEl = document.getElementById('gnEraserModeLabel');
+    if (modeLabelEl) modeLabelEl.textContent = modeLabels[state.eraserMode] || 'Trait';
+
+    const modeBtn = document.getElementById('gnEraserModeBtn');
+    if (modeBtn) modeBtn.classList.toggle('popover-open', Boolean(state.gnEraserModePopoverOpen));
+    const advBtn = document.getElementById('gnEraserAdvBtn');
+    if (advBtn) {
+      advBtn.classList.toggle('popover-open', Boolean(state.gnEraserAdvPopoverOpen));
+      advBtn.setAttribute('aria-expanded', String(Boolean(state.gnEraserAdvPopoverOpen)));
+    }
+
+    document.querySelectorAll('#gnEraserModePopover .gn-eraser-mode-option').forEach((opt) => {
+      opt.classList.toggle('active', opt.dataset.gnErasermode === state.eraserMode);
+    });
+
+    // Synchronisation des 3 cercles de taille de la gomme
+    const slots = getActiveToolSizeSlots('eraser');
+    const curSize = Number(state.eraserSize || 18);
+    const sizeBtns = Array.from(eraserBar.querySelectorAll('.gn-eraser-size-btn'));
+    let activeSlotIdx = state.activeSizeSlotByTool && typeof state.activeSizeSlotByTool.eraser === 'number'
+      ? state.activeSizeSlotByTool.eraser
+      : -1;
+    if (activeSlotIdx < 0 || activeSlotIdx >= sizeBtns.length || Math.abs((slots[activeSlotIdx] ?? curSize) - curSize) > 0.2) {
+      let bestIdx = 1, bestDiff = Infinity;
+      slots.forEach((sv, idx) => {
+        const d = Math.abs(sv - curSize);
+        if (d < bestDiff) { bestDiff = d; bestIdx = idx; }
+      });
+      activeSlotIdx = bestIdx;
+      if (state.activeSizeSlotByTool) state.activeSizeSlotByTool.eraser = activeSlotIdx;
+    }
+
+    const minVisual = [20, 28, 42];
+    const maxVisual = [32, 46, 66];
+    sizeBtns.forEach((btn, idx) => {
+      const sv = Number(slots[idx] ?? btn.dataset.gnEraserSize ?? DEFAULT_TOOL_SIZE_SLOTS.eraser[idx]);
+      btn.dataset.gnEraserSize = String(sv);
+      btn.dataset.gnEraserSlot = String(idx);
+      const isAct = idx === activeSlotIdx;
+      btn.classList.toggle('active', isAct);
+      btn.classList.toggle('popover-open', Boolean(isAct && state.gnEraserSizePopoverOpen));
+      btn.title = `Taille de gomme ${Math.round(sv)} px — Cliquer pour ajuster`;
+      const ring = btn.querySelector('.gn-eraser-ring');
+      if (ring) {
+        const ratio = Math.max(0, Math.min(1, (sv - 4) / 52));
+        const dPx = Math.round(minVisual[idx] + ratio * (maxVisual[idx] - minVisual[idx]));
+        ring.style.width = `${dPx}px`;
+        ring.style.height = `${dPx}px`;
+      }
+    });
+
+    // Synchronisation des filtres dans "Réglages Avancés"
+    const filters = state.eraserFilters || { pen: true, pencil: true, highlighter: true, tape: true };
+    const fPen = document.getElementById('gnEraserFilterPen');
+    const fPencil = document.getElementById('gnEraserFilterPencil');
+    const fHl = document.getElementById('gnEraserFilterHighlighter');
+    const fTape = document.getElementById('gnEraserFilterTape');
+    if (fPen) fPen.checked = state.eraserHighlighterOnly ? false : filters.pen !== false;
+    if (fPencil) fPencil.checked = state.eraserHighlighterOnly ? false : filters.pencil !== false;
+    if (fHl) fHl.checked = state.eraserHighlighterOnly ? true : filters.highlighter !== false;
+    if (fTape) fTape.checked = state.eraserHighlighterOnly ? false : filters.tape !== false;
+
+    const autoDeselSw = document.getElementById('gnEraserAutoDeselectSwitch');
+    if (autoDeselSw) autoDeselSw.checked = Boolean(state.eraserAutoDeselect);
+
+    // Synchronisation du popover "Taille De La Gomme"
+    const sizeReadout = document.getElementById('gnEraserSizeReadout');
+    if (sizeReadout) sizeReadout.textContent = `${Math.round(curSize)} px`;
+    const sizeSlider = document.getElementById('gnEraserSizeSlider');
+    if (sizeSlider) sizeSlider.value = String(Math.max(4, Math.min(56, curSize)));
+
+    // Alignement dynamique des flèches de pointage sous les boutons de la barre gomme
+    const alignCaret = (anchorEl, popoverId, caretId, isOpen) => {
+      if (!isOpen || !anchorEl) return;
+      const pop = document.getElementById(popoverId);
+      const caret = document.getElementById(caretId);
+      if (!pop || !caret || typeof anchorEl.getBoundingClientRect !== 'function' || typeof pop.getBoundingClientRect !== 'function') return;
+      const aRect = anchorEl.getBoundingClientRect();
+      const pRect = pop.getBoundingClientRect();
+      if (aRect.width > 0 && pRect.width > 0) {
+        const relX = Math.max(24, Math.min(pRect.width - 24, (aRect.left + aRect.width * 0.5) - pRect.left));
+        caret.style.left = `${Math.round(relX)}px`;
+      }
+    };
+    alignCaret(modeBtn, 'gnEraserModePopover', 'gnEraserModeCaret', state.gnEraserModePopoverOpen);
+    alignCaret(advBtn, 'gnEraserAdvPopover', 'gnEraserAdvCaret', state.gnEraserAdvPopoverOpen);
+    alignCaret(sizeBtns[activeSlotIdx], 'gnEraserSizePopover', 'gnEraserSizeCaret', state.gnEraserSizePopoverOpen);
   }
 
   function bindGoodNotesPenSubBarEvents() {
@@ -9611,6 +10006,149 @@
         });
       }
     }
+
+    // Événements de la sous-barre flottante Gomme GoodNotes 6 (#gnEraserSubBar)
+    const eraserBar = document.getElementById('gnEraserSubBar');
+    if (eraserBar) {
+      const modeBtn = document.getElementById('gnEraserModeBtn');
+      if (modeBtn) {
+        modeBtn.addEventListener('click', () => {
+          state.gnEraserModePopoverOpen = !state.gnEraserModePopoverOpen;
+          if (state.gnEraserModePopoverOpen) {
+            state.gnEraserAdvPopoverOpen = false;
+            state.gnEraserSizePopoverOpen = false;
+          }
+          updateToolbarActiveState();
+        });
+      }
+
+      document.querySelectorAll('#gnEraserModePopover .gn-eraser-mode-option').forEach((opt) => {
+        opt.addEventListener('click', () => {
+          const mode = opt.dataset.gnErasermode;
+          if (!mode) return;
+          state.eraserMode = mode;
+          state.gnEraserModePopoverOpen = false;
+          saveEraserPrefsToStorage();
+          updateToolbarActiveState();
+        });
+      });
+
+      const advBtn = document.getElementById('gnEraserAdvBtn');
+      if (advBtn) {
+        advBtn.addEventListener('click', () => {
+          state.gnEraserAdvPopoverOpen = !state.gnEraserAdvPopoverOpen;
+          if (state.gnEraserAdvPopoverOpen) {
+            state.gnEraserModePopoverOpen = false;
+            state.gnEraserSizePopoverOpen = false;
+          }
+          updateToolbarActiveState();
+        });
+      }
+
+      const bindEraserFilter = (elId, key) => {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        el.addEventListener('change', () => {
+          if (!state.eraserFilters) state.eraserFilters = { pen: true, pencil: true, highlighter: true, tape: true };
+          state.eraserHighlighterOnly = false;
+          state.eraserFilters[key] = Boolean(el.checked);
+          saveEraserPrefsToStorage();
+          syncGnEraserSubBarUi();
+        });
+      };
+      bindEraserFilter('gnEraserFilterPen', 'pen');
+      bindEraserFilter('gnEraserFilterPencil', 'pencil');
+      bindEraserFilter('gnEraserFilterHighlighter', 'highlighter');
+      bindEraserFilter('gnEraserFilterTape', 'tape');
+
+      const autoDeselSw = document.getElementById('gnEraserAutoDeselectSwitch');
+      if (autoDeselSw) {
+        autoDeselSw.addEventListener('change', () => {
+          state.eraserAutoDeselect = Boolean(autoDeselSw.checked);
+          const legacyChk = document.getElementById('eraserAutoDeselectToggle');
+          if (legacyChk) legacyChk.checked = state.eraserAutoDeselect;
+          saveEraserPrefsToStorage();
+        });
+      }
+
+      const clearPageBtn = document.getElementById('btnGnEraserClearPage');
+      if (clearPageBtn) {
+        clearPageBtn.addEventListener('click', () => {
+          const page = getActivePage();
+          if (!page) return;
+          pushHistorySnapshot();
+          page.strokes = [];
+          page.shapes = [];
+          page.texts = [];
+          page.tapes = [];
+          page.images = [];
+          state.gnEraserAdvPopoverOpen = false;
+          invalidateStaticInkCache();
+          renderWorldTextCards();
+          updateToolbarActiveState();
+          requestRender();
+          scheduleSaveActivePage();
+          showToast('Page effacée');
+        });
+      }
+
+      // 3 boutons circulaires de taille de gomme : clic -> sélectionne l'emplacement + ouvre le curseur conique "Taille De La Gomme"
+      eraserBar.querySelectorAll('.gn-eraser-size-btn').forEach((btn, idx) => {
+        btn.addEventListener('click', () => {
+          const slotIdx = Number.isInteger(parseInt(btn.dataset.gnEraserSlot, 10)) ? parseInt(btn.dataset.gnEraserSlot, 10) : idx;
+          const prevSlot = state.activeSizeSlotByTool ? state.activeSizeSlotByTool.eraser : -1;
+          const slots = getActiveToolSizeSlots('eraser');
+          const sz = Number(slots[slotIdx] ?? parseFloat(btn.dataset.gnEraserSize) ?? 18);
+
+          if (state.gnEraserSizePopoverOpen && prevSlot === slotIdx) {
+            state.gnEraserSizePopoverOpen = false;
+            updateToolbarActiveState();
+            return;
+          }
+          if (state.activeSizeSlotByTool) state.activeSizeSlotByTool.eraser = slotIdx;
+          if (Number.isFinite(sz) && sz > 0) setToolSize('eraser', sz);
+          state.gnEraserModePopoverOpen = false;
+          state.gnEraserAdvPopoverOpen = false;
+          state.gnEraserSizePopoverOpen = true;
+          updateToolbarActiveState();
+        });
+      });
+
+      const eraserSizeSlider = document.getElementById('gnEraserSizeSlider');
+      if (eraserSizeSlider) {
+        eraserSizeSlider.addEventListener('input', (e) => {
+          const val = parseFloat(e.target.value);
+          if (!Number.isFinite(val) || val <= 0) return;
+          const slotIdx = (state.activeSizeSlotByTool && typeof state.activeSizeSlotByTool.eraser === 'number')
+            ? state.activeSizeSlotByTool.eraser
+            : 1;
+          const mem = state.toolMemory && state.toolMemory.eraser;
+          if (mem && Array.isArray(mem.sizeSlots) && mem.sizeSlots.length === 3) {
+            mem.sizeSlots[slotIdx] = val;
+          }
+          setToolSize('eraser', val);
+          if (dom.strokeSizeSlider) dom.strokeSizeSlider.value = String(val);
+          if (dom.strokeSizeValue) dom.strokeSizeValue.textContent = `${val.toFixed(1)}px`;
+          syncGnEraserSubBarUi();
+        });
+      }
+
+      const btnEraserSizeReset = document.getElementById('btnGnEraserSizeReset');
+      if (btnEraserSizeReset) {
+        btnEraserSizeReset.addEventListener('click', () => {
+          const slotIdx = (state.activeSizeSlotByTool && typeof state.activeSizeSlotByTool.eraser === 'number')
+            ? state.activeSizeSlotByTool.eraser
+            : 1;
+          const defVal = DEFAULT_TOOL_SIZE_SLOTS.eraser[slotIdx] ?? 18;
+          const mem = state.toolMemory && state.toolMemory.eraser;
+          if (mem && Array.isArray(mem.sizeSlots) && mem.sizeSlots.length === 3) {
+            mem.sizeSlots[slotIdx] = defVal;
+          }
+          setToolSize('eraser', defVal);
+          updateToolbarActiveState();
+        });
+      }
+    }
   }
 
   function bindEvents() {
@@ -9654,13 +10192,64 @@
       stopViewportAnimations();
       const rect = dom.inkCanvas.getBoundingClientRect();
       if (e.ctrlKey || e.metaKey) {
+        resetPullToAddState();
         zoomAtScreenPoint(state.zoom * Math.exp(-e.deltaY * 0.0055), e.clientX - rect.left, e.clientY - rect.top);
       } else {
         const dx = Math.max(-128, Math.min(128, e.deltaX || 0));
         const dy = Math.max(-128, Math.min(128, e.deltaY || 0));
-        const clampedWheel = clampViewportPan(state.panX - dx, state.panY - dy, state.zoom, getActivePage());
-        state.panX = clampedWheel.panX;
-        state.panY = clampedWheel.panY;
+        const page = getActivePage();
+        if (isBoundedPage(page)) {
+          const limits = getBoundedVerticalScrollLimits(state.zoom, page);
+          const pages = getActiveNotebookPages();
+          const curIdx = pages.findIndex((p) => p.id === state.activePageId);
+          const pta = state.pullToAdd;
+          let handledPull = false;
+
+          if (limits && !pta.isCommitting) {
+            if (pta.active && pta.source === 'wheel') {
+              const deltaTowardPull = pta.direction === 'bottom' ? dy : -dy;
+              const nextExcess = pta.rawExcess + (deltaTowardPull >= 0 ? deltaTowardPull * 0.65 : deltaTowardPull * 0.9);
+              if (nextExcess <= 0) {
+                resetPullToAddState();
+                const clampedWheel = clampViewportPan(state.panX - dx, (pta.direction === 'bottom' ? limits.minPanY : limits.maxPanY) - dy, state.zoom, page);
+                state.panX = clampedWheel.panX;
+                state.panY = clampedWheel.panY;
+              } else {
+                const rawY = pta.direction === 'bottom' ? (limits.minPanY - nextExcess) : (limits.maxPanY + nextExcess);
+                applyBoundedPanWithPullToAdd(state.panX - dx, rawY, 'wheel');
+                handledPull = true;
+              }
+            } else if (dy > 0 && (state.panY - dy) < limits.minPanY - 0.5) {
+              const overshoot = state.panY <= limits.minPanY + 1 ? dy * 0.65 : (limits.minPanY - (state.panY - dy));
+              applyBoundedPanWithPullToAdd(state.panX - dx, limits.minPanY - overshoot, 'wheel');
+              handledPull = true;
+            } else if (dy < 0 && curIdx > 0 && (state.panY - dy) > limits.maxPanY + 0.5) {
+              const overshoot = state.panY >= limits.maxPanY - 1 ? (-dy) * 0.65 : ((state.panY - dy) - limits.maxPanY);
+              applyBoundedPanWithPullToAdd(state.panX - dx, limits.maxPanY + overshoot, 'wheel');
+              handledPull = true;
+            }
+          }
+
+          if (handledPull) {
+            if (pta.wheelTimer) clearTimeout(pta.wheelTimer);
+            if (pta.percentage >= 1.35) {
+              commitOrResetPullToAdd();
+            } else {
+              pta.wheelTimer = setTimeout(() => {
+                pta.wheelTimer = null;
+                commitOrResetPullToAdd();
+              }, pta.percentage > 1.0 ? 180 : 320);
+            }
+          } else if (!pta.active) {
+            const clampedWheel = clampViewportPan(state.panX - dx, state.panY - dy, state.zoom, page);
+            state.panX = clampedWheel.panX;
+            state.panY = clampedWheel.panY;
+          }
+        } else {
+          const clampedWheel = clampViewportPan(state.panX - dx, state.panY - dy, state.zoom, page);
+          state.panX = clampedWheel.panX;
+          state.panY = clampedWheel.panY;
+        }
         syncWorldLayerTransform();
         requestRender();
       }
@@ -9945,7 +10534,12 @@
     });
     dom.viewModeBtns.forEach((b) => b.addEventListener('click', () => {
       const p = getActivePage(); if (!p) return;
-      p.viewMode = b.dataset.viewmode; updateBreadcrumbs(); requestRender(); scheduleSaveActivePage();
+      p.viewMode = b.dataset.viewmode;
+      resetPullToAddState();
+      updateBreadcrumbs();
+      if (isBoundedPage(p)) fitPageToViewport(true);
+      else requestRender();
+      scheduleSaveActivePage();
     }));
 
     dom.btnExportMenu.addEventListener('click', () => {

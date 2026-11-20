@@ -788,6 +788,172 @@
             </button>
           </div>
         </div>
+
+        <!-- SOUS-BARRE FLOTTANTE GOMME STYLE GOODNOTES 6 (Mode | Réglages Avancés | 3 Tailles Circulaires) -->
+        <div class="gn-eraser-subbar hidden" id="gnEraserSubBar" role="toolbar" aria-label="Barre rapide de la gomme">
+          <button class="gn-eraser-mode-pill" id="gnEraserModeBtn" type="button" title="Mode de la gomme (Trait / Segment / Précision)">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12.2 4.6l7.2 7.2a1.8 1.8 0 0 1 0 2.55l-5.2 5.2H7.6l-3.4-3.4a1.8 1.8 0 0 1 0-2.55l5.45-9a1.8 1.8 0 0 1 2.55 0z"></path>
+              <line x1="9.2" y1="8.6" x2="16.2" y2="15.6"></line>
+              <line x1="3.5" y1="19.8" x2="18.5" y2="19.8"></line>
+            </svg>
+            <span id="gnEraserModeLabel">Trait</span>
+            <svg class="gn-eraser-mode-caret" width="10" height="10" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <path d="M2.2 4.2L6 8.2l3.8-4z"></path>
+            </svg>
+          </button>
+
+          <button class="gn-eraser-adv-btn" id="gnEraserAdvBtn" type="button" title="Réglages Avancés de la gomme" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="4" y="4" width="16" height="6.8" rx="3.4" fill="currentColor"></rect>
+              <circle cx="8" cy="7.4" r="2.2" fill="#ffffff"></circle>
+              <rect x="4.8" y="13.8" width="14.4" height="5.6" rx="2.8" stroke="currentColor" stroke-width="1.8"></rect>
+              <circle cx="15.6" cy="16.6" r="2.2" stroke="currentColor" stroke-width="1.6" fill="none"></circle>
+            </svg>
+          </button>
+
+          <div class="gn-eraser-sizes" id="gnEraserSubBarSizes">
+            <button class="gn-eraser-size-btn" data-gn-eraser-slot="0" data-gn-eraser-size="10" type="button" title="Petite gomme — Cliquer pour ajuster la taille">
+              <span class="gn-eraser-ring gn-eraser-ring-sm"></span>
+            </button>
+            <button class="gn-eraser-size-btn active" data-gn-eraser-slot="1" data-gn-eraser-size="18" type="button" title="Gomme moyenne — Cliquer pour ajuster la taille">
+              <span class="gn-eraser-ring gn-eraser-ring-md"></span>
+            </button>
+            <button class="gn-eraser-size-btn gn-eraser-size-btn-lg" data-gn-eraser-slot="2" data-gn-eraser-size="32" type="button" title="Grande gomme — Cliquer pour ajuster la taille">
+              <span class="gn-eraser-ring gn-eraser-ring-lg"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- POPOVER MODE DE LA GOMME (Trait / Segment / Précision) -->
+        <div class="gn-eraser-mode-popover hidden" id="gnEraserModePopover" role="menu" aria-label="Mode de la gomme">
+          <div class="gn-eraser-popover-caret" id="gnEraserModeCaret"></div>
+          <button class="gn-eraser-mode-option active" data-gn-erasermode="stroke" type="button">
+            <span class="gn-eraser-mode-opt-title">Trait</span>
+            <span class="gn-eraser-mode-opt-desc">Efface le trait entier d'un seul contact</span>
+          </button>
+          <button class="gn-eraser-mode-option" data-gn-erasermode="segment" type="button">
+            <span class="gn-eraser-mode-opt-title">Segment</span>
+            <span class="gn-eraser-mode-opt-desc">Efface une section entre deux croisements</span>
+          </button>
+          <button class="gn-eraser-mode-option" data-gn-erasermode="partial" type="button">
+            <span class="gn-eraser-mode-opt-title">Précision</span>
+            <span class="gn-eraser-mode-opt-desc">Découpe précisément à la taille du cercle</span>
+          </button>
+        </div>
+
+        <!-- POPOVER RÉGLAGES AVANCÉS DE LA GOMME (STYLE GOODNOTES 6) -->
+        <div class="gn-eraser-adv-popover hidden" id="gnEraserAdvPopover" role="dialog" aria-label="Réglages Avancés">
+          <div class="gn-eraser-popover-caret" id="gnEraserAdvCaret"></div>
+
+          <div class="gn-eraser-adv-header">
+            <span class="gn-eraser-adv-title">Réglages Avancés</span>
+          </div>
+
+          <div class="gn-eraser-adv-body">
+            <div class="gn-settings-caption">FILTRE DE GOMME</div>
+
+            <label class="gn-eraser-filter-row">
+              <span class="gn-eraser-filter-left">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14.5 4.5l5 5-9.8 9.8-5.7 1.2 1.2-5.7 9.3-10.3z"></path>
+                  <line x1="12.2" y1="6.8" x2="17.2" y2="11.8"></line>
+                  <line x1="6.5" y1="13.5" x2="10.5" y2="17.5"></line>
+                </svg>
+                <span>Stylo</span>
+              </span>
+              <span class="gn-ios-switch">
+                <input type="checkbox" id="gnEraserFilterPen" checked />
+                <span class="gn-ios-slider"></span>
+              </span>
+            </label>
+
+            <label class="gn-eraser-filter-row">
+              <span class="gn-eraser-filter-left">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M16.5 3.8l3.7 3.7L9.4 18.3l-5.1 1.4 1.4-5.1L16.5 3.8z"></path>
+                  <path d="M13.8 6.5l3.7 3.7"></path>
+                  <path d="M6.4 14.3l3.3 3.3"></path>
+                </svg>
+                <span>Crayon</span>
+              </span>
+              <span class="gn-ios-switch">
+                <input type="checkbox" id="gnEraserFilterPencil" checked />
+                <span class="gn-ios-slider"></span>
+              </span>
+            </label>
+
+            <label class="gn-eraser-filter-row">
+              <span class="gn-eraser-filter-left">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14.8 3.6l5.6 5.6-6.8 6.8-5.6-5.6 6.8-6.8z"></path>
+                  <path d="M8 10.4l-2.6 4.4a1 1 0 0 0 .2 1.2l1.6 1.6a1 1 0 0 0 1.2.2l4.4-2.6"></path>
+                </svg>
+                <span>Surligneur</span>
+              </span>
+              <span class="gn-ios-switch">
+                <input type="checkbox" id="gnEraserFilterHighlighter" checked />
+                <span class="gn-ios-slider"></span>
+              </span>
+            </label>
+
+            <label class="gn-eraser-filter-row">
+              <span class="gn-eraser-filter-left">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M15.8 3.6l4.6 4.6-11.2 11.2-1.8-.4-.4-1.8-1.8-.4-.4-1.8L15.8 3.6z"></path>
+                </svg>
+                <span>Ruban</span>
+              </span>
+              <span class="gn-ios-switch">
+                <input type="checkbox" id="gnEraserFilterTape" checked />
+                <span class="gn-ios-slider"></span>
+              </span>
+            </label>
+
+            <p class="gn-eraser-filter-note">La gomme ignore les éléments ajoutés avec les outils désactivés</p>
+          </div>
+
+          <div class="gn-eraser-adv-divider"></div>
+
+          <div class="gn-eraser-adv-footer">
+            <label class="gn-setting-row">
+              <span class="gn-setting-title">Désélection automatique</span>
+              <span class="gn-ios-switch">
+                <input type="checkbox" id="gnEraserAutoDeselectSwitch" />
+                <span class="gn-ios-slider"></span>
+              </span>
+            </label>
+
+            <button class="gn-eraser-clear-page-btn" id="btnGnEraserClearPage" type="button">Effacer La Page</button>
+          </div>
+        </div>
+
+        <!-- POPOVER TAILLE DE LA GOMME (CURSEUR CONIQUE PAR EMPLACEMENT, COMME POUR LE STYLO) -->
+        <div class="gn-stroke-popover gn-eraser-size-popover hidden" id="gnEraserSizePopover" role="dialog" aria-label="Taille De La Gomme">
+          <div class="gn-stroke-popover-caret" id="gnEraserSizeCaret"></div>
+
+          <div class="gn-stroke-header">
+            <span class="gn-stroke-title">Taille De La Gomme</span>
+            <div class="gn-stroke-header-right">
+              <span class="gn-stroke-mm" id="gnEraserSizeReadout">18 px</span>
+              <button class="gn-stroke-reset-btn" id="btnGnEraserSizeReset" type="button" title="Réinitialiser la taille par défaut de cet emplacement" aria-label="Réinitialiser la taille de la gomme">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9"></path>
+                  <polyline points="4.5 4.2 4.5 9 9.3 9"></polyline>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="gn-stroke-section-label">Diamètre De La Gomme</div>
+
+          <div class="gn-wedge-slider-wrap">
+            <svg class="gn-wedge-track" viewBox="0 0 280 22" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M 3 10.2 L 272 3.2 A 7.8 7.8 0 0 1 272 18.8 L 3 11.8 A 0.8 0.8 0 0 1 3 10.2 Z"></path>
+            </svg>
+            <input type="range" class="gn-wedge-range" id="gnEraserSizeSlider" min="4" max="56" step="1" value="18" aria-label="Taille de la gomme" />
+          </div>
+        </div>
       </header>
 
       <!-- POPOVER : 8 FONDS DE PAGE & CANEVAS INFINI -->
@@ -885,6 +1051,26 @@
           <div class="radial-wheel-center" id="radialWheelCenter">
             <span class="radial-center-dot" id="radialCenterDot"></span>
             <span class="radial-center-label" id="radialCenterLabel">Couleur</span>
+          </div>
+        </div>
+
+        <!-- INDICATEUR GOODNOTES "TIRER POUR AJOUTER UNE PAGE" (bas/haut de feuille A4) -->
+        <div class="gn-pull-to-add-banner hidden" id="gnPullToAddBanner" aria-live="polite">
+          <div class="gn-pta-inner" id="gnPtaInner">
+            <svg class="gn-pta-arrow" id="gnPtaArrow" width="10" height="14" viewBox="0 0 10 14" fill="none" aria-hidden="true">
+              <path d="M4 12.334c0 .5522.44772 1 1 1s1-.4478 1-1H4zm1-10.667.70711-.7071c-.39053-.39052-1.0237-.39052-1.4142 0L5 1.667zM.2929 4.96c-.39052.39052-.39052 1.0237 0 1.4142.39052.39052 1.0237.39052 1.4142 0L.2929 4.96zm8 1.4142c.39053.39052 1.0237.39052 1.4142 0 .39049-.39053.39049-1.0237 0-1.4142l-1.4142 1.4142zM6 12.334V1.667H4v10.667h2zM1.7071 6.3742l4-4-1.4142-1.4142-4 4 1.4142 1.4142zm2.5858-4 4 4 1.4142-1.4142-4-4-1.4142 1.4142z" fill="currentColor"/>
+            </svg>
+            <div class="gn-pta-ring-wrap">
+              <div class="gn-pta-ring-base"></div>
+              <div class="gn-pta-ring-active" id="gnPtaRingActive"></div>
+              <svg class="gn-pta-page-icon" id="gnPtaPageIcon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="12" y1="12" x2="12" y2="18"/>
+                <line x1="9" y1="15" x2="15" y2="15"/>
+              </svg>
+            </div>
+            <span class="gn-pta-label" id="gnPtaLabel">Tirer pour ajouter une page</span>
           </div>
         </div>
       </div>

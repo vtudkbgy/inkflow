@@ -3994,3 +3994,544 @@ html, body {
 [data-theme="dark"] .gn-shape-bar.active {
   background: #f4f4f5;
 }
+
+/* ==================== GOODNOTES 6 FLOATING ERASER SUB-BAR & POPOVERS ==================== */
+.gn-eraser-subbar.hidden,
+.gn-eraser-mode-popover.hidden,
+.gn-eraser-adv-popover.hidden {
+  display: none !important;
+}
+
+.gn-eraser-subbar {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  height: 52px;
+  gap: 12px;
+  padding: 0 12px 0 5px;
+  border-radius: 999px;
+  background: rgba(246, 246, 248, 0.96);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(30, 27, 27, 0.14);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  animation: gnSubBarFadeIn 0.2s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+[data-theme="dark"] .gn-eraser-subbar {
+  background: rgba(34, 37, 46, 0.96);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.48);
+}
+
+.gn-eraser-mode-pill {
+  height: 42px;
+  padding: 0 15px 0 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: #ffffff;
+  color: #111827;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.07);
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.16s ease, box-shadow 0.16s ease;
+}
+
+[data-theme="dark"] .gn-eraser-mode-pill {
+  background: #2f3340;
+  color: #f4f4f5;
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.30);
+}
+
+.gn-eraser-mode-pill:hover {
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.11);
+}
+
+.gn-eraser-mode-pill:active {
+  transform: scale(0.96);
+}
+
+.gn-eraser-mode-pill.popover-open {
+  background: #eaf2fd;
+  color: #0072ce;
+}
+
+[data-theme="dark"] .gn-eraser-mode-pill.popover-open {
+  background: #294c7f;
+  color: #ffffff;
+}
+
+.gn-eraser-mode-caret {
+  color: #6b7280;
+  transition: transform 0.2s ease;
+}
+
+[data-theme="dark"] .gn-eraser-mode-caret {
+  color: #a1a1aa;
+}
+
+.gn-eraser-mode-pill.popover-open .gn-eraser-mode-caret {
+  transform: rotate(180deg);
+}
+
+.gn-eraser-adv-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
+  color: #111827;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.16s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.16s ease;
+}
+
+[data-theme="dark"] .gn-eraser-adv-btn {
+  color: #f4f4f5;
+}
+
+[data-theme="dark"] .gn-eraser-adv-btn circle[fill="#ffffff"] {
+  fill: #23262f;
+}
+
+.gn-eraser-adv-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="dark"] .gn-eraser-adv-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.gn-eraser-adv-btn.popover-open {
+  background: #cfe7f5;
+  color: #0072ce;
+}
+
+[data-theme="dark"] .gn-eraser-adv-btn.popover-open {
+  background: #294c7f;
+  color: #ffffff;
+}
+
+.gn-eraser-sizes {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 100%;
+  padding-right: 2px;
+}
+
+.gn-eraser-size-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.gn-eraser-size-btn:hover {
+  transform: scale(1.06);
+}
+
+.gn-eraser-size-btn:active {
+  transform: scale(0.94);
+}
+
+/* Signature GoodNotes Checkered Eraser Circle Ring */
+.gn-eraser-ring {
+  display: block;
+  border-radius: 50%;
+  border: 3.5px solid #a3a1a0;
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #ececee 25%, transparent 25%),
+    linear-gradient(-45deg, #ececee 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ececee 75%),
+    linear-gradient(-45deg, transparent 75%, #ececee 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 0 5px, 5px -5px, -5px 0;
+  box-sizing: border-box;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, width 0.16s ease, height 0.16s ease;
+}
+
+[data-theme="dark"] .gn-eraser-ring {
+  border-color: #7c808c;
+  background-color: #2f3340;
+  background-image:
+    linear-gradient(45deg, #3c4152 25%, transparent 25%),
+    linear-gradient(-45deg, #3c4152 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #3c4152 75%),
+    linear-gradient(-45deg, transparent 75%, #3c4152 75%);
+}
+
+.gn-eraser-ring-sm {
+  width: 24px;
+  height: 24px;
+}
+
+.gn-eraser-ring-md {
+  width: 36px;
+  height: 36px;
+}
+
+.gn-eraser-ring-lg {
+  width: 60px;
+  height: 60px;
+}
+
+.gn-eraser-size-btn.active .gn-eraser-ring {
+  border-color: #3b72d6;
+  box-shadow: 0 0 0 2px rgba(59, 114, 214, 0.18);
+}
+
+[data-theme="dark"] .gn-eraser-size-btn.active .gn-eraser-ring {
+  border-color: #5b93f7;
+  box-shadow: 0 0 0 2px rgba(91, 147, 247, 0.25);
+}
+
+/* Popover Mode Gomme */
+.gn-eraser-mode-popover {
+  pointer-events: auto;
+  position: relative;
+  width: 274px;
+  padding: 8px;
+  border-radius: 18px;
+  background: #f5f5f7;
+  color: #111827;
+  border: 1px solid rgba(30, 27, 27, 0.11);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: gnSubBarFadeIn 0.18s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+[data-theme="dark"] .gn-eraser-mode-popover {
+  background: #23262f;
+  color: #f4f4f5;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.56);
+}
+
+.gn-eraser-mode-option {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.gn-eraser-mode-option:hover {
+  background: rgba(255, 255, 255, 0.65);
+}
+
+[data-theme="dark"] .gn-eraser-mode-option:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.gn-eraser-mode-option.active {
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.07);
+}
+
+[data-theme="dark"] .gn-eraser-mode-option.active {
+  background: #323644;
+}
+
+.gn-eraser-mode-opt-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.gn-eraser-mode-option.active .gn-eraser-mode-opt-title {
+  color: #0072ce;
+}
+
+[data-theme="dark"] .gn-eraser-mode-option.active .gn-eraser-mode-opt-title {
+  color: #7cc4fa;
+}
+
+.gn-eraser-mode-opt-desc {
+  font-size: 11.5px;
+  color: #71717a;
+}
+
+[data-theme="dark"] .gn-eraser-mode-opt-desc {
+  color: #a1a1aa;
+}
+
+/* Popover Réglages Avancés de la gomme (GoodNotes 6 exact) */
+.gn-eraser-adv-popover {
+  pointer-events: auto;
+  position: relative;
+  width: 320px;
+  border-radius: 20px;
+  background: #f5f5f7;
+  color: #111827;
+  border: 1px solid rgba(30, 27, 27, 0.11);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.08);
+  animation: gnSubBarFadeIn 0.2s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+[data-theme="dark"] .gn-eraser-adv-popover {
+  background: #23262f;
+  color: #f4f4f5;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.56);
+}
+
+.gn-eraser-popover-caret {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  margin-left: -7px;
+  width: 14px;
+  height: 14px;
+  background: inherit;
+  border-left: 1px solid rgba(30, 27, 27, 0.11);
+  border-top: 1px solid rgba(30, 27, 27, 0.11);
+  transform: rotate(45deg);
+  pointer-events: none;
+  transition: left 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-theme="dark"] .gn-eraser-popover-caret {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.gn-eraser-adv-header {
+  padding: 18px 20px 10px;
+}
+
+.gn-eraser-adv-title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.gn-eraser-adv-body {
+  padding: 6px 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gn-eraser-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+
+.gn-eraser-filter-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.gn-eraser-filter-note {
+  margin: 4px 0 2px;
+  font-size: 13px;
+  line-height: 1.42;
+  color: #71717a;
+}
+
+[data-theme="dark"] .gn-eraser-filter-note {
+  color: #a1a1aa;
+}
+
+.gn-eraser-adv-divider {
+  height: 1px;
+  width: 100%;
+  background: rgba(30, 27, 27, 0.10);
+}
+
+[data-theme="dark"] .gn-eraser-adv-divider {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.gn-eraser-adv-footer {
+  padding: 12px 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.gn-eraser-clear-page-btn {
+  border: none;
+  background: transparent;
+  color: #c8372d;
+  font-family: inherit;
+  font-size: 15.5px;
+  font-weight: 500;
+  text-align: left;
+  padding: 6px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.gn-eraser-clear-page-btn:hover {
+  background: rgba(200, 55, 45, 0.09);
+  color: #b91c1c;
+}
+
+[data-theme="dark"] .gn-eraser-clear-page-btn {
+  color: #f87171;
+}
+
+[data-theme="dark"] .gn-eraser-clear-page-btn:hover {
+  background: rgba(248, 113, 113, 0.14);
+}
+
+/* ============================================================================
+   GOODNOTES PULL-TO-ADD-PAGE BANNER (A4 BOUNDED PAGE OVERSCROLL)
+   ============================================================================ */
+.gn-pull-to-add-banner.hidden {
+  display: none !important;
+}
+
+.gn-pull-to-add-banner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 25;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transform: translate(-50%, 0);
+  will-change: transform, opacity;
+}
+
+.gn-pta-inner {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.gn-pta-inner.dir-top {
+  flex-direction: column-reverse;
+}
+
+.gn-pta-arrow {
+  color: #007aff;
+  margin-bottom: 6px;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.gn-pta-inner.dir-top .gn-pta-arrow {
+  margin-bottom: 0;
+  margin-top: 6px;
+  transform: rotate(180deg);
+}
+
+.gn-pta-inner.is-ready .gn-pta-arrow {
+  opacity: 0;
+}
+
+.gn-pta-ring-wrap {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+}
+
+.gn-pta-ring-base,
+.gn-pta-ring-active {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border-width: 2px;
+  border-style: solid;
+  box-sizing: border-box;
+}
+
+.gn-pta-ring-base {
+  border-color: #cbd5e1;
+  background: transparent;
+}
+
+[data-theme="dark"] .gn-pta-ring-base {
+  border-color: #475569;
+}
+
+.gn-pta-ring-active {
+  border-color: #007aff;
+  background: transparent;
+  transition: background-color 0.14s ease;
+}
+
+.gn-pta-inner.is-ready .gn-pta-ring-active {
+  background: #007aff;
+  animation: gnPullToAddPop 0.2s ease;
+}
+
+@keyframes gnPullToAddPop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.gn-pta-page-icon {
+  position: relative;
+  z-index: 1;
+  color: #94a3b8;
+  transition: color 0.14s ease;
+}
+
+[data-theme="dark"] .gn-pta-page-icon {
+  color: #64748b;
+}
+
+.gn-pta-inner.is-ready .gn-pta-page-icon {
+  color: #ffffff;
+}
+
+.gn-pta-label {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+  transition: color 0.14s ease;
+}
+
+.gn-pta-inner.dir-top .gn-pta-label {
+  margin-top: 0;
+  margin-bottom: 6px;
+}
+
+[data-theme="dark"] .gn-pta-label {
+  color: #94a3b8;
+}
+
+.gn-pta-inner.is-ready .gn-pta-label {
+  color: #007aff;
+}
