@@ -673,6 +673,50 @@
     return xHat;
   }
 
+  function initLiveStabilizer(stroke, x, y, tMs) {
+    const s = Math.max(0, Math.min(0.95, stroke.smoothing ?? 0.65));
+    const minCutoff = Math.max(0.65, 5.4 - s * 4.6);
+    const beta = 0.010 + (1 - s) * 0.055;
+    const tSec = (typeof tMs === 'number' && Number.isFinite(tMs) ? tMs : performance.now()) * 0.001;
+    stroke._liveStabilized = true;
+    stroke._liveEuroX = { initialized: false, minCutoff, beta, dCutoff: 1.0, xPrev: x, dxPrev: 0, tPrev: tSec };
+    stroke._liveEuroY = { initialized: false, minCutoff, beta, dCutoff: 1.0, xPrev: y, dxPrev: 0, tPrev: tSec };
+    oneEuroFilterStep(x, tSec, stroke._liveEuroX);
+    oneEuroFilterStep(y, tSec, stroke._liveEuroY);
+  }
+
+  function applyLiveStabilization(stroke, rawX, rawY, tMs) {
+    const s = Math.max(0, Math.min(0.95, stroke.smoothing ?? 0.65));
+    if (s <= 0.04 || !stroke._liveEuroX || !stroke._liveEuroY) {
+      return { x: rawX, y: rawY };
+    }
+    const tSec = (typeof tMs === 'number' && Number.isFinite(tMs) ? tMs : performance.now()) * 0.001;
+    const fx = oneEuroFilterStep(rawX, tSec, stroke._liveEuroX);
+    const fy = oneEuroFilterStep(rawY, tSec, stroke._liveEuroY);
+    const blend = Math.min(0.92, s * 0.95);
+    return {
+      x: rawX * (1 - blend) + fx * blend,
+      y: rawY * (1 - blend) + fy * blend
+    };
+  }
+
+  function computeLiveEffectivePressure(stroke, rawPressure, tiltX, tiltY, prevPressure) {
+    if (!stroke || stroke.tool === 'highlighter' || stroke.pressureMode === 'uniform') return 0.5;
+    let p = Math.max(0.05, Math.min(1.0, rawPressure));
+    if (tiltX || tiltY) {
+      const tiltMag = Math.min(1, Math.hypot(tiltX || 0, tiltY || 0) / 65);
+      if (stroke.penStyle === 'brush' && tiltMag > 0.2) {
+        p = Math.min(1.0, p + tiltMag * 0.16);
+      } else if (stroke.penStyle === 'fountain' && tiltMag > 0.25) {
+        p = Math.min(1.0, p + tiltMag * 0.06);
+      }
+    }
+    if (typeof prevPressure === 'number' && Number.isFinite(prevPressure)) {
+      p = prevPressure * 0.42 + p * 0.58;
+    }
+    return Math.max(0.05, Math.min(1.0, p));
+  }
+
   function getStrokeThinning(stroke) {
     if (!stroke || stroke.tool === 'highlighter' || stroke.pressureMode === 'uniform') return 0;
     const style = stroke.penStyle || 'fountain';
@@ -721,9 +765,9 @@
       return [{ x: filtered[0].x, y: filtered[0].y, r: Math.max(0.45, thinning ? getStrokeRadius(size, thinning, filtered[0].p) : size * 0.5) }];
     }
 
-    // 2. Filtre adaptatif One-Euro + Amortissement d'angles vifs (Sharp-Turn Damping cosTheta < -0.766044)
+    // 2. Filtre adaptatif One-Euro + Amortissement d'angles vifs (uniquement pour les traits non stabilisés en direct)
     let pts = filtered;
-    if (smoothing > 0.12 && pts.length >= 4) {
+    if (!stroke._liveStabilized && smoothing > 0.12 && pts.length >= 4) {
       const minCutoff = Math.max(0.85, 4.4 - smoothing * 3.3);
       const beta = 0.016 + (1 - smoothing) * 0.045;
       const fxState = { initialized: false, minCutoff, beta, dCutoff: 1.0, xPrev: 0, dxPrev: 0, tPrev: 0 };
@@ -809,49 +853,28 @@
       }
     }
 
-    // 4. Profils physiques de pointe GoodNotes (Plume / Bille / Pinceau) avec vélocité + pression + inclinaison
+    // 4. Profil de rayon identique au rendu temps réel (aucun épaississement ni saut au relâchement du stylet)
     const totalLength = runningLength;
-    const taperStart = isHl || totalLength < size * 2.5 ? 0 : Math.min(6, size * (penStyle === 'ballpoint' ? 0.35 : 0.65));
-    const taperEnd = isHl || totalLength < size * 2.5 ? 0 : Math.min(8, size * (penStyle === 'ballpoint' ? 0.4 : 0.85));
-    let prevP = dense[0].p;
-    const effSize = penStyle === 'brush' && !isHl ? size * 1.12 : size;
-    let prevR = thinning ? getStrokeRadius(effSize, thinning, prevP) : size * 0.5;
+    const tipSharp = typeof stroke.tipSharpness === 'number' ? stroke.tipSharpness : 0.5;
+    const taperScale = penStyle === 'ballpoint' ? 0.25 : (0.35 + tipSharp * 0.75);
+    const taperStart = isHl || totalLength < size * 2.8 ? 0 : Math.min(6, size * 0.45 * taperScale);
+    const taperEnd = isHl || totalLength < size * 2.8 ? 0 : Math.min(8, size * 0.60 * taperScale);
+    let prevR = thinning ? getStrokeRadius(size, thinning, dense[0].p) : size * 0.5;
 
     const samples = new Array(dense.length);
     for (let i = 0; i < dense.length; i++) {
       const pt = dense[i];
-      let pr = pt.p;
-      if (simulatePressure && pt.dist > 0) {
-        const sp = Math.min(1, pt.dist / (size * 2.2));
-        const rp = Math.min(1, 1 - sp);
-        pr = Math.min(1, prevP + (rp - prevP) * (sp * 0.28));
-      } else {
-        // Modulation vélocité + EMA pression (GoodNotes adjustPressureBySpeed)
-        const speedNorm = pt.dist > 0 ? Math.min(1, pt.dist / Math.max(3, size * 2.8)) : 0;
-        const speedDamp = penStyle === 'fountain' ? (1 - speedNorm * 0.14) : 1;
-        const emaAlpha = penStyle === 'brush' ? 0.42 : 0.55;
-        pr = prevP * (1 - emaAlpha) + (pr * speedDamp) * emaAlpha;
-      }
-      // Modulation d'inclinaison (tiltX / tiltY) par point
-      if (!isHl && (pt.tiltX || pt.tiltY)) {
-        const tiltMag = Math.min(1, Math.hypot(pt.tiltX || 0, pt.tiltY || 0) / 65);
-        if (penStyle === 'brush') {
-          pr = Math.min(1, pr + tiltMag * 0.24);
-        } else if (penStyle === 'fountain') {
-          pr = Math.min(1, pr + tiltMag * 0.10);
-        }
-      }
-      prevP = pr;
-      let r = thinning ? getStrokeRadius(effSize, thinning, pr) : size * 0.5;
+      const rawR = thinning ? getStrokeRadius(size, thinning, pt.p) : size * 0.5;
+      let r = i === 0 ? rawR : (prevR * 0.4 + rawR * 0.6);
       if (taperStart > 0 && pt.runningLength < taperStart) {
-        r *= Math.max(0.32, pt.runningLength / taperStart);
+        r *= Math.max(0.45, pt.runningLength / taperStart);
       }
       if (taperEnd > 0 && totalLength - pt.runningLength < taperEnd) {
-        r *= Math.max(0.26, (totalLength - pt.runningLength) / taperEnd);
+        r *= Math.max(0.40, (totalLength - pt.runningLength) / taperEnd);
       }
       r = Math.max(0.45, r);
       if (i > 0 && pt.dist > 0) {
-        const maxDeltaR = Math.max(0.15, pt.dist * 0.42);
+        const maxDeltaR = Math.max(0.18, pt.dist * 0.45);
         if (Math.abs(r - prevR) > maxDeltaR) {
           r = prevR + Math.sign(r - prevR) * maxDeltaR;
         }
@@ -1981,6 +2004,8 @@
     scribbleEraseShapesAndHl: true,
     circleToLasso: true,
     gnPenPopoverOpen: false,
+    gnStrokePopoverOpen: false,
+    activeSizeSlotByTool: { pen: 1, highlighter: 1, shape: 1, tape: 1 },
     palmRejection: true,
     lastPenSeenTime: 0,
     laserTrail: [],
@@ -2128,14 +2153,14 @@
         if (typeof entry.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(entry.color)) {
           target.color = entry.color;
         }
-        if (typeof entry.size === 'number' && Number.isFinite(entry.size) && entry.size >= 1 && entry.size <= 64) {
+        if (typeof entry.size === 'number' && Number.isFinite(entry.size) && entry.size >= 0.5 && entry.size <= 64) {
           target.size = entry.size;
         }
         if (Array.isArray(entry.colorSlots) && entry.colorSlots.length > 0) {
           target.colorSlots = entry.colorSlots.filter((c) => typeof c === 'string').slice(0, 6);
         }
         if (Array.isArray(entry.sizeSlots) && entry.sizeSlots.length === 3) {
-          const validSizes = entry.sizeSlots.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n >= 1 && n <= 64);
+          const validSizes = entry.sizeSlots.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n >= 0.5 && n <= 64);
           if (validSizes.length === 3) target.sizeSlots = validSizes;
         }
         applyToolMemoryToCanonical(t);
@@ -2447,6 +2472,9 @@
       color: s.color,
       size: s.size,
       smoothing: s.smoothing,
+      tipSharpness: s.tipSharpness,
+      pressureSensitivity: s.pressureSensitivity,
+      _liveStabilized: s._liveStabilized,
       pressureMode: s.pressureMode,
       simulatePressure: s.simulatePressure,
       recognizedSymbol: s.recognizedSymbol,
@@ -5588,10 +5616,7 @@
       clearLassoSelection();
       pushHistorySnapshot();
       const isHl = state.tool === 'highlighter';
-      const tiltMag = e.pointerType === 'pen' ? Math.min(1, Math.hypot(e.tiltX || 0, e.tiltY || 0) / 65) : 0;
-      const effPressure = (!isHl && state.penStyle === 'brush' && tiltMag > 0.2)
-        ? Math.min(1, pressure + tiltMag * 0.25)
-        : pressure;
+      const downTime = e.timeStamp || performance.now();
       state.predictedPoints = [];
       state.currentStroke = {
         id: createUid('st'),
@@ -5601,18 +5626,23 @@
         color: isHl ? state.highlighterColor : state.penColor,
         size: isHl ? state.highlighterSize : state.penSize,
         smoothing: state.smoothing,
+        tipSharpness: state.tipSharpness ?? 0.5,
+        pressureSensitivity: state.pressureSensitivity ?? 0.5,
         pressureMode: isHl ? 'uniform' : state.pressureMode,
-        simulatePressure: e.pointerType === 'mouse',
-        points: [{
-          x: worldPt.x,
-          y: worldPt.y,
-          pressure: effPressure,
-          tiltX: e.tiltX || 0,
-          tiltY: e.tiltY || 0,
-          t: e.timeStamp || performance.now()
-        }],
+        simulatePressure: false,
+        points: [],
         _renderedUpToIndex: 0
       };
+      const effPressure = computeLiveEffectivePressure(state.currentStroke, pressure, e.tiltX || 0, e.tiltY || 0, null);
+      state.currentStroke.points.push({
+        x: worldPt.x,
+        y: worldPt.y,
+        pressure: effPressure,
+        tiltX: e.tiltX || 0,
+        tiltY: e.tiltY || 0,
+        t: downTime
+      });
+      initLiveStabilizer(state.currentStroke, worldPt.x, worldPt.y, downTime);
       state.holdShapeAnchorScreen = { x: e.clientX, y: e.clientY };
       cancelHoldShapeTimer();
       if (hadLassoSelection) requestRender();
@@ -5826,6 +5856,8 @@
                 });
               }
               const finishedStroke = state.currentStroke;
+              delete finishedStroke._liveEuroX;
+              delete finishedStroke._liveEuroY;
               invalidateStrokeCache(finishedStroke);
               activePageForMove.strokes.push(finishedStroke);
               state.currentStroke = null;
@@ -5871,11 +5903,14 @@
               color: isHl ? state.highlighterColor : state.penColor,
               size: isHl ? state.highlighterSize : state.penSize,
               smoothing: state.smoothing,
+              tipSharpness: state.tipSharpness ?? 0.5,
+              pressureSensitivity: state.pressureSensitivity ?? 0.5,
               pressureMode: isHl ? 'uniform' : state.pressureMode,
-              simulatePressure: e.pointerType === 'mouse',
+              simulatePressure: false,
               points: entryPts,
               _renderedUpToIndex: 0
             };
+            initLiveStabilizer(state.currentStroke, rawPt.x, rawPt.y, ptTime);
             state.drawingPausedOutsidePage = false;
             state.lastOutsideRawPt = null;
             state.lastPointerPoint = rawPt;
@@ -5888,16 +5923,20 @@
         if (!state.currentStroke) continue;
         const pts = state.currentStroke.points;
         const prevPt = pts[pts.length - 1];
-        if (prevPt && Math.hypot(rawPt.x - prevPt.x, rawPt.y - prevPt.y) < minMoveDist) {
-          prevPt.pressure = prevPt.pressure * 0.5 + p * 0.5;
+        // Stabilisation One-Euro en TEMPS RÉEL pendant le tracé
+        const stabPt = applyLiveStabilization(state.currentStroke, rawPt.x, rawPt.y, ptTime);
+        const finalPt = bounded ? clampPointToPage(activePageForMove, stabPt) : stabPt;
+        const effP = computeLiveEffectivePressure(state.currentStroke, p, ce.tiltX || 0, ce.tiltY || 0, prevPt ? prevPt.pressure : null);
+        if (prevPt && Math.hypot(finalPt.x - prevPt.x, finalPt.y - prevPt.y) < minMoveDist) {
+          prevPt.pressure = prevPt.pressure * 0.5 + effP * 0.5;
           continue;
         }
-        state.lastPointerPoint = rawPt;
+        state.lastPointerPoint = finalPt;
         state.lastPointerTime = ptTime;
         pts.push({
-          x: rawPt.x,
-          y: rawPt.y,
-          pressure: p,
+          x: finalPt.x,
+          y: finalPt.y,
+          pressure: effP,
           tiltX: ce.tiltX || 0,
           tiltY: ce.tiltY || 0,
           t: ptTime
@@ -6107,6 +6146,8 @@
             }
           }
 
+          delete finishedStroke._liveEuroX;
+          delete finishedStroke._liveEuroY;
           invalidateStrokeCache(finishedStroke);
           page.strokes.push(finishedStroke);
           state.currentStroke = null;
@@ -8604,11 +8645,9 @@
     if (state.colorWheelOpen) closeRadialColorWheel(false);
     state.temporaryEraserOverride = false;
     state.temporaryLassoOverride = false;
-    if (t === 'pen' || t === 'highlighter') {
-      state.previousWritingTool = t;
-    }
     const isSameTool = state.tool === t;
-    if (isSameTool && toggleOptionsIfSame && t !== 'pan') {
+    const isPenSubBarGroupClick = toggleOptionsIfSame && t === 'pen' && (state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'tape');
+    if ((isSameTool || isPenSubBarGroupClick) && toggleOptionsIfSame && t !== 'pan') {
       state.toolOptionsOpen = !state.toolOptionsOpen;
       if (state.toolOptionsOpen) {
         if (dom.paperPopover) dom.paperPopover.classList.add('hidden');
@@ -8621,7 +8660,10 @@
       // N'affiche pas automatiquement la barre d'options quand on change d'outil pour garder l'espace épuré
       state.toolOptionsOpen = false;
     }
-    if (t !== 'lasso') clearLassoSelection();
+    if (state.tool === 'pen' || state.tool === 'highlighter') {
+      state.previousWritingTool = state.tool;
+    }
+    if (state.tool !== 'lasso') clearLassoSelection();
     updateToolbarActiveState();
     triggerToolOptionsPulse();
     requestRender();
@@ -8641,7 +8683,10 @@
   }
 
   function updateToolbarActiveState() {
-    dom.toolBtns.forEach((b) => b.classList.toggle('active', b.dataset.tool === state.tool));
+    dom.toolBtns.forEach((b) => {
+      const isPenSubToolActive = b.dataset.tool === 'pen' && (state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'tape');
+      b.classList.toggle('active', isPenSubToolActive || b.dataset.tool === state.tool);
+    });
     dom.canvasViewport.classList.toggle('pan-cursor', state.tool === 'pan' || state.isSpacePressed);
     dom.canvasViewport.classList.toggle('text-cursor', state.tool === 'text');
     dom.canvasViewport.classList.toggle('eraser-cursor', state.tool === 'eraser');
@@ -8662,10 +8707,16 @@
     dom.toolOptionsDock.classList.toggle('hidden', !showDock);
     const gnSubBarEl = document.getElementById('gnPenSubBar');
     if (gnSubBarEl) gnSubBarEl.classList.toggle('hidden', !showGnSubBar);
-    if (!showGnSubBar) state.gnPenPopoverOpen = false;
+    if (!showGnSubBar) {
+      state.gnPenPopoverOpen = false;
+      state.gnStrokePopoverOpen = false;
+    }
     const gnPopoverEl = document.getElementById('gnPenPopover');
     const showGnPopover = Boolean(showGnSubBar && state.gnPenPopoverOpen);
     if (gnPopoverEl) gnPopoverEl.classList.toggle('hidden', !showGnPopover);
+    const gnStrokePopoverEl = document.getElementById('gnStrokePopover');
+    const showGnStrokePopover = Boolean(showGnSubBar && state.gnStrokePopoverOpen);
+    if (gnStrokePopoverEl) gnStrokePopoverEl.classList.toggle('hidden', !showGnStrokePopover);
     if (!showGnPopover) {
       const gesturesEl = document.getElementById('gnPenGesturesView');
       if (gesturesEl) gesturesEl.classList.add('hidden');
@@ -8698,8 +8749,12 @@
     if (dom.customColorPicker && /^#[0-9a-f]{6}$/i.test(activeColor)) {
       dom.customColorPicker.value = activeColor;
     }
-    dom.penColorDot.style.background = state.penColor;
-    dom.hlColorDot.style.background = state.highlighterColor;
+    if (dom.penColorDot) {
+      dom.penColorDot.style.background = state.tool === 'highlighter'
+        ? state.highlighterColor
+        : (state.tool === 'tape' ? (state.tapeColor || state.penColor) : state.penColor);
+    }
+    if (dom.hlColorDot) dom.hlColorDot.style.background = state.highlighterColor;
     dom.colorSwatches.forEach((sw) => sw.classList.toggle('active', sw.dataset.color.toLowerCase() === activeColor.toLowerCase()));
 
     const toolMem = state.toolMemory && state.toolMemory[state.tool];
@@ -8846,6 +8901,29 @@
   // 16. ÉCOUTEURS D'ÉVÉNEMENTS & NAVIGATION INFINIE
   // ============================================================================
 
+  const DEFAULT_TOOL_SIZE_SLOTS = {
+    pen: [2.5, 5, 12],
+    highlighter: [12, 22, 34],
+    shape: [2, 4, 8],
+    tape: [18, 26, 36]
+  };
+
+  function getToolSizeSliderConfig(tool = state.tool) {
+    if (tool === 'highlighter') return { min: 6, max: 42, step: 1, label: 'Épaisseur Du Surligneur' };
+    if (tool === 'tape') return { min: 12, max: 48, step: 1, label: 'Épaisseur Du Ruban' };
+    if (tool === 'shape') return { min: 1, max: 24, step: 0.5, label: 'Épaisseur De La Forme' };
+    return { min: 1, max: 20, step: 0.5, label: 'Épaisseur Du Stylo' };
+  }
+
+  function getActiveToolSizeSlots(tool = state.tool) {
+    const key = DEFAULT_TOOL_SIZE_SLOTS[tool] ? tool : 'pen';
+    const mem = state.toolMemory && state.toolMemory[key];
+    if (mem && Array.isArray(mem.sizeSlots) && mem.sizeSlots.length === 3) {
+      return mem.sizeSlots;
+    }
+    return [...DEFAULT_TOOL_SIZE_SLOTS[key]];
+  }
+
   function syncGnPenSubBarUi() {
     const subBar = document.getElementById('gnPenSubBar');
     if (!subBar) return;
@@ -8860,14 +8938,82 @@
       if (st === 'pen') btn.classList.toggle('popover-open', Boolean(state.gnPenPopoverOpen));
     });
 
+    const toolKey = DEFAULT_TOOL_SIZE_SLOTS[state.tool] ? state.tool : 'pen';
+    const slots = getActiveToolSizeSlots(toolKey);
+    const sliderCfg = getToolSizeSliderConfig(toolKey);
     const curSize = getActiveToolSize();
     const thickBtns = Array.from(subBar.querySelectorAll('.gn-thick-btn'));
-    let bestBtn = null, bestDiff = Infinity;
-    thickBtns.forEach((b) => {
-      const d = Math.abs(parseFloat(b.dataset.gnSize) - curSize);
-      if (d < bestDiff) { bestDiff = d; bestBtn = b; }
+    let activeSlotIdx = state.activeSizeSlotByTool && typeof state.activeSizeSlotByTool[toolKey] === 'number'
+      ? state.activeSizeSlotByTool[toolKey]
+      : -1;
+    if (activeSlotIdx < 0 || activeSlotIdx >= thickBtns.length || Math.abs((slots[activeSlotIdx] ?? curSize) - curSize) > 0.05) {
+      let bestIdx = 1, bestDiff = Infinity;
+      slots.forEach((sv, idx) => {
+        const d = Math.abs(sv - curSize);
+        if (d < bestDiff) { bestDiff = d; bestIdx = idx; }
+      });
+      activeSlotIdx = bestIdx;
+      if (state.activeSizeSlotByTool) state.activeSizeSlotByTool[toolKey] = activeSlotIdx;
+    }
+
+    const lineStyle = state.penLineStyle || 'solid';
+    thickBtns.forEach((b, idx) => {
+      const sv = Number(slots[idx] ?? b.dataset.gnSize ?? 5);
+      b.dataset.gnSize = String(sv);
+      b.dataset.gnSlot = String(idx);
+      const isAct = idx === activeSlotIdx;
+      b.classList.toggle('active', isAct);
+      b.classList.toggle('popover-open', Boolean(isAct && state.gnStrokePopoverOpen));
+      const mmText = `${(sv / 10).toFixed(2)} mm`;
+      b.title = `Épaisseur ${mmText} — Cliquer pour ouvrir Réglages Du Trait`;
+      const lineEl = b.querySelector('.gn-thick-line');
+      if (lineEl) {
+        const ratio = Math.max(0, Math.min(1, (sv - sliderCfg.min) / Math.max(1, sliderCfg.max - sliderCfg.min)));
+        const hPx = (1.4 + ratio * 5.2).toFixed(1);
+        lineEl.style.height = `${hPx}px`;
+        lineEl.classList.toggle('is-dashed', Boolean(isAct && state.tool === 'pen' && lineStyle === 'dashed'));
+        lineEl.classList.toggle('is-dotted', Boolean(isAct && state.tool === 'pen' && lineStyle === 'dotted'));
+      }
     });
-    thickBtns.forEach((b) => b.classList.toggle('active', b === bestBtn));
+
+    // Mise à jour du popover "Réglages Du Trait" (style GoodNotes 6)
+    const strokePopover = document.getElementById('gnStrokePopover');
+    if (strokePopover) {
+      const mmEl = document.getElementById('gnStrokeMmReadout');
+      if (mmEl) mmEl.textContent = `${(curSize / 10).toFixed(2)} mm`;
+
+      const styleGrid = document.getElementById('gnStrokeLineStyleGrid');
+      if (styleGrid) {
+        styleGrid.classList.toggle('hidden', state.tool !== 'pen');
+        styleGrid.querySelectorAll('.gn-line-style-card').forEach((card) => {
+          card.classList.toggle('active', card.dataset.gnLinestyle === lineStyle);
+        });
+      }
+
+      const thickLabel = document.getElementById('gnStrokeThicknessLabel');
+      if (thickLabel) thickLabel.textContent = sliderCfg.label;
+
+      const wedgeSlider = document.getElementById('gnStrokeSizeSlider');
+      if (wedgeSlider) {
+        wedgeSlider.min = String(sliderCfg.min);
+        wedgeSlider.max = String(sliderCfg.max);
+        wedgeSlider.step = String(sliderCfg.step);
+        wedgeSlider.value = String(Math.max(sliderCfg.min, Math.min(sliderCfg.max, curSize)));
+      }
+
+      // Aligne la flèche du popover directement sous le bouton d'épaisseur actif
+      const caret = document.getElementById('gnStrokePopoverCaret');
+      const activeBtn = thickBtns[activeSlotIdx];
+      if (caret && activeBtn && state.gnStrokePopoverOpen && typeof activeBtn.getBoundingClientRect === 'function' && typeof strokePopover.getBoundingClientRect === 'function') {
+        const btnRect = activeBtn.getBoundingClientRect();
+        const popRect = strokePopover.getBoundingClientRect();
+        if (btnRect.width > 0 && popRect.width > 0) {
+          const btnCenter = btnRect.left + btnRect.width * 0.5;
+          const relX = Math.max(24, Math.min(popRect.width - 24, btnCenter - popRect.left));
+          caret.style.left = `${Math.round(relX)}px`;
+        }
+      }
+    }
 
     const curColor = (getActiveToolColor() || '#111827').toLowerCase();
     subBar.querySelectorAll('.gn-color-circle').forEach((c) => {
@@ -8939,6 +9085,7 @@
     subBar.querySelectorAll('.gn-subtool-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const st = btn.dataset.subtool;
+        state.gnStrokePopoverOpen = false;
         if (st === 'pen') {
           if (state.tool === 'pen' && state.penStyle !== 'ballpoint') {
             state.gnPenPopoverOpen = !state.gnPenPopoverOpen;
@@ -8978,17 +9125,86 @@
       });
     });
 
-    subBar.querySelectorAll('.gn-thick-btn').forEach((btn) => {
+    subBar.querySelectorAll('.gn-thick-btn').forEach((btn, idx) => {
       btn.addEventListener('click', () => {
-        const sz = parseFloat(btn.dataset.gnSize);
-        if (!Number.isFinite(sz)) return;
-        setToolSize(state.tool, sz);
+        const toolKey = DEFAULT_TOOL_SIZE_SLOTS[state.tool] ? state.tool : 'pen';
+        const slotIdx = Number.isInteger(parseInt(btn.dataset.gnSlot, 10)) ? parseInt(btn.dataset.gnSlot, 10) : idx;
+        const prevSlot = state.activeSizeSlotByTool ? state.activeSizeSlotByTool[toolKey] : -1;
+        const slots = getActiveToolSizeSlots(toolKey);
+        const sz = Number(slots[slotIdx] ?? parseFloat(btn.dataset.gnSize));
+
+        if (state.gnStrokePopoverOpen && prevSlot === slotIdx) {
+          state.gnStrokePopoverOpen = false;
+          updateToolbarActiveState();
+          return;
+        }
+        if (state.activeSizeSlotByTool) state.activeSizeSlotByTool[toolKey] = slotIdx;
+        if (Number.isFinite(sz) && sz > 0) setToolSize(state.tool, sz);
+        state.gnPenPopoverOpen = false;
+        state.gnStrokePopoverOpen = true;
         updateToolbarActiveState();
       });
     });
 
+    // Événements du popover "Réglages Du Trait" (Continu / Tirets / Pointillés + Curseur conique + Reset)
+    document.querySelectorAll('#gnStrokeLineStyleGrid .gn-line-style-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const ls = card.dataset.gnLinestyle;
+        if (!ls) return;
+        state.penLineStyle = ls;
+        document.querySelectorAll('#penLineStylePills [data-line-style]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.lineStyle === ls);
+        });
+        syncGnPenSubBarUi();
+      });
+    });
+
+    const gnStrokeSizeSlider = document.getElementById('gnStrokeSizeSlider');
+    if (gnStrokeSizeSlider) {
+      gnStrokeSizeSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        if (!Number.isFinite(val) || val <= 0) return;
+        const toolKey = DEFAULT_TOOL_SIZE_SLOTS[state.tool] ? state.tool : 'pen';
+        const slotIdx = (state.activeSizeSlotByTool && typeof state.activeSizeSlotByTool[toolKey] === 'number')
+          ? state.activeSizeSlotByTool[toolKey]
+          : 1;
+        const mem = state.toolMemory && state.toolMemory[toolKey];
+        if (mem && Array.isArray(mem.sizeSlots) && mem.sizeSlots.length === 3) {
+          mem.sizeSlots[slotIdx] = val;
+        }
+        setToolSize(state.tool, val);
+        if (dom.strokeSizeSlider) dom.strokeSizeSlider.value = String(val);
+        if (dom.strokeSizeValue) dom.strokeSizeValue.textContent = `${val.toFixed(1)}px`;
+        syncGnPenSubBarUi();
+      });
+    }
+
+    const btnGnStrokeReset = document.getElementById('btnGnStrokeReset');
+    if (btnGnStrokeReset) {
+      btnGnStrokeReset.addEventListener('click', () => {
+        const toolKey = DEFAULT_TOOL_SIZE_SLOTS[state.tool] ? state.tool : 'pen';
+        const slotIdx = (state.activeSizeSlotByTool && typeof state.activeSizeSlotByTool[toolKey] === 'number')
+          ? state.activeSizeSlotByTool[toolKey]
+          : 1;
+        const defVal = DEFAULT_TOOL_SIZE_SLOTS[toolKey][slotIdx] ?? 5;
+        const mem = state.toolMemory && state.toolMemory[toolKey];
+        if (mem && Array.isArray(mem.sizeSlots) && mem.sizeSlots.length === 3) {
+          mem.sizeSlots[slotIdx] = defVal;
+        }
+        if (state.tool === 'pen') {
+          state.penLineStyle = 'solid';
+          document.querySelectorAll('#penLineStylePills [data-line-style]').forEach((b) => {
+            b.classList.toggle('active', b.dataset.lineStyle === 'solid');
+          });
+        }
+        setToolSize(state.tool, defVal);
+        updateToolbarActiveState();
+      });
+    }
+
     subBar.querySelectorAll('.gn-color-circle').forEach((btn) => {
       btn.addEventListener('click', () => {
+        state.gnStrokePopoverOpen = false;
         const col = btn.dataset.gnColor;
         if (btn.classList.contains('active') && dom.customColorPicker) {
           dom.customColorPicker.click();
