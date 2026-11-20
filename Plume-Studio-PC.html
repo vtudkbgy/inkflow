@@ -1,35 +1,30 @@
 <!DOCTYPE html>
-<html lang="fr" data-theme="light">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Plume Studio Pro — Page Infinie, Notes Manuscrites, LaTeX &amp; Reconnaissance IA</title>
-  <meta name="description" content="Application web et desktop de prise de notes manuscrites inspirée de GoodNotes et Nebo. Page infinie, zoom pincement, reconnaissance d'écriture et d'équations LaTeX, zones de texte clavier et IndexedDB." />
-  <link rel="manifest" href="./manifest.json" />
-  <link rel="stylesheet" href="./styles.css" />
+<html lang="fr" data-theme="light" data-fullscreen="false"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>InkFlow — Page Infinie, Notes Manuscrites, LaTeX &amp; Reconnaissance IA</title>
+  <meta name="description" content="Application web et desktop de prise de notes manuscrites inspirée de GoodNotes et Nebo. Page infinie, zoom pincement, reconnaissance d'écriture et d'équations LaTeX, zones de texte clavier et IndexedDB.">
+  <link rel="icon" type="image/png" href="./assets/inkflow-logo.png">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <div class="app-shell" id="appShell">
-    <!-- ==================== BARRE LATÉRALE RÉTRACTABLE (CAHIERS & PAGES) ==================== -->
+    <!-- ==================== BARRE LATÉRALE RÉTRACTABLE (CAHIERS & PAGES — GOODNOTES 6) ==================== -->
     <aside class="sidebar collapsed" id="leftSidebar" aria-label="Gestion des cahiers et des pages">
       <div class="sidebar-header">
         <div class="brand">
           <div class="brand-logo" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
-              <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
-              <path d="M2 2l7.586 7.586"></path>
-              <circle cx="11" cy="11" r="2"></circle>
-            </svg>
+            <img src="./assets/inkflow-logo.png" alt="Logo InkFlow" class="brand-logo-img">
           </div>
           <div>
-            <h1 class="brand-title">Plume Studio Pro</h1>
+            <h1 class="brand-title">InkFlow</h1>
             <span class="brand-subtitle">Canevas Infini • LaTeX • ICR</span>
           </div>
         </div>
         <button class="icon-btn-tiny" id="btnCloseSidebar" title="Réduire la barre latérale (Ctrl+B)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
             <path d="M9 3v18"></path>
             <path d="M15 9l-3 3 3 3"></path>
           </svg>
@@ -43,12 +38,61 @@
 
       <div class="sidebar-section" id="sectionNotebooks">
         <div class="section-header-row">
-          <span class="section-label">Mes Cahiers</span>
-          <button class="btn-small-action" id="btnNewNotebook" title="Créer un nouveau cahier">+ Nouveau</button>
+          <span class="section-label">Documents</span>
+          <div class="gn-header-actions">
+            <button class="btn-small-action gn-btn-new-folder" id="btnNewFolder" title="Créer un dossier personnalisé Goodnotes">+ Dossier</button>
+            <button class="btn-small-action gn-btn-new-notebook" id="btnNewNotebook" title="Clic : Nouveau cahier • Double-clic : Note rapide instantanée">+ Cahier</button>
+          </div>
         </div>
+        <div class="gn-library-controls">
+          <div class="gn-search-wrap">
+            <svg class="gn-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="m20 20-3.8-3.8"></path>
+            </svg>
+            <input type="search" id="sidebarSearchInput" class="gn-search-input" placeholder="Rechercher dossiers, cahiers..." aria-label="Rechercher dans la bibliothèque">
+          </div>
+          <div class="gn-filter-pills" role="group" aria-label="Filtres de bibliothèque">
+            <button class="gn-filter-pill active" id="btnFilterAllDocs" data-filter="all">Tous</button>
+            <button class="gn-filter-pill" id="btnFilterFavDocs" data-filter="favorites">⭐ Favoris</button>
+            <button class="gn-filter-pill" id="btnFilterRecentDocs" data-filter="recents">🕒 Récents</button>
+            <button class="gn-filter-pill" id="btnFilterTrashDocs" data-filter="trash">🗑 Corbeille</button>
+          </div>
+          <div class="gn-sort-bar" id="librarySortBar">
+            <select id="notebookSortSelect" class="gn-sort-select" aria-label="Trier les documents">
+              <option value="date_desc">Tri : Modifié récemment</option>
+              <option value="name_asc">Tri : Nom (A–Z)</option>
+              <option value="name_desc">Tri : Nom (Z–A)</option>
+              <option value="type">Tri : Type (Dossiers / PDF)</option>
+            </select>
+            <button class="gn-sort-toggle-btn" id="btnSortDocs" data-sort="date" title="Tri par date actif — Cliquer pour trier par nom" aria-label="Trier par date ou par nom">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m3 8 4-4 4 4"></path>
+                <path d="M7 4v16"></path>
+                <path d="M13 8h8"></path>
+                <path d="M13 12h6"></path>
+                <path d="M13 16h4"></path>
+              </svg>
+              <span id="btnSortDocsLabel">Date</span>
+            </button>
+            <button class="icon-btn-tiny gn-view-toggle-btn" id="btnToggleLibraryView" title="Basculer l'affichage Liste / Grille" aria-label="Basculer l'affichage Liste / Grille">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+                <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+                <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+                <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="gn-trash-bar hidden" id="trashActionBar">
+          <span id="trashCountLabel">0 élément dans la corbeille</span>
+          <button class="btn-small-action" id="btnEmptyTrash" style="color:var(--danger);">Vider</button>
+        </div>
+        <nav class="gn-folder-breadcrumb hidden" id="folderBreadcrumb" aria-label="Chemin du dossier"></nav>
         <div class="pdf-sidebar-bar">
           <button class="btn-small-action btn-pdf-import" id="btnImportPdfSidebar" title="Importer un fichier PDF local (nouveau cahier ou cahier actuel)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
               <polyline points="14 2 14 8 20 8"></polyline>
               <path d="M12 18v-6"></path>
@@ -57,21 +101,102 @@
             <span>Importer un PDF</span>
           </button>
           <button class="btn-small-action btn-pdf-export" id="btnExportPdfSidebar" title="Exporter le cahier annoté en fichier .pdf (pdf-lib)">
-            <span>⬇ Exporter en PDF</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Exporter PDF</span>
           </button>
         </div>
-        <div class="notebook-list" id="notebookList"></div>
+        <div class="notebook-list" id="notebookList"><div class="gn-folder-card" data-folder-id="fld_mwoyjdpu_x4heg1">
+        <div class="gn-folder-icon" style="background:#8b5cf6;color:#ffffff;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></div>
+        <div class="notebook-info">
+          <div class="notebook-name">AA</div>
+          <div class="notebook-meta">0 élément</div>
+        </div>
+        <div class="notebook-actions">
+          <button class="icon-btn-tiny" data-folder-action="star" title="Favori">☆</button>
+          <button class="icon-btn-tiny" data-folder-action="customize" title="Couleur et icône">✎</button>
+          <button class="icon-btn-tiny danger" data-folder-action="delete" title="Supprimer le dossier">✕</button>
+        </div>
+      </div><div class="gn-folder-card" data-folder-id="fld_mwoyiby5_y79sy5">
+        <div class="gn-folder-icon" style="background:#3b82f6;color:#ffffff;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></div>
+        <div class="notebook-info">
+          <div class="notebook-name">AA</div>
+          <div class="notebook-meta">0 élément</div>
+        </div>
+        <div class="notebook-actions">
+          <button class="icon-btn-tiny" data-folder-action="star" title="Favori">☆</button>
+          <button class="icon-btn-tiny" data-folder-action="customize" title="Couleur et icône">✎</button>
+          <button class="icon-btn-tiny danger" data-folder-action="delete" title="Supprimer le dossier">✕</button>
+        </div>
+      </div><div class="notebook-card active" data-notebook-id="nb_demo_architecture" draggable="true">
+          <div class="notebook-cover-thumb" style="background-color:#2563eb">
+            <div class="notebook-spine"></div>
+            <span class="notebook-cover-label"></span>
+            
+          </div>
+          <div class="notebook-info">
+            <div class="notebook-name">Maths, LaTeX &amp; Notes Infinies</div>
+            <div class="notebook-meta">
+              <span>2 pages</span>
+              <span class="nb-paper-badge">Quadrillé</span>
+              <span class="nb-date-meta">14 nov.</span>
+            </div>
+          </div>
+          <div class="notebook-actions">
+            <button class="icon-btn-tiny" data-action="star-nb" title="Favori">☆</button>
+            <button class="icon-btn-tiny" data-action="move-nb" title="Déplacer dans un dossier">📁</button>
+            <button class="icon-btn-tiny" data-action="rename-nb" title="Renommer">✎</button>
+            
+          </div>
+        </div></div>
       </div>
 
       <div class="sidebar-section hidden" id="sectionPages">
         <div class="section-header-row">
           <span class="section-label" id="activeNotebookPagesLabel">Pages du cahier</span>
-          <div style="display:flex;gap:4px;">
+          <div class="gn-header-actions">
+            <button class="btn-small-action gn-btn-bookmark-filter" id="btnFilterBookmarkedPages" title="Afficher uniquement les pages marquées d'un signet">🔖</button>
             <button class="btn-small-action btn-pdf-import" id="btnImportPdfPages" title="Importer des pages PDF dans ce cahier ou un nouveau cahier">+ PDF</button>
-            <button class="btn-small-action" id="btnNewPageSidebar" title="Ajouter une nouvelle page">+ Page</button>
+            <button class="btn-small-action gn-btn-new-page" id="btnNewPageSidebar" title="Ajouter une nouvelle page">+ Page</button>
           </div>
         </div>
-        <div class="pages-grid" id="pagesGrid"></div>
+        <div class="gn-pages-subtabs" id="pagesSubTabs">
+          <button class="gn-subtab-btn active" id="btnPagesSubTabGrid" data-pages-subtab="pages">Miniatures</button>
+          <button class="gn-subtab-btn" id="btnPagesSubTabOutline" data-pages-subtab="outline">Plan / Sommaire</button>
+          <button class="gn-subtab-btn" id="btnPagesSubTabBookmarks" data-pages-subtab="bookmarks">★ Favoris</button>
+        </div>
+        <div class="gn-outline-wrap hidden" id="outlineSectionWrap">
+          <button class="btn-small-action" id="btnAddOutlineEntry" style="width:100%;justify-content:center;">+ Ajouter la page active au sommaire</button>
+          <div class="gn-outline-list" id="outlineList"></div>
+        </div>
+        <div class="pages-grid" id="pagesGrid"><div class="page-thumb-card active" draggable="true" data-page-index="0">
+        <div class="page-thumb-preview"><img data-thumb-page-id="page_mwoyi2xx_8f1ste" loading="lazy" src="data:image/png;base64,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" alt="Page 1"></div>
+        <div class="page-thumb-footer">
+          <span class="page-thumb-number">1. Page 2</span>
+          <div class="page-thumb-actions">
+            <button class="icon-btn-tiny" data-page-action="bookmark" title="Signet Goodnotes">☆</button>
+            <button class="icon-btn-tiny" data-page-action="rotate" title="Pivoter de 90°">↻</button>
+            <button class="icon-btn-tiny" data-page-action="rename" title="Renommer">✎</button>
+            <button class="icon-btn-tiny" data-page-action="dup" title="Dupliquer">⧉</button>
+            <button class="icon-btn-tiny danger" data-page-action="del" title="Supprimer">✕</button>
+          </div>
+        </div>
+      </div><div class="page-thumb-card" draggable="true" data-page-index="1">
+        <div class="page-thumb-preview"><img data-thumb-page-id="page_mwoyklzf_wq3t67" loading="lazy" src="data:image/png;base64,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" alt="Page 2"></div>
+        <div class="page-thumb-footer">
+          <span class="page-thumb-number">2. Page 2</span>
+          <div class="page-thumb-actions">
+            <button class="icon-btn-tiny" data-page-action="bookmark" title="Signet Goodnotes">☆</button>
+            <button class="icon-btn-tiny" data-page-action="rotate" title="Pivoter de 90°">↻</button>
+            <button class="icon-btn-tiny" data-page-action="rename" title="Renommer">✎</button>
+            <button class="icon-btn-tiny" data-page-action="dup" title="Dupliquer">⧉</button>
+            <button class="icon-btn-tiny danger" data-page-action="del" title="Supprimer">✕</button>
+          </div>
+        </div>
+      </div></div>
       </div>
 
       <div class="sidebar-footer">
@@ -80,14 +205,18 @@
             <span class="status-dot" id="dbStatusDot"></span>
             <span id="dbStatusText">IndexedDB synchronisé</span>
           </div>
-          <span id="strokeCountBadge" class="value-badge">0 éléments</span>
+          <span id="strokeCountBadge" class="value-badge">2 éléments</span>
         </div>
         <div class="footer-actions">
           <button class="btn-small-action" id="btnBackupJson" title="Exporter tous les cahiers en fichier .plume.json">Sauvegarder</button>
           <button class="btn-small-action" id="btnImportJson" title="Importer un fichier .plume.json">Importer</button>
-          <input type="file" id="inputImportJson" accept=".json" style="display:none" />
-          <input type="file" id="inputImportPdf" accept=".pdf,application/pdf" style="display:none" />
+          <input type="file" id="inputImportJson" accept=".json" style="display:none">
+          <input type="file" id="inputImportPdf" accept=".pdf,application/pdf" style="display:none">
+          <input type="file" id="inputInsertImage" accept="image/*" style="display:none">
         </div>
+        <button class="btn-small-action btn-gdrive-sync" id="btnOpenGoogleDrive" style="width:100%; justify-content:center;" title="Sauvegarde &amp; synchronisation Google Drive (style Goodnotes)">
+          ☁ Sauvegarde Google Drive
+        </button>
         <button class="btn-small-action" id="btnDesktopInfo" style="width:100%; justify-content:center;">
           Application Desktop (Electron / PWA)
         </button>
@@ -96,170 +225,189 @@
 
     <!-- ==================== ZONE DE TRAVAIL CENTRALE ==================== -->
     <main class="workspace-area" id="workspaceArea">
-      <!-- BARRE D'OUTILS UNIQUE ET ÉPURÉE EN HAUT -->
-      <header class="floating-header">
-        <div class="unified-top-bar" role="toolbar" aria-label="Barre d'outils principale">
-          <!-- Bouton Cahiers (barre latérale) -->
-          <button class="tool-btn" id="btnToggleSidebar" title="Afficher/Masquer les cahiers et pages (Ctrl+B)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-              <line x1="9" y1="3" x2="9" y2="21"></line>
-            </svg>
-            <span>Cahiers</span>
-          </button>
+      <!-- BARRE D'OUTILS GOODNOTES 6 EN HAUT (PLEINE LARGEUR, 1 SEULE LIGNE, ICÔNES ÉPURÉES) -->
+      <header class="floating-header gn-header">
+        <div class="unified-top-bar gn-toolbar" role="toolbar" aria-label="Barre d'outils principale">
+          <!-- ZONE GAUCHE : Bibliothèque Cahiers + Annuler / Rétablir (disposition GoodNotes) -->
+          <div class="gn-bar-group gn-bar-left">
+            <button class="tool-btn gn-sidebar-btn" id="btnToggleSidebar" title="Bibliothèque — Cahiers, dossiers &amp; pages (Ctrl+B)">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="7.5" height="7.5" rx="2" fill="currentColor" fill-opacity="0.18"></rect>
+                <rect x="13.5" y="3" width="7.5" height="7.5" rx="2"></rect>
+                <rect x="3" y="13.5" width="7.5" height="7.5" rx="2"></rect>
+                <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"></rect>
+              </svg>
+              <span>Cahiers</span>
+            </button>
 
-          <div class="dock-divider"></div>
+            <div class="dock-divider"></div>
 
-          <!-- Outils principaux -->
-          <button class="tool-btn active" data-tool="pen" id="toolPen" title="Stylo (P) — Re-cliquer ou utiliser Réglages pour les options">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
-              <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
-            </svg>
-            <span>Stylo</span>
-            <span class="color-indicator" id="penColorDot" style="background:#1e293b"></span>
-          </button>
+            <button class="tool-btn gn-icon-only" id="btnUndo" title="Annuler (Ctrl+Z)">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M8.5 6.5L4 11l4.5 4.5"></path>
+                <path d="M4.5 11H14a5.5 5.5 0 1 1 0 11h-2.5"></path>
+              </svg>
+            </button>
+            <button class="tool-btn gn-icon-only" id="btnRedo" title="Rétablir (Ctrl+Y)" disabled="">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15.5 6.5L20 11l-4.5 4.5"></path>
+                <path d="M19.5 11H10a5.5 5.5 0 1 0 0 11h2.5"></path>
+              </svg>
+            </button>
+          </div>
 
-          <button class="tool-btn" data-tool="highlighter" id="toolHighlighter" title="Surligneur translucide (H)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="m9 11-6 6v3h9l3-3"></path>
-              <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"></path>
-            </svg>
-            <span>Surligneur</span>
-            <span class="color-indicator" id="hlColorDot" style="background:#facc15"></span>
-          </button>
+          <!-- ZONE CENTRALE : Palette d'outils GoodNotes (icônes pures, re-cliquer pour les options) -->
+          <div class="gn-bar-group gn-bar-center">
+            <button class="tool-btn gn-tool-icon active" data-tool="pen" id="toolPen" title="Stylo, Surligneur &amp; Ruban (P) — Re-cliquer pour la barre d'outils">
+              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2.5L7.2 12.2a1.8 1.8 0 0 0 .35 2.05L9.5 16.2h5l1.95-1.95a1.8 1.8 0 0 0 .35-2.05L12 2.5z" fill="currentColor" fill-opacity="0.14"></path>
+                <line x1="12" y1="2.5" x2="12" y2="10.2"></line>
+                <circle cx="12" cy="11.4" r="1.25" fill="currentColor" stroke="none"></circle>
+                <rect x="8.8" y="16.2" width="6.4" height="2.4" rx="0.8" fill="currentColor" fill-opacity="0.24"></rect>
+                <path d="M9.6 18.6v2.2a1 1 0 0 0 1 1h2.8a1 1 0 0 0 1-1v-2.2"></path>
+              </svg>
+              <span class="gn-sr-label">Stylo</span>
+              <span class="color-indicator" id="penColorDot" style="background: rgb(17, 24, 39);"></span>
+            </button>
 
-          <button class="tool-btn" data-tool="eraser" id="toolEraser" title="Gomme vectorielle (E)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path>
-              <path d="M22 21H7"></path>
-            </svg>
-            <span>Gomme</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="eraser" id="toolEraser" title="Gomme vectorielle (E) — Re-cliquer pour les options">
+              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M11.6 5.2l7.2 7.2a2.1 2.1 0 0 1 0 3l-4.4 4.4H8.6l-4.8-4.8a2.1 2.1 0 0 1 0-3l4.8-6.8a2.1 2.1 0 0 1 3 0z"></path>
+                <path d="M9.6 8.1l7.1 7.1-2.3 2.3-7.1-7.1z" fill="currentColor" fill-opacity="0.22" stroke="none"></path>
+                <line x1="8.8" y1="8.9" x2="15.9" y2="16"></line>
+                <line x1="12.5" y1="19.8" x2="21" y2="19.8" stroke-opacity="0.65"></line>
+              </svg>
+              <span class="gn-sr-label">Gomme</span>
+            </button>
 
-          <button class="tool-btn" data-tool="lasso" id="toolLasso" title="Lasso de sélection (L)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 2">
-              <path d="M7 22a5 5 0 0 1-2-4"></path>
-              <path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8a12 12 0 0 1-5-1"></path>
-            </svg>
-            <span>Lasso</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="lasso" id="toolLasso" title="Lasso de sélection (L) — Re-cliquer pour les options">
+              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <ellipse cx="12.2" cy="9.6" rx="8.8" ry="6.4" stroke-dasharray="3.2 2.4" fill="currentColor" fill-opacity="0.08"></ellipse>
+                <circle cx="8.2" cy="15.7" r="1.8" fill="currentColor" fill-opacity="0.25"></circle>
+                <path d="M7.6 17.4c-.9 1.6-.4 3.4 1.2 4.1 1.4.6 3.1.1 4.2-.8"></path>
+              </svg>
+              <span class="gn-sr-label">Lasso</span>
+            </button>
 
-          <button class="tool-btn" data-tool="text" id="toolText" title="Ajouter un emplacement de texte clavier sur la page (T)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="4 7 4 4 20 4 20 7"></polyline>
-              <line x1="9" y1="20" x2="15" y2="20"></line>
-              <line x1="12" y1="4" x2="12" y2="20"></line>
-            </svg>
-            <span>Texte</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="shape" id="toolShape" title="Formes géométriques (S) — Re-cliquer pour les options">
+              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="10.5" width="9.5" height="9.5" rx="2.2" fill="currentColor" fill-opacity="0.14"></rect>
+                <circle cx="16.2" cy="14.8" r="5" fill="currentColor" fill-opacity="0.10"></circle>
+                <path d="M11.6 3.2l5 8.4H6.6l5-8.4z" fill="currentColor" fill-opacity="0.18"></path>
+              </svg>
+              <span class="gn-sr-label">Formes</span>
+            </button>
 
-          <button class="tool-btn" id="btnOpenLatexModal" title="Insérer ou éditer une équation mathématique LaTeX (M)">
-            <span style="font-family:var(--font-math);font-weight:700;font-size:15px;">∑</span>
-            <span>LaTeX</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="text" id="toolText" title="Zone de texte clavier (T) — Re-cliquer pour les options">
+              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="4" width="16" height="16" rx="2.2" stroke-opacity="0.55" fill="currentColor" fill-opacity="0.06"></rect>
+                <rect x="2.6" y="2.6" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
+                <rect x="18.4" y="2.6" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
+                <rect x="2.6" y="18.4" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
+                <rect x="18.4" y="18.4" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
+                <path d="M8.5 8.8h7M12 8.8v7.2M10.2 16h3.6" stroke-width="2"></path>
+              </svg>
+              <span class="gn-sr-label">Texte</span>
+            </button>
 
-          <button class="tool-btn" data-tool="shape" id="toolShape" title="Formes géométriques (S)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="11" height="11" rx="1"></rect>
-              <circle cx="16" cy="16" r="5"></circle>
-            </svg>
-            <span>Formes</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" id="btnInsertImage" title="Insérer une image / sticker (Ctrl+V)">
+              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3.8" width="18" height="16.4" rx="3"></rect>
+                <circle cx="8.6" cy="8.8" r="1.7" fill="currentColor" stroke="none"></circle>
+                <path d="M4.2 18.4l5.2-5.4a1.2 1.2 0 0 1 1.7 0l2.4 2.4 2.6-2.8a1.2 1.2 0 0 1 1.8.1l2.8 3.6v2.1a1.5 1.5 0 0 1-1.5 1.5H5.7a1.5 1.5 0 0 1-1.5-1.5z" fill="currentColor" fill-opacity="0.18" stroke="none"></path>
+                <path d="M4 17.8l5.3-5.2a1.2 1.2 0 0 1 1.7 0l2.3 2.3 2.7-2.8a1.2 1.2 0 0 1 1.8.1L20.5 16"></path>
+              </svg>
+              <span class="gn-sr-label">Image</span>
+            </button>
 
-          <button class="tool-btn" data-tool="pan" id="toolPan" title="Main / Bouger dans la page infinie (Espace ou 2 doigts)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
-              <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
-              <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
-              <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
-            </svg>
-            <span>Bouger</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="laser" id="toolLaser" title="Pointeur laser (K) — Re-cliquer pour les options">
+              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="5.6" fill="currentColor" fill-opacity="0.18" stroke="none"></circle>
+                <circle cx="12" cy="12" r="2.7" fill="currentColor"></circle>
+                <path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.9 1.9M16.8 16.8l1.9 1.9M18.7 5.3l-1.9 1.9M7.2 16.8l-1.9 1.9"></path>
+              </svg>
+              <span class="gn-sr-label">Laser</span>
+            </button>
 
-          <div class="dock-divider"></div>
+            <button class="tool-btn gn-tool-icon" data-tool="pan" id="toolPan" title="Main / Déplacer la page (Espace ou 2 doigts)">
+              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 11.2V6.6a1.6 1.6 0 1 0-3.2 0v3.6"></path>
+                <path d="M14.8 10.2V4.6a1.6 1.6 0 1 0-3.2 0v5.6"></path>
+                <path d="M11.6 10.2V5.8a1.6 1.6 0 1 0-3.2 0v7.8"></path>
+                <path d="M18 9.2a1.6 1.6 0 1 1 3.2 0v5.2a7.2 7.2 0 0 1-7.2 7.2h-1.6c-2.6 0-4.4-.9-5.8-2.4l-3.1-3.4a1.7 1.7 0 0 1 2.4-2.4l2.5 2.1"></path>
+              </svg>
+              <span class="gn-sr-label">Bouger</span>
+            </button>
+          </div>
 
-          <!-- Bouton dédié pour afficher/masquer les options de l'outil actif sans encombrer l'écran -->
-          <button class="tool-btn tool-options-trigger" id="btnToggleToolOptions" title="Afficher / Masquer les options de l'outil (Couleur, Taille, Lissage, Gomme...)" aria-expanded="false">
-            <span class="trigger-color-dot" id="activeToolColorPreview" style="background:#1e293b"></span>
-            <span id="activeToolSummaryText">5.0px</span>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <line x1="4" y1="21" x2="4" y2="14"></line>
-              <line x1="4" y1="10" x2="4" y2="3"></line>
-              <line x1="12" y1="21" x2="12" y2="12"></line>
-              <line x1="12" y1="8" x2="12" y2="3"></line>
-              <line x1="20" y1="21" x2="20" y2="16"></line>
-              <line x1="20" y1="12" x2="20" y2="3"></line>
-              <line x1="1" y1="14" x2="7" y2="14"></line>
-              <line x1="9" y1="8" x2="15" y2="8"></line>
-              <line x1="17" y1="16" x2="23" y2="16"></line>
-            </svg>
-            <span class="trigger-chevron" id="toolOptionsChevron">▾</span>
-          </button>
+          <!-- ZONE DROITE : IA, Papier, PDF, Export, Thème -->
+          <div class="gn-bar-group gn-bar-right">
+            <button class="tool-btn ai-btn gn-icon-only" id="btnOpenRecognition" title="Reconnaître l'écriture manuscrite et les équations (IA / LaTeX)">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" fill="currentColor" fill-opacity="0.22"></path>
+                <path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16z"></path>
+              </svg>
+              <span class="gn-sr-label">Reconnaître</span>
+            </button>
 
-          <div class="dock-divider"></div>
+            <button class="tool-btn gn-icon-only" id="btnPaperSettings" title="Modèle &amp; fond de page (Seyès, Cornell, Quadrillé, Planner, Sombre...)">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="3" width="16" height="18" rx="2.5" fill="currentColor" fill-opacity="0.08"></rect>
+                <line x1="4" y1="8.5" x2="20" y2="8.5" stroke-opacity="0.7"></line>
+                <line x1="4" y1="13.5" x2="20" y2="13.5" stroke-opacity="0.7"></line>
+                <line x1="9.5" y1="3" x2="9.5" y2="21" stroke-opacity="0.7"></line>
+              </svg>
+              <span class="gn-sr-label">Fonds</span>
+            </button>
 
-          <!-- Reconnaissance d'écriture & d'équations + Annuler / Rétablir -->
-          <button class="tool-btn ai-btn" id="btnOpenRecognition" title="Reconnaître l'écriture manuscrite et les équations en Texte / LaTeX">
-            <span>✨ Reconnaître</span>
-          </button>
+            <button class="tool-btn gn-icon-only" id="btnQuickImportPdf" title="Importer un fichier PDF local pour l'annoter au stylet">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2.8H6.8A2.3 2.3 0 0 0 4.5 5.1v13.8a2.3 2.3 0 0 0 2.3 2.3h10.4a2.3 2.3 0 0 0 2.3-2.3V8.3L14 2.8z" fill="currentColor" fill-opacity="0.1"></path>
+                <polyline points="14 2.8 14 8.3 19.5 8.3"></polyline>
+                <path d="M12 17.5v-5.5"></path>
+                <path d="M9.4 14.5L12 11.8l2.6 2.7"></path>
+              </svg>
+              <span class="gn-sr-label">Importer PDF</span>
+            </button>
 
-          <button class="tool-btn" id="btnUndo" title="Annuler (Ctrl+Z)" disabled>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 7v6h6"></path>
-              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
-            </svg>
-          </button>
-          <button class="tool-btn" id="btnRedo" title="Rétablir (Ctrl+Y)" disabled>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 7v6h-6"></path>
-              <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
-            </svg>
-          </button>
+            <button class="tool-btn gn-icon-only" id="btnExportMenu" title="Exporter (PDF annoté, SVG, PNG)">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3.2v11.3"></path>
+                <path d="M8.4 6.8L12 3.2l3.6 3.6"></path>
+                <path d="M5 12.2v6.2A2.4 2.4 0 0 0 7.4 20.8h9.2a2.4 2.4 0 0 0 2.4-2.4v-6.2"></path>
+              </svg>
+              <span class="gn-sr-label">Export</span>
+            </button>
 
-          <div class="dock-divider"></div>
+            <button class="tool-btn gn-icon-only" id="btnThemeToggle" title="Basculer le thème Clair / Sombre">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20.4 13.4A8.4 8.4 0 1 1 10.6 3.6a6.6 6.6 0 0 0 9.8 9.8z" fill="currentColor" fill-opacity="0.16"></path>
+                <path d="M18.2 4.5v2.4M17 5.7h2.4" stroke-width="1.6"></path>
+              </svg>
+            </button>
 
-          <!-- Fonds, PDF, Export, Thème -->
-          <button class="tool-btn" id="btnPaperSettings" title="Changer le fond de page (Seyès, Millimétré, Isométrique, Cornell, Pointillé, Portée...)">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-              <line x1="3" y1="9" x2="21" y2="9"></line>
-              <line x1="3" y1="15" x2="21" y2="15"></line>
-              <line x1="9" y1="3" x2="9" y2="21"></line>
-            </svg>
-            <span>Fonds</span>
-          </button>
-
-          <button class="tool-btn" id="btnQuickImportPdf" title="Importer un fichier PDF local (PDF.js) pour l'annoter au stylet">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-              <path d="M12 18v-6"></path>
-              <path d="m9 15 3-3 3 3"></path>
-            </svg>
-            <span>Importer PDF</span>
-          </button>
-
-          <button class="tool-btn" id="btnExportMenu" title="Exporter en PDF annoté (pdf-lib), SVG, PNG ou App PC">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            <span>Export</span>
-          </button>
-
-          <button class="tool-btn" id="btnThemeToggle" title="Basculer le thème Clair / Sombre">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-            </svg>
-          </button>
+            <button class="tool-btn gn-icon-only" id="btnFullscreenToggle" title="Plein écran (F11)" aria-label="Plein écran (F11)" aria-pressed="false">
+              <svg class="icon-fs-enter" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <polyline points="9 21 3 21 3 15"></polyline>
+                <line x1="21" y1="3" x2="14" y2="10"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>
+              <svg class="icon-fs-exit" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="4 14 10 14 10 20"></polyline>
+                <polyline points="20 10 14 10 14 4"></polyline>
+                <line x1="14" y1="10" x2="21" y2="3"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>
+              <span class="gn-sr-label">Plein écran</span>
+            </button>
+          </div>
         </div>
 
         <!-- POPOVER D'OPTIONS D'OUTIL (MASQUÉ PAR DÉFAUT, S'OUVRE UNIQUEMENT AU CLIC) -->
         <div class="sub-dock hidden" id="toolOptionsDock">
-          <div class="swatch-group" id="colorPaletteGroup">
-            <button class="color-swatch active" data-color="#1e293b" style="background:#1e293b" title="Noir encre"></button>
+          <div class="swatch-group" id="colorPaletteGroup" style="display: flex;">
+            <button class="color-swatch" data-color="#1e293b" style="background:#1e293b" title="Noir encre"></button>
             <button class="color-swatch" data-color="#1d4ed8" style="background:#1d4ed8" title="Bleu royal"></button>
             <button class="color-swatch" data-color="#0284c7" style="background:#0284c7" title="Bleu azur"></button>
             <button class="color-swatch" data-color="#dc2626" style="background:#dc2626" title="Rouge carmin"></button>
@@ -268,27 +416,39 @@
             <button class="color-swatch" data-color="#7c3aed" style="background:#7c3aed" title="Violet"></button>
             <button class="color-swatch" data-color="#facc15" style="background:#facc15" title="Jaune fluo"></button>
             <div class="color-picker-wrap" title="Couleur personnalisée">
-              <input type="color" id="customColorPicker" value="#1e293b" />
+              <input type="color" id="customColorPicker" value="#1e293b">
             </div>
           </div>
 
-          <div class="dock-divider" id="dividerAfterColor"></div>
+          <div class="dock-divider" id="dividerAfterColor" style="display: block;"></div>
 
-          <div class="control-group" id="sizeControlGroup">
+          <div class="control-group" id="sizeControlGroup" style="display: flex;">
             <span>Taille</span>
             <div class="size-presets">
-              <button class="size-dot-btn" data-size="2.5" title="Fin"><span style="width:4px;height:4px;"></span></button>
-              <button class="size-dot-btn active" data-size="5" title="Moyen"><span style="width:8px;height:8px;"></span></button>
-              <button class="size-dot-btn" data-size="12" title="Épais"><span style="width:12px;height:12px;"></span></button>
+              <button class="size-dot-btn active" data-size="2.5" data-size-slot="0" title="Fin"><span style="width:4px;height:4px;"></span></button>
+              <button class="size-dot-btn" data-size="5" data-size-slot="1" title="Moyen"><span style="width:8px;height:8px;"></span></button>
+              <button class="size-dot-btn" data-size="12" data-size-slot="2" title="Épais"><span style="width:12px;height:12px;"></span></button>
             </div>
-            <input type="range" class="range-slider" id="strokeSizeSlider" min="1" max="42" step="0.5" value="5" />
-            <span class="value-badge" id="strokeSizeValue">5.0px</span>
+            <input type="range" class="range-slider" id="strokeSizeSlider" min="1" max="42" step="0.5" value="5">
+            <span class="value-badge" id="strokeSizeValue">2.5px</span>
           </div>
 
           <div class="control-group" id="smoothingControlGroup">
             <div class="dock-divider"></div>
+            <div class="segmented-pills" id="penStylePills" title="Style de pointe Goodnotes" style="display: flex;">
+              <button class="seg-pill active" data-penstyle="fountain">Plume</button>
+              <button class="seg-pill" data-penstyle="ballpoint">Bille</button>
+              <button class="seg-pill" data-penstyle="brush">Pinceau</button>
+            </div>
+            <div class="dock-divider"></div>
+            <div class="segmented-pills" id="penLineStylePills" title="Style de trait (Continu, Tireté, Pointillé)" style="display: flex;">
+              <button class="seg-pill active" data-line-style="solid">Continu</button>
+              <button class="seg-pill" data-line-style="dashed">Tireté</button>
+              <button class="seg-pill" data-line-style="dotted">Pointillé</button>
+            </div>
+            <div class="dock-divider"></div>
             <span>Lissage</span>
-            <input type="range" class="range-slider" id="smoothingSlider" min="0" max="0.95" step="0.05" value="0.65" />
+            <input type="range" class="range-slider" id="smoothingSlider" min="0" max="1" step="0.05" value="0.65">
             <span class="value-badge" id="smoothingValue">65%</span>
             <div class="dock-divider"></div>
             <div class="segmented-pills">
@@ -297,8 +457,12 @@
             </div>
             <div class="dock-divider"></div>
             <label class="option-toggle-pill" title="Maintenir le stylet immobile à la fin d'un tracé (cercle, ellipse, flèche, ligne, rectangle, triangle) pour le transformer en forme géométrique parfaite">
-              <input type="checkbox" id="autoShapeToggle" checked />
+              <input type="checkbox" id="autoShapeToggle" checked="">
               <span>✨ Forme auto (maintenir)</span>
+            </label>
+            <label class="option-toggle-pill hidden" id="hlAutoStraightenWrap" title="Redresser automatiquement les traits de surligneur quasi rectilignes">
+              <input type="checkbox" id="hlAutoStraightenToggle">
+              <span>📏 Ligne droite auto</span>
             </label>
           </div>
 
@@ -319,28 +483,375 @@
               <button class="seg-pill" data-shape="triangle">Triangle</button>
             </div>
             <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
-              <input type="checkbox" id="shapeFillCheckbox" /> Remplir
+              <input type="checkbox" id="shapeFillCheckbox"> Remplir
             </label>
           </div>
 
           <div class="control-group hidden" id="eraserControlGroup">
             <div class="segmented-pills">
               <button class="seg-pill active" data-eraser-mode="stroke">Trait entier</button>
+              <button class="seg-pill" data-eraser-mode="segment">Segment</button>
               <button class="seg-pill" data-eraser-mode="partial">Précision (découpe)</button>
             </div>
+            <label class="option-toggle-pill" title="N'effacer que les traits de surligneur sans toucher à l'encre">
+              <input type="checkbox" id="eraserHighlighterOnlyToggle">
+              <span>Surligneur seul</span>
+            </label>
+            <label class="option-toggle-pill" title="Revenir automatiquement au stylo dès la fin du coup de gomme">
+              <input type="checkbox" id="eraserAutoDeselectToggle">
+              <span>Retour auto stylo</span>
+            </label>
             <button class="btn-small-action" id="btnClearPage" style="color:var(--danger);">Tout effacer</button>
           </div>
 
           <div class="control-group hidden" id="lassoControlGroup">
+            <div class="segmented-pills" id="lassoModePills" title="Mode de sélection Lasso">
+              <button class="seg-pill active" data-lasso-mode="freehand">Main levée</button>
+              <button class="seg-pill" data-lasso-mode="rect">Rectangle</button>
+            </div>
             <span id="lassoSelectionBadge" style="color:var(--accent-primary);font-weight:700;">Entourez des traits</span>
             <button class="btn-small-action btn-ai-magic" id="btnRecognizeSelection">✨ Convertir en Texte / LaTeX</button>
-            <button class="btn-small-action" id="btnDuplicateSelection" disabled>Dupliquer</button>
-            <button class="btn-small-action" id="btnScaleUpSelection" disabled>Agrandir +</button>
-            <button class="btn-small-action" id="btnScaleDownSelection" disabled>Réduire −</button>
-            <button class="btn-small-action" id="btnDeleteSelection" disabled style="color:var(--danger);">Supprimer</button>
+            <button class="btn-small-action" id="btnDuplicateSelection" disabled="">Dupliquer</button>
+            <button class="btn-small-action" id="btnScaleUpSelection" disabled="">Agrandir +</button>
+            <button class="btn-small-action" id="btnScaleDownSelection" disabled="">Réduire −</button>
+            <button class="btn-small-action" id="btnDeleteSelection" style="color:var(--danger);" disabled="">Supprimer</button>
           </div>
 
           <button class="icon-btn-tiny" id="btnCloseToolOptions" title="Fermer les options" style="margin-left:4px;">✕</button>
+        </div>
+
+        <!-- SOUS-BARRE FLOTTANTE STYLE GOODNOTES (Stylo, Crayon, Surligneur, Ruban, Formes | 3 Épaisseurs | Couleurs) -->
+        <div class="gn-pen-subbar hidden" id="gnPenSubBar" role="toolbar" aria-label="Barre rapide style GoodNotes">
+          <div class="gn-subbar-tools">
+            <button class="gn-subtool-btn active" id="gnSubToolPen" data-subtool="pen" title="Stylo (cliquer pour ouvrir les réglages du stylo)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2.5L7.2 12.2a1.8 1.8 0 0 0 .35 2.05L9.5 16.2h5l1.95-1.95a1.8 1.8 0 0 0 .35-2.05L12 2.5z" fill="currentColor" fill-opacity="0.16"></path>
+                <line x1="12" y1="2.5" x2="12" y2="10.2"></line>
+                <circle cx="12" cy="11.4" r="1.25" fill="currentColor" stroke="none"></circle>
+                <path d="M8.5 19.5c2.2-1 4.8-1 7 0" stroke-width="2.2"></path>
+              </svg>
+              <svg class="gn-sub-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+
+            <button class="gn-subtool-btn" id="gnSubToolBallpoint" data-subtool="ballpoint" title="Stylo à bille / Crayon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M17.5 3.5l3 3L8.5 18.5l-4.5 1.5 1.5-4.5L17.5 3.5z"></path>
+                <line x1="14.5" y1="6.5" x2="17.5" y2="9.5"></line>
+              </svg>
+            </button>
+
+            <button class="gn-subtool-btn" id="gnSubToolHighlighter" data-subtool="highlighter" title="Surligneur">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14.8 3.2l6 6a1.4 1.4 0 0 1 0 2l-7.2 7.2-6.8-6.8 6-6a1.4 1.4 0 0 1 2 0z"></path>
+                <path d="M6.8 11.6l-2.6 4.8a1 1 0 0 0 .2 1.2l1.8 1.8a1 1 0 0 0 1.2.2l4.8-2.6"></path>
+              </svg>
+            </button>
+
+            <button class="gn-subtool-btn" id="gnSubToolTape" data-subtool="tape" title="Ruban d'étude">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15.8 3.6l4.6 4.6-11.2 11.2-1.8-.4-.4-1.8-1.8-.4-.4-1.8L15.8 3.6z"></path>
+              </svg>
+            </button>
+
+            <button class="gn-subtool-btn" id="gnSubToolShape" data-subtool="instant-shape" title="Formes instantanées au stylo — Dessine un cercle, carré, flèche directement sans maintenir">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="4" width="8.5" height="8.5" rx="1.6"></rect>
+                <circle cx="8" cy="15.5" r="4.2"></circle>
+                <path d="M15.5 11.2l5.2 9h-10.4l5.2-9z"></path>
+              </svg>
+            </button>
+          </div>
+
+          <div class="gn-subbar-divider"></div>
+
+          <!-- 3 épaisseurs rapides GoodNotes (cliquer pour ouvrir Réglages Du Trait) -->
+          <div class="gn-subbar-thickness" id="gnSubBarThickness">
+            <button class="gn-thick-btn active" data-gn-slot="0" data-gn-size="2.5" title="Épaisseur 0.25 mm — Cliquer pour ouvrir Réglages Du Trait"><span class="gn-thick-line" style="height: 1.8px;"></span></button>
+            <button class="gn-thick-btn" data-gn-slot="1" data-gn-size="5" title="Épaisseur 0.50 mm — Cliquer pour ouvrir Réglages Du Trait"><span class="gn-thick-line" style="height: 2.5px;"></span></button>
+            <button class="gn-thick-btn" data-gn-slot="2" data-gn-size="12" title="Épaisseur 1.20 mm — Cliquer pour ouvrir Réglages Du Trait"><span class="gn-thick-line" style="height: 4.4px;"></span></button>
+          </div>
+
+          <!-- 3 couleurs rapides + bouton Ajouter couleur -->
+          <div class="gn-subbar-colors" id="gnSubBarColors">
+            <button class="gn-color-circle active" data-gn-color="#111827" style="background:#111827" title="Noir">
+              <svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <button class="gn-color-circle" data-gn-color="#3b82f6" style="background:#3b82f6" title="Bleu GoodNotes">
+              <svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <button class="gn-color-circle" data-gn-color="#dc2626" style="background:#dc2626" title="Rouge">
+              <svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <button class="gn-add-color-btn" id="gnSubAddColorBtn" title="Choisir une couleur personnalisée">
+              <span class="gn-add-plus">+</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- POPOVER RÉGLAGES DU STYLO & GESTES AU STYLET (STYLE GOODNOTES) -->
+        <div class="gn-pen-popover hidden" id="gnPenPopover" role="dialog" aria-label="Réglages du stylo">
+          <div class="gn-pen-popover-caret"></div>
+
+          <!-- VUE 1 : RÉGLAGES DU STYLO -->
+          <div class="gn-pen-view" id="gnPenMainView">
+            <div class="gn-pen-popover-header">
+              <span class="gn-pen-popover-title" id="gnPenPopoverTitle">Stylo À Plume</span>
+            </div>
+
+            <div class="gn-pen-preview-box">
+              <svg id="gnPenPreviewSvg" viewBox="0 0 260 76" width="260" height="76" aria-hidden="true">
+                <path id="gnPenPreviewPath" d="M 38 30 C 66 64, 96 58, 126 32 C 158 4, 198 10, 224 40" fill="none" stroke="#111827" stroke-width="5.2" stroke-linecap="butt"></path>
+              </svg>
+            </div>
+
+            <div class="gn-pen-type-grid" id="gnPenTypeGrid">
+              <button class="gn-pen-type-card active" data-gn-penstyle="fountain">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2.5L7.2 12.2a1.8 1.8 0 0 0 .35 2.05L9.5 16.2h5l1.95-1.95a1.8 1.8 0 0 0 .35-2.05L12 2.5z" fill="currentColor" fill-opacity="0.14"></path>
+                  <line x1="12" y1="2.5" x2="12" y2="10.2"></line>
+                  <circle cx="12" cy="11.4" r="1.2" fill="currentColor" stroke="none"></circle>
+                </svg>
+                <span>Stylo À Plume</span>
+              </button>
+              <button class="gn-pen-type-card" data-gn-penstyle="ballpoint">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17 3.5l3.5 3.5L9 18.5l-5 1.5 1.5-5L17 3.5z"></path>
+                  <line x1="14" y1="6.5" x2="17.5" y2="10"></line>
+                </svg>
+                <span>Stylo À Bille</span>
+              </button>
+              <button class="gn-pen-type-card" data-gn-penstyle="brush">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18.5 3.5c-2.5 2-4.8 4.8-6 7.5-1.8.4-3.3 1.7-3.8 3.6-.5 1.7-1.6 3-3.2 3.9 2.4.9 5.5.4 7.4-1.5 1.5-1.5 2-3.4 1.6-5.2 2.7-1.4 5.2-3.6 7-6.3z"></path>
+                </svg>
+                <span>Stylo Pinceau</span>
+              </button>
+            </div>
+
+            <div class="gn-pen-sliders-section">
+              <div class="gn-slider-block" id="gnTipSharpnessRow">
+                <div class="gn-slider-label-row">
+                  <span class="gn-slider-label">FINESSE DE LA POINTE</span>
+                  <span class="gn-slider-val" id="gnTipSharpnessVal">50%</span>
+                </div>
+                <div class="gn-slider-track-wrap gn-slider-ticks">
+                  <input type="range" class="gn-range" id="gnTipSharpnessSlider" min="0" max="100" step="5" value="50" style="--val: 50%;">
+                </div>
+              </div>
+
+              <div class="gn-slider-block" id="gnPressureSensRow">
+                <div class="gn-slider-label-row">
+                  <span class="gn-slider-label">SENSIBILITÉ À LA PRESSION</span>
+                  <span class="gn-slider-val" id="gnPressureSensVal">50%</span>
+                </div>
+                <div class="gn-slider-track-wrap gn-slider-ticks">
+                  <input type="range" class="gn-range" id="gnPressureSensSlider" min="0" max="100" step="5" value="50" style="--val: 50%;">
+                </div>
+              </div>
+
+              <div class="gn-slider-block" id="gnStabilizationRow">
+                <div class="gn-slider-label-row">
+                  <span class="gn-slider-label">STABILISATION DES TRAITS</span>
+                  <span class="gn-slider-val" id="gnStabilizationVal">65%</span>
+                </div>
+                <div class="gn-slider-track-wrap">
+                  <input type="range" class="gn-range" id="gnStabilizationSlider" min="0" max="100" step="5" value="65" style="--val: 65%;">
+                </div>
+              </div>
+            </div>
+
+            <div class="gn-pen-settings-section">
+              <div class="gn-settings-caption">RÉGLAGES</div>
+
+              <label class="gn-setting-row">
+                <span class="gn-setting-title">Dessiner et maintenir</span>
+                <span class="gn-ios-switch">
+                  <input type="checkbox" id="gnHoldToShapeSwitch" checked="">
+                  <span class="gn-ios-slider"></span>
+                </span>
+              </label>
+
+              <button class="gn-setting-row gn-setting-nav-btn" id="btnOpenStylusGestures" type="button">
+                <span class="gn-setting-title">Gestes au stylet</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="9 6 15 12 9 18"></polyline>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- VUE 2 : GESTES AU STYLET -->
+          <div class="gn-pen-view hidden" id="gnPenGesturesView">
+            <div class="gn-gestures-header">
+              <button class="gn-back-btn" id="btnBackToPenSettings" type="button" title="Retour aux réglages du stylo">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+              </button>
+              <span class="gn-pen-popover-title">Gestes Au Stylet</span>
+            </div>
+
+            <div class="gn-gestures-list">
+              <label class="gn-setting-row">
+                <span class="gn-setting-title">Griffonner pour effacer</span>
+                <span class="gn-ios-switch">
+                  <input type="checkbox" id="gnScribbleEraseSwitch" checked="">
+                  <span class="gn-ios-slider"></span>
+                </span>
+              </label>
+
+              <div class="gn-gesture-group">
+                <label class="gn-setting-row">
+                  <span class="gn-setting-title">Effacer les formes et le surlignage</span>
+                  <span class="gn-ios-switch">
+                    <input type="checkbox" id="gnScribbleEraseShapesHlSwitch" checked="">
+                    <span class="gn-ios-slider"></span>
+                  </span>
+                </label>
+                <p class="gn-setting-desc">Effacez l'écriture manuscrite et les dessins en griffonnant dessus</p>
+              </div>
+
+              <div class="gn-gesture-group">
+                <label class="gn-setting-row">
+                  <span class="gn-setting-title">Sélection au lasso</span>
+                  <span class="gn-ios-switch">
+                    <input type="checkbox" id="gnCircleLassoSwitch" checked="">
+                    <span class="gn-ios-slider"></span>
+                  </span>
+                </label>
+                <p class="gn-setting-desc">Entourez n'importe quelle zone pour la sélectionner et la déplacer</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- POPOVER RÉGLAGES DU TRAIT (STYLE GOODNOTES 6 — CONTINU / TIRETS / POINTILLÉS + CURSEUR CONIQUE) -->
+        <div class="gn-stroke-popover hidden" id="gnStrokePopover" role="dialog" aria-label="Réglages Du Trait">
+          <div class="gn-stroke-popover-caret" id="gnStrokePopoverCaret" style="left: 183px;"></div>
+
+          <div class="gn-stroke-header">
+            <span class="gn-stroke-title">Réglages Du Trait</span>
+            <div class="gn-stroke-header-right">
+              <span class="gn-stroke-mm" id="gnStrokeMmReadout">0.25 mm</span>
+              <button class="gn-stroke-reset-btn" id="btnGnStrokeReset" type="button" title="Réinitialiser l'épaisseur et le style par défaut" aria-label="Réinitialiser le trait">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9"></path>
+                  <polyline points="4.5 4.2 4.5 9 9.3 9"></polyline>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="gn-line-style-grid" id="gnStrokeLineStyleGrid">
+            <button class="gn-line-style-card active" data-gn-linestyle="solid" type="button">
+              <svg width="28" height="14" viewBox="0 0 28 14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                <line x1="4" y1="7" x2="24" y2="7"></line>
+              </svg>
+              <span>Continu</span>
+            </button>
+            <button class="gn-line-style-card" data-gn-linestyle="dashed" type="button">
+              <svg width="28" height="14" viewBox="0 0 28 14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                <line x1="3.5" y1="7" x2="8" y2="7"></line>
+                <line x1="11.8" y1="7" x2="16.2" y2="7"></line>
+                <line x1="20" y1="7" x2="24.5" y2="7"></line>
+              </svg>
+              <span>Tirets</span>
+            </button>
+            <button class="gn-line-style-card" data-gn-linestyle="dotted" type="button">
+              <svg width="28" height="14" viewBox="0 0 28 14" fill="currentColor" stroke="none" aria-hidden="true">
+                <circle cx="4" cy="7" r="1.45"></circle>
+                <circle cx="9" cy="7" r="1.45"></circle>
+                <circle cx="14" cy="7" r="1.45"></circle>
+                <circle cx="19" cy="7" r="1.45"></circle>
+                <circle cx="24" cy="7" r="1.45"></circle>
+              </svg>
+              <span>Pointillés</span>
+            </button>
+          </div>
+
+          <div class="gn-stroke-section-label" id="gnStrokeThicknessLabel">Épaisseur Du Stylo</div>
+
+          <div class="gn-wedge-slider-wrap">
+            <svg class="gn-wedge-track" viewBox="0 0 280 22" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M 3 10.2 L 272 3.2 A 7.8 7.8 0 0 1 272 18.8 L 3 11.8 A 0.8 0.8 0 0 1 3 10.2 Z"></path>
+            </svg>
+            <input type="range" class="gn-wedge-range" id="gnStrokeSizeSlider" min="1" max="20" step="0.5" value="5" aria-label="Épaisseur du trait">
+          </div>
+        </div>
+
+        <!-- SOUS-BARRE FLOTTANTE FORMES (STYLE GOODNOTES) -->
+        <div class="gn-shape-subbar hidden" id="gnShapeSubBar" role="toolbar" aria-label="Outils de formes GoodNotes">
+          <!-- Forme libre auto + Connecteurs coudé & courbe -->
+          <div class="gn-shapebar-group">
+            <button class="gn-shape-btn" data-gn-shapetype="auto" title="Forme libre instantanée (cercle, carré, flèche sans maintenir)">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="8.5" y="4.5" width="10.5" height="10.5" rx="3"></rect>
+                <path d="M14.6 15.2a5.4 5.4 0 1 1-2.2-6.7"></path>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="elbowArrow" title="Connecteur coudé avec flèche">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="6" cy="6.5" r="2"></circle>
+                <path d="M6 8.5V12h11v6.5"></path>
+                <polyline points="14 15.8 17 18.8 20 15.8"></polyline>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="curvedArrow" title="Connecteur courbe avec flèche">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="6" cy="6.5" r="2"></circle>
+                <path d="M6 8.5c0 6.5 4.2 7 6 3s5.5-3.5 5.5 7"></path>
+                <polyline points="14.6 15.8 17.5 18.8 20.4 15.8"></polyline>
+              </svg>
+            </button>
+          </div>
+
+          <div class="gn-subbar-divider"></div>
+
+          <!-- 5 Formes géométriques prédéfinies -->
+          <div class="gn-shapebar-group">
+            <button class="gn-shape-btn" data-gn-shapetype="rect" title="Rectangle / Carré">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="4.5" width="16" height="15" rx="1.2" fill="currentColor" fill-opacity="0.14"></rect>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="ellipse" title="Cercle / Ellipse">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="8" fill="currentColor" fill-opacity="0.14"></circle>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="triangle" title="Triangle">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="12 4.5 20.2 19 3.8 19" fill="currentColor" fill-opacity="0.14"></polygon>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="diamond" title="Losange">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="12 3.8 20.2 12 12 20.2 3.8 12" fill="currentColor" fill-opacity="0.14"></polygon>
+              </svg>
+            </button>
+            <button class="gn-shape-btn active" data-gn-shapetype="roundedRect" title="Rectangle arrondi">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="5.2" width="16" height="13.6" rx="5.6" fill="currentColor" fill-opacity="0.14"></rect>
+              </svg>
+            </button>
+          </div>
+
+          <div class="gn-subbar-divider"></div>
+
+          <!-- Épaisseur empilée (3 niveaux) + Pastille couleur active -->
+          <div class="gn-shapebar-group">
+            <button class="gn-shape-thick-btn" id="gnShapeThicknessBtn" title="Épaisseur du contour (cliquer pour changer : Fin / Moyen / Épais)">
+              <span class="gn-shape-bar gn-shape-bar-1 active"></span>
+              <span class="gn-shape-bar gn-shape-bar-2"></span>
+              <span class="gn-shape-bar gn-shape-bar-3"></span>
+            </button>
+            <button class="gn-color-circle active" id="gnShapeColorBtn" style="background: rgb(29, 78, 216);" title="Couleur de la forme">
+              <svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -352,13 +863,16 @@
         </div>
 
         <div class="form-field">
-          <label>Modèle de papier (8 réglures)</label>
+          <label>Modèle de papier (11 réglures GoodNotes)</label>
           <div class="paper-grid-options">
             <button class="paper-option-btn active" data-paper="grid">⊞ Quadrillé 5×5</button>
             <button class="paper-option-btn" data-paper="seyes">▤ Grands Carreaux Seyès</button>
             <button class="paper-option-btn" data-paper="engineering">⌗ Papier Millimétré</button>
             <button class="paper-option-btn" data-paper="isometric">△ Grille Isométrique 3D</button>
-            <button class="paper-option-btn" data-paper="lined">☰ Ligné Cornell</button>
+            <button class="paper-option-btn" data-paper="lined">☰ Ligné Classique</button>
+            <button class="paper-option-btn" data-paper="cornell">◫ Notes Cornell</button>
+            <button class="paper-option-btn" data-paper="twocolumn">▥ Deux Colonnes</button>
+            <button class="paper-option-btn" data-paper="planner">📅 Planning Hebdo</button>
             <button class="paper-option-btn" data-paper="dotted">∷ Pointillé (Bullet)</button>
             <button class="paper-option-btn" data-paper="music">𝄞 Portée Musicale</button>
             <button class="paper-option-btn" data-paper="blank">☐ Blanc (Uni)</button>
@@ -368,8 +882,8 @@
         <div class="form-field">
           <label>Teinte du papier</label>
           <div class="paper-tone-swatches">
-            <button class="tone-btn active" data-tone="ivory" style="background:#fbfaf5;color:#1e293b;">Ivoire</button>
-            <button class="tone-btn" data-tone="white" style="background:#ffffff;color:#1e293b;">Blanc</button>
+            <button class="tone-btn" data-tone="ivory" style="background:#fbfaf5;color:#1e293b;">Ivoire</button>
+            <button class="tone-btn active" data-tone="white" style="background:#ffffff;color:#1e293b;">Blanc</button>
             <button class="tone-btn" data-tone="sepia" style="background:#f5eedc;color:#451a03;">Parchemin</button>
             <button class="tone-btn" data-tone="blueprint" style="background:#0d2847;color:#e0f2fe;">Blueprint</button>
             <button class="tone-btn" data-tone="dark" style="background:#14171f;color:#f1f5f9;">Ardoise</button>
@@ -381,14 +895,14 @@
             <span>Espacement de la réglure</span>
             <span id="gridSpacingVal" class="value-badge">28px</span>
           </label>
-          <input type="range" class="range-slider" id="gridSpacingSlider" min="16" max="56" step="2" value="28" style="width:100%" />
+          <input type="range" class="range-slider" id="gridSpacingSlider" min="16" max="56" step="2" value="28" style="width:100%">
         </div>
 
         <div class="form-field">
           <label>Mode d'extension de la page</label>
           <div class="segmented-pills" style="display:grid;grid-template-columns:1fr 1fr;">
-            <button class="seg-pill active" data-viewmode="infinite" id="viewModeInfinite">∞ Page Infinie</button>
-            <button class="seg-pill" data-viewmode="page" id="viewModePage">Page A4 fixe</button>
+            <button class="seg-pill" data-viewmode="infinite" id="viewModeInfinite">∞ Page Infinie</button>
+            <button class="seg-pill active" data-viewmode="page" id="viewModePage">Page A4 fixe</button>
           </div>
         </div>
       </div>
@@ -417,14 +931,14 @@
 
       <!-- CANEVAS INTERACTIF INFINI : CALQUE DE FOND PDF VERROUILLÉ + DOUBLE CANVAS (STATIQUE + ACTIF 120 FPS) -->
       <div class="canvas-viewport drawing-mode-active" id="canvasViewport">
-        <canvas id="pdfBgCanvas" aria-hidden="true"></canvas>
-        <canvas id="inkCanvas"></canvas>
-        <canvas id="activeInkCanvas" aria-hidden="true"></canvas>
-        <div class="world-objects-layer" id="worldObjectsLayer"></div>
-        <div class="custom-cursor" id="eraserCursor"></div>
+        <canvas id="pdfBgCanvas" aria-hidden="true" width="2880" height="1760"></canvas>
+        <canvas id="inkCanvas" width="2880" height="1760"></canvas>
+        <canvas id="activeInkCanvas" aria-hidden="true" width="2880" height="1760" style="opacity: 1; mix-blend-mode: normal;"></canvas>
+        <div class="world-objects-layer" id="worldObjectsLayer" style="transform: translate3d(546.921px, -26.9639px, 0px) scale(0.479789);"></div>
+        <div class="custom-cursor" id="eraserCursor" style="display: none; width: 21.2249px; height: 21.2249px; left: 1046.5px; top: 546.5px;"></div>
 
         <!-- Mini barre flottante de sélection lasso (apparaît brièvement quand des éléments sont entourés) -->
-        <div class="lasso-floating-actions hidden" id="lassoFloatingActions">
+        <div class="lasso-floating-actions hidden" id="lassoFloatingActions" style="left: 786.375px; top: 318.999px;">
           <button class="lasso-fab-btn" id="btnQuickDupLasso" title="Dupliquer">⧉</button>
           <button class="lasso-fab-btn ai" id="btnQuickRecogLasso" title="Convertir en Texte / LaTeX">✨</button>
           <button class="lasso-fab-btn danger" id="btnQuickDelLasso" title="Supprimer">✕</button>
@@ -440,44 +954,6 @@
         </div>
       </div>
 
-      <!-- BARRE INFÉRIEURE : TÉLÉMÉTRIE STYLET & CONTRÔLES DE ZOOM / EXTENSION -->
-      <footer class="bottom-hud">
-        <div class="telemetry-pill">
-          <div class="telemetry-item">
-            <span class="pointer-badge" id="pointerTypeBadge">Prêt (Stylet / Pincement 2 doigts)</span>
-          </div>
-          <div class="telemetry-item">
-            <span>Pression:</span>
-            <div class="pressure-bar-track">
-              <div class="pressure-bar-fill" id="pressureBarFill"></div>
-            </div>
-            <span class="mono-readout" id="pressureReadout">0.50</span>
-          </div>
-          <div class="telemetry-item telemetry-extra">
-            <span>Coalescés:</span>
-            <span class="mono-readout" id="coalescedReadout">1 pt</span>
-          </div>
-          <div class="telemetry-item telemetry-extra">
-            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="Si activé, 1 doigt déplace la feuille et seul le stylet dessine. À 2 doigts, le pincement zoome et déplace toujours la feuille.">
-              <input type="checkbox" id="palmRejectionToggle" />
-              <span>1 Doigt = Bouger</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="zoom-pill">
-          <button class="tool-btn" id="btnPrevPage" title="Page précédente">‹</button>
-          <span class="mono-readout" id="hudPageIndicator" style="padding:0 5px;">1 / 2</span>
-          <button class="tool-btn" id="btnNextPage" title="Page suivante">›</button>
-          <button class="tool-btn" id="btnQuickAddPage" title="Nouvelle page">+</button>
-          <div class="dock-divider"></div>
-          <button class="tool-btn" id="btnZoomOut" title="Dézoomer pour étendre la page infinie">−</button>
-          <button class="tool-btn mono-readout" id="btnZoomReset" title="Réinitialiser le zoom à 100%">100%</button>
-          <button class="tool-btn" id="btnZoomIn" title="Zoomer">+</button>
-          <button class="tool-btn" id="btnExtendCanvas" title="Dézoomer large (45%) pour voir et étendre la page infinie">∞ Étendre</button>
-          <button class="tool-btn" id="btnFitPage" title="Recadrer sur l'origine de la page">⊡</button>
-        </div>
-      </footer>
     </main>
   </div>
 
@@ -564,18 +1040,18 @@
         <div style="display:flex;flex-direction:column;gap:8px;justify-content:center;">
           <div class="form-field">
             <label for="inputRecognizedText">Texte manuscrit reconnu</label>
-            <input type="text" id="inputRecognizedText" class="form-input" placeholder="Texte reconnu..." />
+            <input type="text" id="inputRecognizedText" class="form-input" placeholder="Texte reconnu...">
           </div>
           <div class="form-field">
             <label for="inputRecognizedLatex">Équation mathématique (LaTeX) reconnue</label>
-            <input type="text" id="inputRecognizedLatex" class="form-input" style="font-family:var(--font-mono);" placeholder="Code LaTeX reconnu..." />
+            <input type="text" id="inputRecognizedLatex" class="form-input" style="font-family:var(--font-mono);" placeholder="Code LaTeX reconnu...">
           </div>
         </div>
       </div>
 
       <div class="form-field">
         <label>Rendu mathématique de l'équation détectée</label>
-        <div class="latex-preview-box" id="recogLatexPreview"></div>
+        <div class="latex-preview-box" id="recogLatexPreview"><span class="math-expr math-block-display"><span>.</span><span>.</span></span></div>
       </div>
 
       <div class="modal-actions">
@@ -596,17 +1072,19 @@
       </div>
       <div class="form-field">
         <label for="inputNotebookName">Titre du cahier</label>
-        <input type="text" id="inputNotebookName" class="form-input" placeholder="Ex : Mathématiques &amp; Algèbre..." />
+        <input type="text" id="inputNotebookName" class="form-input" placeholder="Ex : Mathématiques &amp; Algèbre...">
       </div>
       <div class="form-field">
-        <label>Couleur de couverture</label>
+        <label>Couleur de couverture GoodNotes</label>
         <div class="swatch-group" id="notebookCoverSwatches">
-          <button class="color-swatch active" data-cover="#1d4ed8" style="background:#1d4ed8"></button>
-          <button class="color-swatch" data-cover="#0f766e" style="background:#0f766e"></button>
-          <button class="color-swatch" data-cover="#b45309" style="background:#b45309"></button>
-          <button class="color-swatch" data-cover="#be123c" style="background:#be123c"></button>
-          <button class="color-swatch" data-cover="#6d28d9" style="background:#6d28d9"></button>
-          <button class="color-swatch" data-cover="#334155" style="background:#334155"></button>
+          <button class="color-swatch active" data-cover="#0072ce" style="background:linear-gradient(135deg,#0072ce,#1d4ed8)" title="Bleu GoodNotes"></button>
+          <button class="color-swatch" data-cover="#1d4ed8" style="background:#1d4ed8" title="Bleu Royal"></button>
+          <button class="color-swatch" data-cover="#0f766e" style="background:linear-gradient(135deg,#0f766e,#00b577)" title="Émeraude"></button>
+          <button class="color-swatch" data-cover="#b45309" style="background:linear-gradient(135deg,#b45309,#ea580c)" title="Terre d'Ambre"></button>
+          <button class="color-swatch" data-cover="#be123c" style="background:linear-gradient(135deg,#be123c,#d8342c)" title="Carmin"></button>
+          <button class="color-swatch" data-cover="#6d28d9" style="background:linear-gradient(135deg,#6d28d9,#9333ea)" title="Améthyste"></button>
+          <button class="color-swatch" data-cover="#db2777" style="background:linear-gradient(135deg,#db2777,#f43f5e)" title="Corail Rose"></button>
+          <button class="color-swatch" data-cover="#334155" style="background:linear-gradient(135deg,#1e293b,#475569)" title="Ardoise Graphite"></button>
         </div>
       </div>
       <div class="form-field">
@@ -616,7 +1094,10 @@
           <option value="seyes">Grands Carreaux Seyès (Français)</option>
           <option value="engineering">Papier Millimétré Ingénieur</option>
           <option value="isometric">Grille Isométrique 3D</option>
-          <option value="lined">Ligné (Cornell)</option>
+          <option value="lined">Ligné Classique</option>
+          <option value="cornell">Notes Cornell (Marge + Résumé)</option>
+          <option value="twocolumn">Deux Colonnes</option>
+          <option value="planner">Planning Hebdomadaire</option>
           <option value="dotted">Pointillé (Bullet)</option>
           <option value="music">Portée Musicale</option>
           <option value="blank">Blanc uni</option>
@@ -687,13 +1168,78 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
       <div class="modal-actions" style="justify-content:space-between;">
         <button class="btn-secondary" id="btnCancelImportPdfModal" type="button">Annuler</button>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn-secondary" id="btnConfirmPdfAppendNotebook" type="button" disabled title="Insérer toutes les pages du PDF à la suite du cahier actuel">
+          <button class="btn-secondary" id="btnConfirmPdfAppendNotebook" type="button" disabled="" title="Insérer toutes les pages du PDF à la suite du cahier actuel">
             + Insérer dans le cahier actuel
           </button>
-          <button class="btn-primary" id="btnConfirmPdfNewNotebook" type="button" disabled title="Créer automatiquement un nouveau cahier avec une page par page du PDF">
+          <button class="btn-primary" id="btnConfirmPdfNewNotebook" type="button" disabled="" title="Créer automatiquement un nouveau cahier avec une page par page du PDF">
             Créer un nouveau cahier PDF
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : DÉPLACER UN CAHIER DANS UN DOSSIER (GOODNOTES) -->
+  <div class="modal-backdrop hidden" id="modalMoveNotebook">
+    <div class="modal-card" style="max-width:380px;">
+      <div class="modal-header">
+        <h3>📁 Déplacer le cahier</h3>
+        <button class="icon-btn-tiny" id="btnCloseMoveNotebookModal">✕</button>
+      </div>
+      <div class="form-field">
+        <label for="selectTargetFolder">Dossier de destination</label>
+        <select id="selectTargetFolder" class="form-input"></select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnCancelMoveNotebookModal">Annuler</button>
+        <button class="btn-primary" id="btnConfirmMoveNotebookModal">Déplacer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : SAUVEGARDE & SYNCHRONISATION GOOGLE DRIVE (STYLE GOODNOTES) -->
+  <div class="modal-backdrop hidden" id="modalGoogleDrive">
+    <div class="modal-card" style="max-width:520px;">
+      <div class="modal-header">
+        <h3>☁ Sauvegarde Google Drive (Goodnotes)</h3>
+        <button class="icon-btn-tiny" id="btnCloseGoogleDriveModal">✕</button>
+      </div>
+      <div class="gn-gdrive-status-banner" id="gdriveStatusBanner">
+        <span class="status-dot" id="gdriveStatusDot"></span>
+        <span id="gdriveStatusText">Non connecté — choisissez le dossier Drive Desktop ou l'API Google Drive.</span>
+      </div>
+
+      <div class="gn-gdrive-section">
+        <div class="gn-gdrive-section-title">Option 1 (Recommandée sur Windows) : Dossier Google Drive Desktop</div>
+        <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 8px;">
+          Sélectionnez votre dossier local synchronisé (ex. <code>G:\Mon Drive\Inkflow</code>) : sauvegarde instantanée sans aucune clé OAuth.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-primary" id="btnPickLocalDriveFolder" type="button">📂 Choisir dossier Drive local</button>
+          <button class="btn-secondary" id="btnSyncLocalDriveNow" type="button" disabled="">☁ Sauvegarder dans ce dossier</button>
+        </div>
+      </div>
+
+      <div class="gn-gdrive-section">
+        <div class="gn-gdrive-section-title">Option 2 : Connexion directe Google Drive API v3 (OAuth)</div>
+        <div class="form-field" style="margin-bottom:8px;">
+          <label for="inputGdriveClientId">Google OAuth Client ID (ou Access Token direct)</label>
+          <input type="text" id="inputGdriveClientId" class="form-input" placeholder="123456-xxx.apps.googleusercontent.com ou ya29.xxx">
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <button class="btn-secondary" id="btnGdriveConnect" type="button">🔗 Connecter Google Drive</button>
+          <button class="btn-primary" id="btnGdriveBackupNow" type="button">☁ Sauvegarder sur Drive</button>
+          <button class="btn-secondary" id="btnGdriveListBackups" type="button">🔄 Voir sauvegardes</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+          <input type="checkbox" id="chkGdriveAutoBackup">
+          <span>Sauvegarde automatique toutes les 5 minutes quand connecté</span>
+        </label>
+        <div class="gn-gdrive-backups-list" id="gdriveBackupsList"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnDoneGoogleDriveModal">Fermer</button>
       </div>
     </div>
   </div>
@@ -707,11 +1253,57 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
       </div>
       <div class="form-field">
         <label for="inputRenameValue">Nouveau titre</label>
-        <input type="text" id="inputRenameValue" class="form-input" />
+        <input type="text" id="inputRenameValue" class="form-input">
       </div>
       <div class="modal-actions">
         <button class="btn-secondary" id="btnCancelRenameModal">Annuler</button>
         <button class="btn-primary" id="btnConfirmRenameModal">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : PERSONNALISER / CRÉER UN DOSSIER GOODNOTES -->
+  <div class="modal-backdrop hidden" id="modalFolderCustomize">
+    <div class="modal-card" style="max-width:400px;">
+      <div class="modal-header">
+        <h3 id="modalFolderCustomizeTitle">📁 Dossier GoodNotes</h3>
+        <button class="icon-btn-tiny" id="btnCloseFolderCustomizeModal">✕</button>
+      </div>
+      <div class="form-field">
+        <label for="inputFolderCustomizeName">Nom du dossier</label>
+        <input type="text" id="inputFolderCustomizeName" class="form-input" placeholder="Ex : Semestre 1 — Physique...">
+      </div>
+      <div class="form-field">
+        <label>Couleur du dossier (9 teintes GoodNotes)</label>
+        <div class="swatch-group" id="folderColorSwatches" style="flex-wrap:wrap;">
+          <button class="color-swatch active" data-folder-color="#0072ce" style="background:#0072ce" title="Bleu"></button>
+          <button class="color-swatch" data-folder-color="#d8342c" style="background:#d8342c" title="Rouge"></button>
+          <button class="color-swatch" data-folder-color="#ea580c" style="background:#ea580c" title="Orange"></button>
+          <button class="color-swatch" data-folder-color="#eab308" style="background:#eab308" title="Jaune"></button>
+          <button class="color-swatch" data-folder-color="#00b577" style="background:#00b577" title="Vert"></button>
+          <button class="color-swatch" data-folder-color="#7c3aed" style="background:#7c3aed" title="Violet"></button>
+          <button class="color-swatch" data-folder-color="#db2777" style="background:#db2777" title="Rose"></button>
+          <button class="color-swatch" data-folder-color="#64748b" style="background:#64748b" title="Gris"></button>
+          <button class="color-swatch" data-folder-color="#1e293b" style="background:#1e293b" title="Anthracite"></button>
+        </div>
+      </div>
+      <div class="form-field">
+        <label>Symbole du dossier</label>
+        <div class="gn-folder-symbols-grid" id="folderSymbolPills">
+          <button class="gn-symbol-pill active" data-folder-icon="folder" title="Dossier">📁</button>
+          <button class="gn-symbol-pill" data-folder-icon="book" title="Cours / Livre">📘</button>
+          <button class="gn-symbol-pill" data-folder-icon="atom" title="Sciences / Physique">⚛</button>
+          <button class="gn-symbol-pill" data-folder-icon="code" title="Informatique / Code">⟨/⟩</button>
+          <button class="gn-symbol-pill" data-folder-icon="calc" title="Mathématiques">∑</button>
+          <button class="gn-symbol-pill" data-folder-icon="grad" title="Université / Examens">🎓</button>
+          <button class="gn-symbol-pill" data-folder-icon="briefcase" title="Projets / Travail">💼</button>
+          <button class="gn-symbol-pill" data-folder-icon="star" title="Important">★</button>
+          <button class="gn-symbol-pill" data-folder-icon="music" title="Musique">𝄞</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnCancelFolderCustomizeModal">Annuler</button>
+        <button class="btn-primary" id="btnConfirmFolderCustomizeModal">Enregistrer</button>
       </div>
     </div>
   </div>
@@ -722,5 +1314,6 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
   <script src="./vendor/pdf.worker.min.js"></script>
   <script src="./vendor/pdf-lib.min.js"></script>
   <script src="./app.js"></script>
-</body>
-</html>
+
+
+</body></html>
