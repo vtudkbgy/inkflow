@@ -219,6 +219,13 @@ async function runVerification() {
             savedTauriFiles.push({ path: payload.path, byteLength: payload.bytes.length });
             return payload.path;
           }
+          if (cmd === 'set_window_fullscreen') {
+            sandbox.__mockFullscreen = Boolean(payload && payload.fullscreen);
+            return sandbox.__mockFullscreen;
+          }
+          if (cmd === 'get_window_fullscreen') {
+            return Boolean(sandbox.__mockFullscreen);
+          }
           return null;
         }
       }
@@ -393,7 +400,19 @@ async function runVerification() {
   if (!exportedBytes || exportedBytes.byteLength < 1000 || savedTauriFiles.length === 0) {
     throw new Error('L\'exportation PDF via pdf-lib + Tauri v2 save_binary_file a échoué');
   }
-  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté (pdf-lib -> Tauri v2 IPC) vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+
+  // Vérification du mode plein écran natif Tauri v2 (masquage de la barre de titre Windows)
+  const fsOn = await api.toggleFullscreenMode();
+  const fsBtn = elementsById.get('btnFullscreenToggle');
+  if (!fsOn || !sandbox.__mockFullscreen || !fsBtn.classList.contains('active')) {
+    throw new Error('L\'activation du mode plein écran natif Tauri v2 a échoué');
+  }
+  const fsOff = await api.toggleFullscreenMode();
+  if (fsOff || sandbox.__mockFullscreen || fsBtn.classList.contains('active')) {
+    throw new Error('La sortie du mode plein écran natif Tauri v2 a échoué');
+  }
+
+  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran natif (Tauri v2 IPC) vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {

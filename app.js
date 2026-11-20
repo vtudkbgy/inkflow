@@ -8664,7 +8664,14 @@
     if (gnSubBarEl) gnSubBarEl.classList.toggle('hidden', !showGnSubBar);
     if (!showGnSubBar) state.gnPenPopoverOpen = false;
     const gnPopoverEl = document.getElementById('gnPenPopover');
-    if (gnPopoverEl) gnPopoverEl.classList.toggle('hidden', !(showGnSubBar && state.gnPenPopoverOpen));
+    const showGnPopover = Boolean(showGnSubBar && state.gnPenPopoverOpen);
+    if (gnPopoverEl) gnPopoverEl.classList.toggle('hidden', !showGnPopover);
+    if (!showGnPopover) {
+      const gesturesEl = document.getElementById('gnPenGesturesView');
+      if (gesturesEl) gesturesEl.classList.add('hidden');
+      const openGestBtn = document.getElementById('btnOpenStylusGestures');
+      if (openGestBtn) openGestBtn.classList.remove('active-nav');
+    }
     if (typeof syncGnPenSubBarUi === 'function') syncGnPenSubBarUi();
     if (dom.btnToggleToolOptions) {
       dom.btnToggleToolOptions.classList.toggle('open', showDock || showGnSubBar);
@@ -9043,16 +9050,17 @@
 
     const btnOpenGestures = document.getElementById('btnOpenStylusGestures');
     const btnBackPen = document.getElementById('btnBackToPenSettings');
-    if (btnOpenGestures && mainView && gesturesView) {
+    if (btnOpenGestures && gesturesView) {
       btnOpenGestures.addEventListener('click', () => {
-        mainView.classList.add('hidden');
-        gesturesView.classList.remove('hidden');
+        const willOpen = gesturesView.classList.contains('hidden');
+        gesturesView.classList.toggle('hidden', !willOpen);
+        btnOpenGestures.classList.toggle('active-nav', willOpen);
       });
     }
-    if (btnBackPen && mainView && gesturesView) {
+    if (btnBackPen && gesturesView) {
       btnBackPen.addEventListener('click', () => {
         gesturesView.classList.add('hidden');
-        mainView.classList.remove('hidden');
+        if (btnOpenGestures) btnOpenGestures.classList.remove('active-nav');
       });
     }
 

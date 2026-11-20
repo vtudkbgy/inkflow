@@ -39,6 +39,33 @@ fn get_local_storage_paths(app: tauri::AppHandle) -> Result<serde_json::Value, S
     }))
 }
 
+/// Active ou désactive le vrai plein écran natif sans bordure (masque la barre de titre Windows)
+#[tauri::command]
+fn set_window_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Result<bool, String> {
+    window
+        .set_fullscreen(fullscreen)
+        .map_err(|e| format!("Impossible de modifier le mode plein écran : {}", e))?;
+    Ok(window.is_fullscreen().unwrap_or(fullscreen))
+}
+
+/// Bascule le vrai plein écran natif sans bordure et retourne le nouvel état
+#[tauri::command]
+fn toggle_window_fullscreen(window: tauri::WebviewWindow) -> Result<bool, String> {
+    let next = !window.is_fullscreen().unwrap_or(false);
+    window
+        .set_fullscreen(next)
+        .map_err(|e| format!("Impossible de basculer le mode plein écran : {}", e))?;
+    Ok(window.is_fullscreen().unwrap_or(next))
+}
+
+/// Retourne l'état actuel du plein écran natif de la fenêtre
+#[tauri::command]
+fn get_window_fullscreen(window: tauri::WebviewWindow) -> Result<bool, String> {
+    window
+        .is_fullscreen()
+        .map_err(|e| format!("Impossible de lire l'état plein écran : {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Garantit dans WebView2 (Windows 10/11) la fluidité maximale des PointerEvent du stylet Windows Ink :
@@ -63,7 +90,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             save_binary_file,
             read_binary_file,
-            get_local_storage_paths
+            get_local_storage_paths,
+            set_window_fullscreen,
+            toggle_window_fullscreen,
+            get_window_fullscreen
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri v2 Plume Studio Pro");
