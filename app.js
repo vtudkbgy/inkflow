@@ -683,7 +683,7 @@
     const invS = 1 - s;
     const beta = 0.00035 + invS * invS * 0.0078;
     const tSec = (typeof tMs === 'number' && Number.isFinite(tMs) ? tMs : performance.now()) * 0.001;
-    stroke._liveStabilized = true;
+    stroke._liveStabilized = s > 0.02;
     stroke._liveEuroX = { initialized: false, minCutoff, beta, dCutoff: 1.0, xPrev: x, dxPrev: 0, tPrev: tSec };
     stroke._liveEuroY = { initialized: false, minCutoff, beta, dCutoff: 1.0, xPrev: y, dxPrev: 0, tPrev: tSec };
     stroke._stabLastRawX = x;
@@ -7583,6 +7583,7 @@
                   { x: pStart.x, y: pStart.y, pressure: 0.5 },
                   { x: x2, y: y2, pressure: 0.5 }
                 ];
+                finishedStroke._liveStabilized = false;
               }
             }
           }
