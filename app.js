@@ -757,6 +757,7 @@
       : (typeof state !== 'undefined' && typeof state.pressureSensitivity === 'number' ? state.pressureSensitivity : 0.5);
     const sensScale = 0.2 + 1.6 * Math.max(0, Math.min(1, sens));
     if (style === 'ballpoint') return 0.14;
+    if (style === 'pencil' || stroke.tool === 'pencil') return 0.36;
     if (style === 'brush') return Math.min(0.96, 0.85 * sensScale);
     return Math.min(0.92, 0.62 * sensScale);
   }
@@ -1169,8 +1170,260 @@
     return Math.sqrt(sumSq / samples.length) / Math.max(1, diag);
   }
 
-  function detectShapeFromStroke(rawPoints, color, size, isHighlighter = false) {
-    if (!rawPoints || rawPoints.length < 5) return null;
+  // ============================================================================
+  // MOTEUR DE RECONNAISSANCE DE FORMES (GoodNotes ShapeRecognition / ShapeBeautifier)
+  // Fitters : Line, Arrow, Ellipse, Triangle, Rectangle, Diamond, NGon/Polygon,
+  //           Elbow/Polyline, SmoothHobby Arc + ChamferDistanceEstimator + SideSnapping
+  // ============================================================================
+
+  function snapLineEndpoint45(x1, y1, x2, y2, degTol = 5.0) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-3) return { x: x2, y: y2 };
+    const ang = Math.atan2(dy, dx);
+    const step = Math.PI / 4; // 45 deg
+    const nearest = Math.round(ang / step) * step;
+    const tolRad = (degTol * Math.PI) / 180;
+    if (Math.abs(ang - nearest) <= tolRad) {
+      if (Math.abs(Math.sin(nearest)) < 1e-4) return { x: x1 + Math.sign(Math.cos(nearest)) * len, y: y1 };
+      if (Math.abs(Math.cos(nearest)) < 1e-4) return { x: x1, y: y1 + Math.sign(Math.sin(nearest)) * len };
+      return { x: x1 + Math.cos(nearest) * len, y: y1 + Math.sin(nearest) * len };
+    }
+    return { x: x2, y: y2 };
+  }
+
+  function samplePolylineUniform(vertices, closed, count = 48) {
+    if (!vertices || vertices.length < 2) return [];
+    const pts = closed ? vertices.concat([vertices[0]]) : vertices;
+    return resamplePolyline(pts, count);
+  }
+
+  function sampleEllipseUniform(cx, cy, rx, ry, angle, count = 48) {
+    const out = [];
+    const cosA = Math.cos(angle || 0);
+    const sinA = Math.sin(angle || 0);
+    for (let i = 0; i < count; i++) {
+      const t = (i / count) * Math.PI * 2;
+      const lx = Math.cos(t) * rx;
+      const ly = Math.sin(t) * ry;
+      out.push({ x: cx + lx * cosA - ly * sinA, y: cy + lx * sinA + ly * cosA });
+    }
+    return out;
+  }
+
+  function sampleCubicBezierUniform(p0, c1, c2, p3, count = 48) {
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const t = i / Math.max(1, count - 1);
+      const mt = 1 - t;
+      const b0 = mt * mt * mt;
+      const b1 = 3 * mt * mt * t;
+      const b2 = 3 * mt * t * t;
+      const b3 = t * t * t;
+      out.push({
+        x: b0 * p0.x + b1 * c1.x + b2 * c2.x + b3 * p3.x,
+        y: b0 * p0.y + b1 * c1.y + b2 * c2.y + b3 * p3.y
+      });
+    }
+    return out;
+  }
+
+  // ChamferDistanceEstimator (bidirectionnel normalisé par la diagonale)
+  function computeBidirectionalChamferError(strokePts, shapePts, diag) {
+    if (!strokePts.length || !shapePts.length) return Infinity;
+    let sumA = 0;
+    for (let i = 0; i < strokePts.length; i++) {
+      const p = strokePts[i];
+      let best = Infinity;
+      for (let j = 0; j < shapePts.length; j++) {
+        const q = shapePts[j];
+        const dSq = (p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y);
+        if (dSq < best) best = dSq;
+      }
+      sumA += Math.sqrt(best);
+    }
+    let sumB = 0;
+    for (let j = 0; j < shapePts.length; j++) {
+      const q = shapePts[j];
+      let best = Infinity;
+      for (let i = 0; i < strokePts.length; i++) {
+        const p = strokePts[i];
+        const dSq = (p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y);
+        if (dSq < best) best = dSq;
+      }
+      sumB += Math.sqrt(best);
+    }
+    return ((sumA / strokePts.length) + (sumB / shapePts.length)) * 0.5 / Math.max(1, diag);
+  }
+
+  // SmoothHobbyFitter / CubicCurveFitting (moindres carrés régularisés sur base de Bernstein)
+  function fitSmoothCubicCurve(pts, diag) {
+    const p0 = pts[0];
+    const p3 = pts[pts.length - 1];
+    const n = pts.length;
+    if (n < 4) {
+      return [
+        { x: p0.x, y: p0.y },
+        { x: p0.x + (p3.x - p0.x) / 3, y: p0.y + (p3.y - p0.y) / 3 },
+        { x: p0.x + (p3.x - p0.x) * 2 / 3, y: p0.y + (p3.y - p0.y) * 2 / 3 },
+        { x: p3.x, y: p3.y }
+      ];
+    }
+    const cum = [0];
+    for (let i = 1; i < n; i++) {
+      cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    }
+    const total = Math.max(1e-5, cum[n - 1]);
+    let a11 = 1e-4, a12 = 0, a22 = 1e-4;
+    let r1x = 0, r1y = 0, r2x = 0, r2y = 0;
+    for (let i = 0; i < n; i++) {
+      const t = cum[i] / total;
+      const mt = 1 - t;
+      const b0 = mt * mt * mt;
+      const b1 = 3 * mt * mt * t;
+      const b2 = 3 * mt * t * t;
+      const b3 = t * t * t;
+      a11 += b1 * b1;
+      a12 += b1 * b2;
+      a22 += b2 * b2;
+      const rx = pts[i].x - b0 * p0.x - b3 * p3.x;
+      const ry = pts[i].y - b0 * p0.y - b3 * p3.y;
+      r1x += b1 * rx; r1y += b1 * ry;
+      r2x += b2 * rx; r2y += b2 * ry;
+    }
+    const det = a11 * a22 - a12 * a12;
+    let c1x, c1y, c2x, c2y;
+    if (Math.abs(det) < 1e-6) {
+      const mid = pts[Math.floor(n * 0.5)];
+      c1x = p0.x + (mid.x - p0.x) * 0.9;
+      c1y = p0.y + (mid.y - p0.y) * 0.9;
+      c2x = p3.x + (mid.x - p3.x) * 0.9;
+      c2y = p3.y + (mid.y - p3.y) * 0.9;
+    } else {
+      c1x = (a22 * r1x - a12 * r2x) / det;
+      c1y = (a22 * r1y - a12 * r2y) / det;
+      c2x = (a11 * r2x - a12 * r1x) / det;
+      c2y = (a11 * r2y - a12 * r1y) / det;
+    }
+    const maxArm = Math.max(40, diag * 1.45);
+    const clampPt = (anchor, cx, cy) => {
+      const d = Math.hypot(cx - anchor.x, cy - anchor.y);
+      if (d > maxArm) {
+        const sc = maxArm / d;
+        return { x: anchor.x + (cx - anchor.x) * sc, y: anchor.y + (cy - anchor.y) * sc };
+      }
+      return { x: cx, y: cy };
+    };
+    return [
+      { x: p0.x, y: p0.y },
+      clampPt(p0, c1x, c1y),
+      clampPt(p3, c2x, c2y),
+      { x: p3.x, y: p3.y }
+    ];
+  }
+
+  // ElbowPolylineFitter & PolylineFitter (simplification RDP + redressement orthogonal H/V)
+  function simplifyAndSnapOpenPolyline(pts, diag) {
+    let eps = Math.max(6, diag * 0.055);
+    let verts = rdpSimplify(pts, eps);
+    let guard = 0;
+    while (verts.length > 7 && guard < 6) {
+      eps *= 1.35;
+      verts = rdpSimplify(pts, eps);
+      guard++;
+    }
+    const cleaned = [verts[0]];
+    for (let i = 1; i < verts.length; i++) {
+      const prev = cleaned[cleaned.length - 1];
+      const cur = verts[i];
+      if (Math.hypot(cur.x - prev.x, cur.y - prev.y) >= Math.max(8, diag * 0.065) || i === verts.length - 1) {
+        cleaned.push({ x: cur.x, y: cur.y });
+      }
+    }
+    const orthoTol = (9.0 * Math.PI) / 180;
+    const snapped = cleaned.map((v) => ({ x: v.x, y: v.y }));
+    for (let i = 1; i < snapped.length; i++) {
+      const a = snapped[i - 1];
+      const b = snapped[i];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      if (Math.hypot(dx, dy) < 6) continue;
+      const ang = Math.atan2(dy, dx);
+      if (Math.abs(ang) < orthoTol || Math.abs(Math.abs(ang) - Math.PI) < orthoTol) {
+        b.y = a.y;
+      } else if (Math.abs(Math.abs(ang) - Math.PI / 2) < orthoTol) {
+        b.x = a.x;
+      }
+    }
+    return snapped;
+  }
+
+  // SideSnapping / NearbyShape (magnétisme vers les sommets et extrémités des formes existantes)
+  function snapShapeToNearbyShapes(shape, existingShapes, snapRadius = 16) {
+    if (!shape || !Array.isArray(existingShapes) || existingShapes.length === 0) return shape;
+    const anchors = [];
+    for (let i = 0; i < existingShapes.length; i++) {
+      const sh = existingShapes[i];
+      if (!sh) continue;
+      if (Array.isArray(sh.vertices) && sh.vertices.length >= 2) {
+        for (const v of sh.vertices) anchors.push(v);
+      } else if (sh.type === 'line' || sh.type === 'arrow' || sh.type === 'elbowArrow' || sh.type === 'curvedArrow') {
+        anchors.push({ x: sh.x1, y: sh.y1 }, { x: sh.x2, y: sh.y2 });
+      } else if (sh.type === 'rect' || sh.type === 'roundedRect') {
+        const minX = Math.min(sh.x1, sh.x2), maxX = Math.max(sh.x1, sh.x2);
+        const minY = Math.min(sh.y1, sh.y2), maxY = Math.max(sh.y1, sh.y2);
+        const cx = (minX + maxX) * 0.5, cy = (minY + maxY) * 0.5;
+        anchors.push(
+          { x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY },
+          { x: cx, y: minY }, { x: maxX, y: cy }, { x: cx, y: maxY }, { x: minX, y: cy }
+        );
+      } else if (sh.type === 'diamond') {
+        const cx = (sh.x1 + sh.x2) * 0.5, cy = (sh.y1 + sh.y2) * 0.5;
+        anchors.push(
+          { x: cx, y: Math.min(sh.y1, sh.y2) }, { x: Math.max(sh.x1, sh.x2), y: cy },
+          { x: cx, y: Math.max(sh.y1, sh.y2) }, { x: Math.min(sh.x1, sh.x2), y: cy }
+        );
+      } else if (sh.type === 'ellipse') {
+        const cx = (sh.x1 + sh.x2) * 0.5, cy = (sh.y1 + sh.y2) * 0.5;
+        anchors.push(
+          { x: cx, y: Math.min(sh.y1, sh.y2) }, { x: Math.max(sh.x1, sh.x2), y: cy },
+          { x: cx, y: Math.max(sh.y1, sh.y2) }, { x: Math.min(sh.x1, sh.x2), y: cy }
+        );
+      }
+    }
+    if (anchors.length === 0) return shape;
+    const snapPt = (pt) => {
+      let best = null, bestD = snapRadius;
+      for (let i = 0; i < anchors.length; i++) {
+        const d = Math.hypot(pt.x - anchors[i].x, pt.y - anchors[i].y);
+        if (d < bestD) { bestD = d; best = anchors[i]; }
+      }
+      return best ? { x: best.x, y: best.y } : pt;
+    };
+    if (shape.type === 'line' || shape.type === 'arrow') {
+      const s1 = snapPt({ x: shape.x1, y: shape.y1 });
+      const s2 = snapPt({ x: shape.x2, y: shape.y2 });
+      shape.x1 = s1.x; shape.y1 = s1.y;
+      shape.x2 = s2.x; shape.y2 = s2.y;
+    } else if ((shape.type === 'polyline' || shape.type === 'arc') && Array.isArray(shape.vertices) && shape.vertices.length >= 2) {
+      const first = snapPt(shape.vertices[0]);
+      const last = snapPt(shape.vertices[shape.vertices.length - 1]);
+      shape.vertices[0] = first;
+      shape.vertices[shape.vertices.length - 1] = last;
+      const bb = getShapeBoundingBox(shape);
+      shape.x1 = bb.minX; shape.y1 = bb.minY; shape.x2 = bb.maxX; shape.y2 = bb.maxY;
+    }
+    return shape;
+  }
+
+  function detectShapeFromStroke(rawPoints, color, size, isHighlighter = false, options = {}) {
+    const forceSnap = Boolean(options && options.forceSnap);
+    const filled = Boolean(options && options.filled);
+    const existingShapes = options && options.existingShapes ? options.existingShapes : null;
+    const snapToOtherShapes = options && options.snapToOtherShapes !== false;
+
+    if (!rawPoints || rawPoints.length < (forceSnap ? 2 : 5)) return null;
     let totalLen = 0;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (let i = 0; i < rawPoints.length; i++) {
@@ -1180,44 +1433,74 @@
       if (i > 0) totalLen += Math.hypot(p.x - rawPoints[i - 1].x, p.y - rawPoints[i - 1].y);
     }
     const diag = Math.hypot(maxX - minX, maxY - minY);
-    if (totalLen < 24 || diag < 18) return null;
+    if (!forceSnap && (totalLen < 24 || diag < 18)) return null;
+    if (forceSnap && totalLen < 5 && diag < 5) return null;
+
+    const finalizeShape = (sh) => {
+      if (!sh) return null;
+      if (snapToOtherShapes && existingShapes && existingShapes.length > 0) {
+        snapShapeToNearbyShapes(sh, existingShapes, 16);
+      }
+      return sh;
+    };
 
     const pts = resamplePolyline(rawPoints, 64);
     const pFirst = pts[0], pLast = pts[pts.length - 1];
     const endDist = Math.hypot(pLast.x - pFirst.x, pLast.y - pFirst.y);
-    const shapeStyle = { color, size: Math.max(2, size), filled: false, isHighlighter };
+    const shapeStyle = { color, size: Math.max(2, size), filled, isHighlighter };
+    const openShapeStyle = { color, size: Math.max(2, size), filled: false, isHighlighter };
 
-    // 1. Ligne droite (avec léger magnétisme horizontal / vertical à ±3.5°)
-    if (endDist > 20 && totalLen / endDist < 1.12) {
+    // En mode outil Formes (forceSnap), un petit tracé très court devient immédiatement un segment propre
+    if (forceSnap && (totalLen < 20 || diag < 14)) {
+      const snappedEnd = snapLineEndpoint45(pFirst.x, pFirst.y, pLast.x, pLast.y, 6.0);
+      return finalizeShape({
+        id: createUid('sh'),
+        type: 'line',
+        x1: pFirst.x,
+        y1: pFirst.y,
+        x2: snappedEnd.x,
+        y2: snappedEnd.y,
+        ...openShapeStyle,
+        detectedName: 'Ligne'
+      });
+    }
+
+    // 1. Ligne droite (avec magnétisme 0° / 45° / 90° façon GoodNotes)
+    if (endDist > 16 && totalLen / endDist < (forceSnap ? 1.15 : 1.12)) {
       let maxDev = 0;
       for (const p of pts) {
         const d = pointToLineDist(p, pFirst, pLast);
         if (d > maxDev) maxDev = d;
       }
-      if (maxDev / endDist < 0.065) {
-        let x2 = pLast.x, y2 = pLast.y;
-        const ang = Math.atan2(y2 - pFirst.y, x2 - pFirst.x);
-        const snapRad = (3.5 * Math.PI) / 180;
-        if (Math.abs(ang) < snapRad || Math.abs(Math.abs(ang) - Math.PI) < snapRad) y2 = pFirst.y;
-        else if (Math.abs(Math.abs(ang) - Math.PI / 2) < snapRad) x2 = pFirst.x;
-        return { id: createUid('sh'), type: 'line', x1: pFirst.x, y1: pFirst.y, x2, y2, ...shapeStyle, detectedName: 'Ligne' };
+      if (maxDev / endDist < (forceSnap ? 0.085 : 0.065)) {
+        const snappedEnd = snapLineEndpoint45(pFirst.x, pFirst.y, pLast.x, pLast.y, forceSnap ? 5.0 : 3.5);
+        return finalizeShape({
+          id: createUid('sh'),
+          type: 'line',
+          x1: pFirst.x,
+          y1: pFirst.y,
+          x2: snappedEnd.x,
+          y2: snappedEnd.y,
+          ...openShapeStyle,
+          detectedName: 'Ligne'
+        });
       }
     }
 
-    // 2. Flèche tracée en un seul mouvement (corps droit suivi d'une pointe en V ou aller-retour à la fin)
+    // 2. ArrowEndpointEstimator : Flèche tracée en un seul mouvement
     let bestArrowScore = Infinity;
     let bestArrowTip = null;
     for (let k = Math.floor(pts.length * 0.42); k <= Math.floor(pts.length * 0.94); k++) {
       const tip = pts[k];
       const shaftLen = Math.hypot(tip.x - pFirst.x, tip.y - pFirst.y);
-      if (shaftLen < 24) continue;
+      if (shaftLen < 22) continue;
       let maxShaftDev = 0;
       for (let i = 1; i < k; i++) {
         const d = pointToSegmentDist(pts[i], pFirst, tip);
         if (d > maxShaftDev) maxShaftDev = d;
       }
       const shaftErr = maxShaftDev / shaftLen;
-      if (shaftErr > 0.095) continue;
+      if (shaftErr > (forceSnap ? 0.115 : 0.095)) continue;
 
       let tailLen = 0, maxHeadDist = 0, turns = 0;
       for (let i = k + 1; i < pts.length; i++) {
@@ -1231,7 +1514,6 @@
           if (l1 > 1 && l2 > 1 && (v1x * v2x + v1y * v2y) / (l1 * l2) < -0.25) turns++;
         }
       }
-      // L'ailette de la flèche reste compacte autour de la pointe et fait demi-tour vers l'arrière de l'axe
       const sx = (tip.x - pFirst.x) / shaftLen, sy = (tip.y - pFirst.y) / shaftLen;
       let backCount = 0;
       for (let i = k + 1; i < pts.length; i++) {
@@ -1239,7 +1521,7 @@
         if (proj < -4) backCount++;
       }
       const tailPoints = pts.length - 1 - k;
-      if (tailLen >= 14 && maxHeadDist < Math.max(55, shaftLen * 0.56) && maxHeadDist > 7 && backCount >= Math.max(2, tailPoints * 0.35)) {
+      if (tailLen >= 13 && maxHeadDist < Math.max(58, shaftLen * 0.58) && maxHeadDist > 6 && backCount >= Math.max(2, tailPoints * 0.35)) {
         const score = shaftErr - turns * 0.01;
         if (score < bestArrowScore) {
           bestArrowScore = score;
@@ -1248,15 +1530,20 @@
       }
     }
     if (bestArrowTip) {
-      let x2 = bestArrowTip.x, y2 = bestArrowTip.y;
-      const ang = Math.atan2(y2 - pFirst.y, x2 - pFirst.x);
-      const snapRad = (3.5 * Math.PI) / 180;
-      if (Math.abs(ang) < snapRad || Math.abs(Math.abs(ang) - Math.PI) < snapRad) y2 = pFirst.y;
-      else if (Math.abs(Math.abs(ang) - Math.PI / 2) < snapRad) x2 = pFirst.x;
-      return { id: createUid('sh'), type: 'arrow', x1: pFirst.x, y1: pFirst.y, x2, y2, ...shapeStyle, detectedName: 'Flèche' };
+      const snappedTip = snapLineEndpoint45(pFirst.x, pFirst.y, bestArrowTip.x, bestArrowTip.y, forceSnap ? 5.0 : 3.5);
+      return finalizeShape({
+        id: createUid('sh'),
+        type: 'arrow',
+        x1: pFirst.x,
+        y1: pFirst.y,
+        x2: snappedTip.x,
+        y2: snappedTip.y,
+        ...openShapeStyle,
+        detectedName: 'Flèche'
+      });
     }
 
-    // 3. Formes fermées : Cercle, Ellipse, Rectangle / Carré, Triangle
+    // 3. EndpointProximityEstimator : classification forme fermée vs ouverte
     const closedPts = pts.slice();
     let cx = 0, cy = 0;
     for (const p of closedPts) { cx += p.x; cy += p.y; }
@@ -1272,10 +1559,128 @@
       winding += da;
     }
 
-    const isClosed = endDist < Math.max(32, diag * 0.36) || Math.abs(winding) > 4.65;
-    if (!isClosed) return null;
+    const isClosed =
+      endDist < Math.max(forceSnap ? 42 : 32, diag * (forceSnap ? 0.42 : 0.36)) ||
+      Math.abs(winding) > (forceSnap ? 4.35 : 4.65) ||
+      (forceSnap && endDist < diag * 0.48 && Math.abs(winding) > 3.5);
 
-    // Calcul de l'aire signée (quotient isopérimétrique Q = 4πA/L²)
+    // 4. Formes ouvertes (mode Outil Formes GoodNotes : TOUJOURS converti en Ligne / Polyligne-Angle / Courbe lisse)
+    if (!isClosed) {
+      if (!forceSnap) return null;
+
+      const snappedLineEnd = snapLineEndpoint45(pFirst.x, pFirst.y, pLast.x, pLast.y, 5.0);
+      const lineSamples = samplePolylineUniform([pFirst, snappedLineEnd], false, 48);
+      const lineChamfer = computeBidirectionalChamferError(pts, lineSamples, diag);
+      let maxLineDev = 0;
+      for (const p of pts) {
+        const d = pointToSegmentDist(p, pFirst, pLast);
+        if (d > maxLineDev) maxLineDev = d;
+      }
+      if (endDist > 10 && (maxLineDev / Math.max(1, endDist) < 0.11 || lineChamfer < 0.055)) {
+        return finalizeShape({
+          id: createUid('sh'),
+          type: 'line',
+          x1: pFirst.x,
+          y1: pFirst.y,
+          x2: snappedLineEnd.x,
+          y2: snappedLineEnd.y,
+          ...openShapeStyle,
+          detectedName: 'Ligne'
+        });
+      }
+
+      // ElbowPolylineFitter / PolylineFitter + CornerFinder (détection de coins localisés vs courbure douce)
+      const polyVerts = simplifyAndSnapOpenPolyline(pts, diag);
+      let polyChamfer = Infinity;
+      let sharpCornerCount = 0;
+      if (polyVerts.length >= 3) {
+        const polySamples = samplePolylineUniform(polyVerts, false, 48);
+        polyChamfer = computeBidirectionalChamferError(pts, polySamples, diag);
+        for (let i = 1; i < polyVerts.length - 1; i++) {
+          const v1x = polyVerts[i].x - polyVerts[i - 1].x;
+          const v1y = polyVerts[i].y - polyVerts[i - 1].y;
+          const v2x = polyVerts[i + 1].x - polyVerts[i].x;
+          const v2y = polyVerts[i + 1].y - polyVerts[i].y;
+          const l1 = Math.hypot(v1x, v1y);
+          const l2 = Math.hypot(v2x, v2y);
+          if (l1 > 6 && l2 > 6) {
+            const dot = (v1x * v2x + v1y * v2y) / (l1 * l2);
+            if (dot < 0.80) sharpCornerCount++;
+          }
+        }
+      }
+      // CornerFinder : vérifie si le trait contient un vrai angle vif localisé (fenêtre ±4 pts sur 64) plutôt qu'une courbe douce
+      let minLocalCornerDot = 1;
+      const win = 4;
+      for (let i = win; i < pts.length - win; i++) {
+        const ax = pts[i].x - pts[i - win].x;
+        const ay = pts[i].y - pts[i - win].y;
+        const bx = pts[i + win].x - pts[i].x;
+        const by = pts[i + win].y - pts[i].y;
+        const la = Math.hypot(ax, ay);
+        const lb = Math.hypot(bx, by);
+        if (la > 2 && lb > 2) {
+          const d = (ax * bx + ay * by) / (la * lb);
+          if (d < minLocalCornerDot) minLocalCornerDot = d;
+        }
+      }
+      const hasLocalizedSharpCorner = minLocalCornerDot < 0.72; // angle vif > 44° concentré sur un coin
+
+      // SmoothHobbyFitter (courbe cubique lisse)
+      const arcVerts = fitSmoothCubicCurve(pts, diag);
+      const arcSamples = sampleCubicBezierUniform(arcVerts[0], arcVerts[1], arcVerts[2], arcVerts[3], 48);
+      const arcChamfer = computeBidirectionalChamferError(pts, arcSamples, diag);
+
+      const makeOpenBBox = (verts) => {
+        let bx1 = Infinity, by1 = Infinity, bx2 = -Infinity, by2 = -Infinity;
+        for (const v of verts) {
+          if (v.x < bx1) bx1 = v.x; if (v.y < by1) by1 = v.y;
+          if (v.x > bx2) bx2 = v.x; if (v.y > by2) by2 = v.y;
+        }
+        return { x1: bx1, y1: by1, x2: bx2, y2: by2 };
+      };
+
+      if (
+        polyVerts.length >= 3 &&
+        sharpCornerCount >= 1 &&
+        ((hasLocalizedSharpCorner && polyChamfer < 0.055) || polyChamfer < arcChamfer * 0.85)
+      ) {
+        const bb = makeOpenBBox(polyVerts);
+        return finalizeShape({
+          id: createUid('sh'),
+          type: 'polyline',
+          ...bb,
+          vertices: polyVerts,
+          ...openShapeStyle,
+          detectedName: polyVerts.length === 3 ? 'Angle' : 'Polyligne'
+        });
+      }
+
+      if (arcChamfer <= lineChamfer * 0.90) {
+        const bb = makeOpenBBox(arcSamples);
+        return finalizeShape({
+          id: createUid('sh'),
+          type: 'arc',
+          ...bb,
+          vertices: arcVerts,
+          ...openShapeStyle,
+          detectedName: 'Courbe'
+        });
+      }
+
+      return finalizeShape({
+        id: createUid('sh'),
+        type: 'line',
+        x1: pFirst.x,
+        y1: pFirst.y,
+        x2: snappedLineEnd.x,
+        y2: snappedLineEnd.y,
+        ...openShapeStyle,
+        detectedName: 'Ligne'
+      });
+    }
+
+    // 5. Formes fermées : compétition multi-fitters via ChamferDistanceEstimator
     let signedArea = 0;
     for (let i = 0; i < closedPts.length; i++) {
       const a = closedPts[i], b = closedPts[(i + 1) % closedPts.length];
@@ -1285,18 +1690,14 @@
     const perim = totalLen + endDist * 0.85;
     const isoQuotient = (4 * Math.PI * polyArea) / Math.max(1, perim * perim);
 
-    // Ajustement PCA d'ellipse / cercle + rectangle orienté
     let sxx = 0, syy = 0, sxy = 0;
     for (const p of closedPts) {
       const dx = p.x - cx, dy = p.y - cy;
       sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
     }
     sxx /= closedPts.length; syy /= closedPts.length; sxy /= closedPts.length;
-    const trace = sxx + syy;
-    const diff = sxx - syy;
-    let angle = 0.5 * Math.atan2(2 * sxy, diff);
+    let angle = 0.5 * Math.atan2(2 * sxy, sxx - syy);
 
-    // Projete dans le repère PCA pour mesurer l'emprise exacte (indépendant de la densité d'échantillonnage)
     const cosT = Math.cos(-angle), sinT = Math.sin(-angle);
     let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
     for (const p of closedPts) {
@@ -1308,10 +1709,10 @@
     }
     const rCx = cx + ((uMin + uMax) * 0.5) * Math.cos(angle) - ((vMin + vMax) * 0.5) * Math.sin(angle);
     const rCy = cy + ((uMin + uMax) * 0.5) * Math.sin(angle) + ((vMin + vMax) * 0.5) * Math.cos(angle);
-    let rx = Math.max(4, (uMax - uMin) * 0.5);
-    let ry = Math.max(4, (vMax - vMin) * 0.5);
+    const rx = Math.max(4, (uMax - uMin) * 0.5);
+    const ry = Math.max(4, (vMax - vMin) * 0.5);
 
-    // Mesure de l'erreur radiale normalisée pour Ellipse / Cercle autour de (rCx, rCy)
+    // 5A. EllipseFitter (Cercle / Ellipse)
     let ellSq = 0;
     for (const p of closedPts) {
       const dx = p.x - rCx, dy = p.y - rCy;
@@ -1321,22 +1722,59 @@
       ellSq += (ellVal - 1) ** 2;
     }
     const ellipseErr = Math.sqrt(ellSq / closedPts.length);
+    const ellRatio = Math.max(rx, ry) / Math.max(1, Math.min(rx, ry));
+    const isCircle = ellRatio < 1.16;
+    const finalEllRx = isCircle ? (rx + ry) * 0.5 : rx;
+    const finalEllRy = isCircle ? (rx + ry) * 0.5 : ry;
+    const finalEllAngle = (isCircle || Math.abs(angle % (Math.PI / 2)) < 0.12) ? 0 : angle;
+    const ellSamples = sampleEllipseUniform(rCx, rCy, finalEllRx, finalEllRy, finalEllAngle, 48);
+    const ellChamfer = computeBidirectionalChamferError(closedPts, ellSamples, diag);
 
     // Extraction des sommets polygonaux
     const corners = computePolygonCorners(closedPts, diag);
 
-    let triErr = Infinity, triVerts = null;
+    // 5B. TriangleFitter
+    let triErr = Infinity, triChamfer = Infinity, triVerts = null;
     if (corners.length === 3) {
       triVerts = corners.map((c) => ({ x: c.x, y: c.y }));
+    } else if (corners.length === 4 && isoQuotient < 0.72) {
+      let bestArea = -1;
+      for (let skip = 0; skip < 4; skip++) {
+        const sub = corners.filter((_, idx) => idx !== skip);
+        const area = Math.abs((sub[1].x - sub[0].x) * (sub[2].y - sub[0].y) - (sub[2].x - sub[0].x) * (sub[1].y - sub[0].y));
+        if (area > bestArea) { bestArea = area; triVerts = sub.map((c) => ({ x: c.x, y: c.y })); }
+      }
+    }
+    if (triVerts) {
       triErr = computePolygonRmsError(closedPts, triVerts, diag);
-    } else if (corners.length === 4 && isoQuotient < 0.70) {
-      const merged = corners.slice(0, 3);
-      triErr = computePolygonRmsError(closedPts, merged, diag);
-      triVerts = merged.map((c) => ({ x: c.x, y: c.y }));
+      triChamfer = computeBidirectionalChamferError(closedPts, samplePolylineUniform(triVerts, true, 48), diag);
     }
 
-    let rectErr = Infinity, rectBox = null, rectAngle = 0, rectHasCorners = false;
-    if (corners.length >= 4 && corners.length <= 5) {
+    // 5C. DiamondFitter (Losange)
+    const aaCx = (minX + maxX) * 0.5;
+    const aaCy = (minY + maxY) * 0.5;
+    const diamondVerts = [
+      { x: aaCx, y: minY },
+      { x: maxX, y: aaCy },
+      { x: aaCx, y: maxY },
+      { x: minX, y: aaCy }
+    ];
+    const diamondErr = computePolygonRmsError(closedPts, diamondVerts, diag);
+    const diamondChamfer = computeBidirectionalChamferError(closedPts, samplePolylineUniform(diamondVerts, true, 48), diag);
+    let diamondCornerGapSum = 0;
+    for (const vc of diamondVerts) {
+      let bestD = Infinity;
+      for (const p of closedPts) {
+        const d = Math.hypot(p.x - vc.x, p.y - vc.y);
+        if (d < bestD) bestD = d;
+      }
+      diamondCornerGapSum += bestD;
+    }
+    const diamondHasCorners = (diamondCornerGapSum / 4) / Math.max(8, Math.min(maxX - minX, maxY - minY)) < 0.21;
+
+    // 5D. RectangleFitter (Carré / Rectangle axé ou orienté)
+    let rectErr = Infinity, rectChamfer = Infinity, rectBox = null, rectAngle = 0, rectHasCorners = false, rectIsSquare = false;
+    if (corners.length >= 4 && corners.length <= 6) {
       const aaVerts = [{ x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY }];
       const aaErr = computePolygonRmsError(closedPts, aaVerts, diag);
 
@@ -1352,7 +1790,6 @@
       const chosenVerts = useAA ? aaVerts : rotCorners;
       const minSide = useAA ? Math.max(8, Math.min(maxX - minX, maxY - minY)) : Math.max(8, Math.min(rx * 2, ry * 2));
 
-      // Un vrai rectangle passe près de ses 4 coins, contrairement à une ellipse
       let cornerGapSum = 0;
       for (const vc of chosenVerts) {
         let bestD = Infinity;
@@ -1362,50 +1799,119 @@
         }
         cornerGapSum += bestD;
       }
-      const avgCornerGapRatio = (cornerGapSum / 4) / minSide;
-      rectHasCorners = avgCornerGapRatio < 0.22;
+      rectHasCorners = (cornerGapSum / 4) / minSide < 0.22;
 
       if (useAA) {
+        const bw = maxX - minX, bh = maxY - minY;
+        rectIsSquare = Math.max(bw, bh) / Math.max(1, Math.min(bw, bh)) < 1.10;
+        const side = (bw + bh) * 0.5;
         rectErr = aaErr;
-        rectBox = { x1: minX, y1: minY, x2: maxX, y2: maxY };
+        rectBox = rectIsSquare
+          ? { x1: aaCx - side * 0.5, y1: aaCy - side * 0.5, x2: aaCx + side * 0.5, y2: aaCy + side * 0.5 }
+          : { x1: minX, y1: minY, x2: maxX, y2: maxY };
         rectAngle = 0;
       } else {
+        rectIsSquare = ellRatio < 1.10;
+        const hr = rectIsSquare ? (rx + ry) * 0.5 : rx;
+        const vr = rectIsSquare ? (rx + ry) * 0.5 : ry;
         rectErr = rotErr;
-        rectBox = { x1: rCx - rx, y1: rCy - ry, x2: rCx + rx, y2: rCy + ry };
+        rectBox = { x1: rCx - hr, y1: rCy - vr, x2: rCx + hr, y2: rCy + vr };
         rectAngle = angle;
       }
+      rectChamfer = computeBidirectionalChamferError(closedPts, samplePolylineUniform(chosenVerts, true, 48), diag);
     }
 
-    // Arbitrage intelligent entre Triangle / Rectangle / Cercle-Ellipse
-    if (triVerts && triErr < 0.088 && triErr < ellipseErr * 0.92 && triErr <= rectErr) {
+    // 5E. NGonFitter / Closed PolylineFitter (Pentagone, Hexagone, Polygone)
+    let ngonVerts = null, ngonChamfer = Infinity;
+    if (corners.length >= 5 && corners.length <= 8) {
+      ngonVerts = corners.map((c) => ({ x: c.x, y: c.y }));
+      ngonChamfer = computeBidirectionalChamferError(closedPts, samplePolylineUniform(ngonVerts, true, 48), diag);
+    }
+
+    const buildTriangleShape = () => {
       let tMinX = Infinity, tMinY = Infinity, tMaxX = -Infinity, tMaxY = -Infinity;
       for (const v of triVerts) {
         if (v.x < tMinX) tMinX = v.x; if (v.y < tMinY) tMinY = v.y;
         if (v.x > tMaxX) tMaxX = v.x; if (v.y > tMaxY) tMaxY = v.y;
       }
       return { id: createUid('sh'), type: 'triangle', x1: tMinX, y1: tMinY, x2: tMaxX, y2: tMaxY, vertices: triVerts, ...shapeStyle, detectedName: 'Triangle' };
-    }
-
-    if (rectBox && rectHasCorners && rectErr < 0.082 && (rectErr < ellipseErr * 0.85 || (corners.length === 4 && isoQuotient < 0.835))) {
-      return { id: createUid('sh'), type: 'rect', ...rectBox, angle: rectAngle, ...shapeStyle, detectedName: 'Rectangle' };
-    }
-
-    if (ellipseErr < 0.145) {
-      const ratio = Math.max(rx, ry) / Math.max(1, Math.min(rx, ry));
-      if (ratio < 1.16) {
-        const meanR = (rx + ry) * 0.5;
-        return {
-          id: createUid('sh'), type: 'ellipse',
-          x1: rCx - meanR, y1: rCy - meanR, x2: rCx + meanR, y2: rCy + meanR,
-          angle: 0, ...shapeStyle, detectedName: 'Cercle'
-        };
+    };
+    const buildDiamondShape = () => ({
+      id: createUid('sh'),
+      type: 'diamond',
+      x1: minX,
+      y1: minY,
+      x2: maxX,
+      y2: maxY,
+      vertices: diamondVerts,
+      ...shapeStyle,
+      detectedName: 'Losange'
+    });
+    const buildRectShape = () => ({
+      id: createUid('sh'),
+      type: 'rect',
+      ...rectBox,
+      angle: rectAngle,
+      ...shapeStyle,
+      detectedName: rectIsSquare ? 'Carré' : 'Rectangle'
+    });
+    const buildEllipseShape = () => ({
+      id: createUid('sh'),
+      type: 'ellipse',
+      x1: rCx - finalEllRx,
+      y1: rCy - finalEllRy,
+      x2: rCx + finalEllRx,
+      y2: rCy + finalEllRy,
+      angle: finalEllAngle,
+      ...shapeStyle,
+      detectedName: isCircle ? 'Cercle' : 'Ellipse'
+    });
+    const buildNgonShape = () => {
+      let pMinX = Infinity, pMinY = Infinity, pMaxX = -Infinity, pMaxY = -Infinity;
+      for (const v of ngonVerts) {
+        if (v.x < pMinX) pMinX = v.x; if (v.y < pMinY) pMinY = v.y;
+        if (v.x > pMaxX) pMaxX = v.x; if (v.y > pMaxY) pMaxY = v.y;
       }
-      if (Math.abs(angle % (Math.PI / 2)) < 0.12) angle = 0;
+      const names = { 5: 'Pentagone', 6: 'Hexagone', 7: 'Heptagone', 8: 'Octogone' };
       return {
-        id: createUid('sh'), type: 'ellipse',
-        x1: rCx - rx, y1: rCy - ry, x2: rCx + rx, y2: rCy + ry,
-        angle, ...shapeStyle, detectedName: 'Ellipse'
+        id: createUid('sh'),
+        type: 'polygon',
+        x1: pMinX,
+        y1: pMinY,
+        x2: pMaxX,
+        y2: pMaxY,
+        vertices: ngonVerts,
+        ...shapeStyle,
+        detectedName: names[ngonVerts.length] || 'Polygone'
       };
+    };
+
+    // Arbitrage strict (mode Stylo Hold-to-Shape)
+    if (triVerts && triErr < 0.088 && triErr < ellipseErr * 0.92 && triErr <= rectErr && triErr <= diamondErr) {
+      return buildTriangleShape();
+    }
+    if (diamondHasCorners && diamondErr < 0.075 && diamondChamfer < ellChamfer * 0.85 && diamondChamfer < rectChamfer * 0.90) {
+      return buildDiamondShape();
+    }
+    if (rectBox && rectHasCorners && rectErr < 0.082 && (rectErr < ellipseErr * 0.85 || (corners.length === 4 && isoQuotient < 0.835))) {
+      return buildRectShape();
+    }
+    if (ellipseErr < 0.145 && (!ngonVerts || ellChamfer <= ngonChamfer * 1.15)) {
+      return buildEllipseShape();
+    }
+    if (ngonVerts && ngonChamfer < 0.055 && ngonChamfer < ellChamfer * 0.78) {
+      return buildNgonShape();
+    }
+
+    // Mode Outil Formes (forceSnap) : sélectionne TOUJOURS le meilleur fitter fermé via ChamferDistanceEstimator
+    if (forceSnap) {
+      const candidates = [{ score: ellChamfer, build: buildEllipseShape }];
+      if (triVerts) candidates.push({ score: triChamfer + 0.002, build: buildTriangleShape });
+      if (diamondHasCorners) candidates.push({ score: diamondChamfer + 0.003, build: buildDiamondShape });
+      if (rectBox && rectHasCorners) candidates.push({ score: rectChamfer + 0.002, build: buildRectShape });
+      if (ngonVerts) candidates.push({ score: ngonChamfer + 0.012, build: buildNgonShape });
+      candidates.sort((a, b) => a.score - b.score);
+      return candidates[0].build();
     }
 
     return null;
@@ -2006,20 +2512,25 @@
     penStyle: 'fountain',
     penLineStyle: 'solid',
     highlighterAutoStraighten: false,
+    highlighterSmoothing: 0,
+    pencilDrawAndHold: true,
     penColor: '#1e293b',
+    pencilColor: '#111827',
     highlighterColor: '#facc15',
     shapeColor: '#1d4ed8',
     tapeColor: '#f59e0b',
     laserColor: '#ef4444',
     textColor: '#1e293b',
     penSize: 5,
+    pencilSize: 5,
     highlighterSize: 22,
     shapeSize: 4,
     eraserSize: 18,
     tapeSize: 26,
     laserSize: 6,
     toolMemory: {
-      pen: { color: '#1e293b', size: 5, colorSlots: ['#1e293b', '#1d4ed8', '#dc2626'], sizeSlots: [2.5, 5, 12] },
+      pen: { color: '#1e293b', size: 5, colorSlots: ['#111827', '#3b82f6', '#dc2626'], sizeSlots: [2.5, 5, 12] },
+      pencil: { color: '#111827', size: 5, colorSlots: ['#111827', '#52525b', '#9ca3af'], sizeSlots: [2.5, 5, 10] },
       highlighter: { color: '#facc15', size: 22, colorSlots: ['#facc15', '#4ade80', '#f472b6'], sizeSlots: [12, 22, 34] },
       shape: { color: '#1d4ed8', size: 4, colorSlots: ['#1d4ed8', '#1e293b', '#dc2626'], sizeSlots: [2, 4, 8] },
       eraser: { color: '#94a3b8', size: 18, colorSlots: [], sizeSlots: [10, 18, 32] },
@@ -2045,11 +2556,13 @@
     scribbleEraseShapesAndHl: true,
     circleToLasso: true,
     gnPenPopoverOpen: false,
+    gnPencilPopoverOpen: false,
+    gnHighlighterPopoverOpen: false,
     gnStrokePopoverOpen: false,
     gnEraserModePopoverOpen: false,
     gnEraserAdvPopoverOpen: false,
     gnEraserSizePopoverOpen: false,
-    activeSizeSlotByTool: { pen: 1, highlighter: 1, shape: 1, tape: 1, eraser: 1 },
+    activeSizeSlotByTool: { pen: 1, pencil: 1, highlighter: 1, shape: 1, tape: 1, eraser: 1 },
     palmRejection: true,
     lastPenSeenTime: 0,
     laserTrail: [],
@@ -2139,12 +2652,49 @@
     } catch (_) {}
   }
 
+  const PENCIL_PREFS_STORAGE_KEY = 'inkflow_pencil_prefs_v1';
+  const HIGHLIGHTER_PREFS_STORAGE_KEY = 'inkflow_highlighter_prefs_v1';
+  function savePencilPrefsToStorage() {
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      localStorage.setItem(PENCIL_PREFS_STORAGE_KEY, JSON.stringify({
+        pencilDrawAndHold: Boolean(state.pencilDrawAndHold)
+      }));
+    } catch (_) {}
+  }
+  function saveHighlighterPrefsToStorage() {
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      localStorage.setItem(HIGHLIGHTER_PREFS_STORAGE_KEY, JSON.stringify({
+        highlighterSmoothing: Number(state.highlighterSmoothing || 0),
+        highlighterAutoStraighten: Boolean(state.highlighterAutoStraighten)
+      }));
+    } catch (_) {}
+  }
+
   try {
     const savedAutoShape = localStorage.getItem('plume_auto_shape_enabled');
     if (savedAutoShape === 'false') state.autoShapeEnabled = false;
     const savedSmoothing = parseFloat(localStorage.getItem('inkflow_smoothing_v1'));
     if (Number.isFinite(savedSmoothing) && savedSmoothing >= 0 && savedSmoothing <= 1) {
       state.smoothing = savedSmoothing;
+    }
+    const savedPencilRaw = localStorage.getItem(PENCIL_PREFS_STORAGE_KEY);
+    if (savedPencilRaw) {
+      const pp = JSON.parse(savedPencilRaw);
+      if (pp && typeof pp.pencilDrawAndHold === 'boolean') state.pencilDrawAndHold = pp.pencilDrawAndHold;
+    }
+    const savedHlRaw = localStorage.getItem(HIGHLIGHTER_PREFS_STORAGE_KEY);
+    if (savedHlRaw) {
+      const hp = JSON.parse(savedHlRaw);
+      if (hp && typeof hp === 'object') {
+        if (Number.isFinite(hp.highlighterSmoothing) && hp.highlighterSmoothing >= 0 && hp.highlighterSmoothing <= 1) {
+          state.highlighterSmoothing = hp.highlighterSmoothing;
+        }
+        if (typeof hp.highlighterAutoStraighten === 'boolean') {
+          state.highlighterAutoStraighten = hp.highlighterAutoStraighten;
+        }
+      }
     }
     const savedEraserRaw = localStorage.getItem(ERASER_PREFS_STORAGE_KEY);
     if (savedEraserRaw) {
@@ -2171,6 +2721,7 @@
   const TOOL_PREFS_STORAGE_KEY = 'inkflow_tool_prefs_v1';
 
   function getActiveToolColor(tool = state.tool) {
+    if (tool === 'pencil') return state.pencilColor || '#111827';
     if (tool === 'highlighter') return state.highlighterColor;
     if (tool === 'shape') return state.shapeColor || state.penColor;
     if (tool === 'tape') return state.tapeColor || '#f59e0b';
@@ -2181,6 +2732,7 @@
   }
 
   function getActiveToolSize(tool = state.tool) {
+    if (tool === 'pencil') return state.pencilSize || 5;
     if (tool === 'highlighter') return state.highlighterSize;
     if (tool === 'eraser') return state.eraserSize;
     if (tool === 'shape') return state.shapeSize || state.penSize;
@@ -2202,6 +2754,9 @@
     if (tool === 'pen') {
       if (mem.color) state.penColor = mem.color;
       if (Number.isFinite(mem.size)) state.penSize = mem.size;
+    } else if (tool === 'pencil') {
+      if (mem.color) state.pencilColor = mem.color;
+      if (Number.isFinite(mem.size)) state.pencilSize = mem.size;
     } else if (tool === 'highlighter') {
       if (mem.color) state.highlighterColor = mem.color;
       if (Number.isFinite(mem.size)) state.highlighterSize = mem.size;
@@ -2224,7 +2779,7 @@
   function saveToolMemoryToStorage() {
     try {
       if (typeof localStorage === 'undefined' || !localStorage) return;
-      ['pen', 'highlighter', 'shape', 'eraser', 'tape', 'laser', 'text'].forEach(syncCanonicalToToolMemory);
+      ['pen', 'pencil', 'highlighter', 'shape', 'eraser', 'tape', 'laser', 'text'].forEach(syncCanonicalToToolMemory);
       localStorage.setItem(TOOL_PREFS_STORAGE_KEY, JSON.stringify(state.toolMemory));
     } catch (_) {}
   }
@@ -2236,7 +2791,7 @@
       if (!raw) return;
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return;
-      ['pen', 'highlighter', 'shape', 'eraser', 'tape', 'laser', 'text'].forEach((t) => {
+      ['pen', 'pencil', 'highlighter', 'shape', 'eraser', 'tape', 'laser', 'text'].forEach((t) => {
         const entry = parsed[t];
         if (!entry || typeof entry !== 'object') return;
         const target = state.toolMemory[t];
@@ -2261,7 +2816,8 @@
 
   function setToolColor(tool, hexColor) {
     if (!hexColor) return;
-    if (tool === 'highlighter') state.highlighterColor = hexColor;
+    if (tool === 'pencil') state.pencilColor = hexColor;
+    else if (tool === 'highlighter') state.highlighterColor = hexColor;
     else if (tool === 'shape') state.shapeColor = hexColor;
     else if (tool === 'tape') state.tapeColor = hexColor;
     else if (tool === 'laser') state.laserColor = hexColor;
@@ -2286,7 +2842,8 @@
   function setToolSize(tool, sizeVal) {
     const n = Number(sizeVal);
     if (!Number.isFinite(n) || n <= 0) return;
-    if (tool === 'highlighter') state.highlighterSize = n;
+    if (tool === 'pencil') state.pencilSize = n;
+    else if (tool === 'highlighter') state.highlighterSize = n;
     else if (tool === 'eraser') state.eraserSize = n;
     else if (tool === 'shape') state.shapeSize = n;
     else if (tool === 'tape') state.tapeSize = n;
@@ -2621,7 +3178,7 @@
     const page = getActivePage();
     let committed = false;
     if (page) {
-      if ((state.tool === 'pen' || state.tool === 'highlighter') && state.currentStroke) {
+      if ((state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter') && state.currentStroke) {
         if (state.currentStrokeSnappedFromAutoShape && state.currentShape) {
           const snapped = state.currentShape;
           delete snapped.detectedName;
@@ -4199,7 +4756,7 @@
   }
 
   function getShapeVertices(sh) {
-    if (Array.isArray(sh.vertices) && sh.vertices.length >= 3) return sh.vertices;
+    if (Array.isArray(sh.vertices) && sh.vertices.length >= 2) return sh.vertices;
     if (sh.type === 'triangle') {
       return [
         { x: (sh.x1 + sh.x2) * 0.5, y: sh.y1 },
@@ -4207,11 +4764,20 @@
         { x: sh.x1, y: sh.y2 }
       ];
     }
+    if (sh.type === 'diamond') {
+      const cx = (sh.x1 + sh.x2) * 0.5, cy = (sh.y1 + sh.y2) * 0.5;
+      return [
+        { x: cx, y: Math.min(sh.y1, sh.y2) },
+        { x: Math.max(sh.x1, sh.x2), y: cy },
+        { x: cx, y: Math.max(sh.y1, sh.y2) },
+        { x: Math.min(sh.x1, sh.x2), y: cy }
+      ];
+    }
     return null;
   }
 
   function getShapeBoundingBox(sh) {
-    if (Array.isArray(sh.vertices) && sh.vertices.length >= 3) {
+    if (Array.isArray(sh.vertices) && sh.vertices.length >= 2) {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const v of sh.vertices) {
         if (v.x < minX) minX = v.x;
@@ -4244,13 +4810,39 @@
     if (sh.type === 'line' || sh.type === 'arrow') {
       return pointToSegmentDist({ x: wx, y: wy }, { x: sh.x1, y: sh.y1 }, { x: sh.x2, y: sh.y2 }) <= thr;
     }
-    if (sh.type === 'triangle') {
+    if (sh.type === 'triangle' || sh.type === 'polygon') {
       const verts = getShapeVertices(sh);
-      if (!verts) return false;
+      if (!verts || verts.length < 3) return false;
       for (let i = 0; i < verts.length; i++) {
         if (pointToSegmentDist({ x: wx, y: wy }, verts[i], verts[(i + 1) % verts.length]) <= thr) return true;
       }
       return Boolean(sh.filled && pointInPolygon(wx, wy, verts));
+    }
+    if (sh.type === 'polyline') {
+      const verts = getShapeVertices(sh);
+      if (!verts || verts.length < 2) return false;
+      for (let i = 1; i < verts.length; i++) {
+        if (pointToSegmentDist({ x: wx, y: wy }, verts[i - 1], verts[i]) <= thr) return true;
+      }
+      return false;
+    }
+    if (sh.type === 'arc') {
+      const verts = getShapeVertices(sh);
+      if (!verts || verts.length < 4) return false;
+      const pt = { x: wx, y: wy };
+      let prev = verts[0];
+      const steps = 16;
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        const mt = 1 - t;
+        const cur = {
+          x: mt * mt * mt * verts[0].x + 3 * mt * mt * t * verts[1].x + 3 * mt * t * t * verts[2].x + t * t * t * verts[3].x,
+          y: mt * mt * mt * verts[0].y + 3 * mt * mt * t * verts[1].y + 3 * mt * t * t * verts[2].y + t * t * t * verts[3].y
+        };
+        if (pointToSegmentDist(pt, prev, cur) <= thr) return true;
+        prev = cur;
+      }
+      return false;
     }
     const cx = (sh.x1 + sh.x2) * 0.5;
     const cy = (sh.y1 + sh.y2) * 0.5;
@@ -4269,12 +4861,7 @@
       return false;
     }
     if (sh.type === 'diamond') {
-      const verts = [
-        { x: cx, y: Math.min(sh.y1, sh.y2) },
-        { x: Math.max(sh.x1, sh.x2), y: cy },
-        { x: cx, y: Math.max(sh.y1, sh.y2) },
-        { x: Math.min(sh.x1, sh.x2), y: cy }
-      ];
+      const verts = getShapeVertices(sh);
       for (let i = 0; i < verts.length; i++) {
         if (pointToSegmentDist({ x: wx, y: wy }, verts[i], verts[(i + 1) % verts.length]) <= thr) return true;
       }
@@ -4404,14 +4991,14 @@
       targetCtx.lineTo(x2 - headLen * Math.cos(ang + Math.PI / 6), y2 - headLen * Math.sin(ang + Math.PI / 6));
       targetCtx.stroke();
     } else if (type === 'diamond') {
-      const cx = (x1 + x2) * 0.5, cy = (y1 + y2) * 0.5;
-      targetCtx.moveTo(cx, Math.min(y1, y2));
-      targetCtx.lineTo(Math.max(x1, x2), cy);
-      targetCtx.lineTo(cx, Math.max(y1, y2));
-      targetCtx.lineTo(Math.min(x1, x2), cy);
-      targetCtx.closePath();
-      if (filled) targetCtx.fill();
-      targetCtx.stroke();
+      const verts = getShapeVertices(shape);
+      if (verts && verts.length >= 4) {
+        targetCtx.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < verts.length; i++) targetCtx.lineTo(verts[i].x, verts[i].y);
+        targetCtx.closePath();
+        if (filled) targetCtx.fill();
+        targetCtx.stroke();
+      }
     } else if (type === 'roundedRect') {
       const rx = Math.min(x1, x2), ry = Math.min(y1, y2);
       const rw = Math.abs(x2 - x1), rh = Math.abs(y2 - y1);
@@ -4420,13 +5007,27 @@
       else targetCtx.rect(rx, ry, rw, rh);
       if (filled) targetCtx.fill();
       targetCtx.stroke();
-    } else if (type === 'triangle') {
+    } else if (type === 'triangle' || type === 'polygon') {
       const verts = getShapeVertices(shape);
       if (verts && verts.length >= 3) {
         targetCtx.moveTo(verts[0].x, verts[0].y);
         for (let i = 1; i < verts.length; i++) targetCtx.lineTo(verts[i].x, verts[i].y);
         targetCtx.closePath();
         if (filled) targetCtx.fill();
+        targetCtx.stroke();
+      }
+    } else if (type === 'polyline') {
+      const verts = getShapeVertices(shape);
+      if (verts && verts.length >= 2) {
+        targetCtx.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < verts.length; i++) targetCtx.lineTo(verts[i].x, verts[i].y);
+        targetCtx.stroke();
+      }
+    } else if (type === 'arc') {
+      const verts = getShapeVertices(shape);
+      if (verts && verts.length >= 4) {
+        targetCtx.moveTo(verts[0].x, verts[0].y);
+        targetCtx.bezierCurveTo(verts[1].x, verts[1].y, verts[2].x, verts[2].y, verts[3].x, verts[3].y);
         targetCtx.stroke();
       }
     }
@@ -4480,6 +5081,57 @@
     return [];
   }
 
+  const pencilGrainPatternCache = new Map();
+  function getPencilGrainPattern(targetCtx, hexColor) {
+    const key = String(hexColor || '#111827').toLowerCase();
+    if (!targetCtx || typeof targetCtx.createPattern !== 'function' || typeof document === 'undefined') {
+      return key;
+    }
+    let off = pencilGrainPatternCache.get(key);
+    if (!off) {
+      try {
+        off = document.createElement('canvas');
+        off.width = 48;
+        off.height = 48;
+        const octx = off.getContext && off.getContext('2d');
+        if (!octx) return key;
+        const c = key.replace('#', '');
+        const full = c.length === 3 ? c.replace(/(.)/g, '$1$1') : c;
+        const num = parseInt(full, 16);
+        const r = Number.isFinite(num) ? ((num >> 16) & 255) : 17;
+        const g = Number.isFinite(num) ? ((num >> 8) & 255) : 24;
+        const b = Number.isFinite(num) ? (num & 255) : 39;
+        // Grain graphite déterministe (grain papier réaliste 60/120 FPS en un seul draw call GPU)
+        for (let y = 0; y < 48; y += 2) {
+          for (let x = 0; x < 48; x += 2) {
+            const h1 = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+            const n1 = h1 - Math.floor(h1);
+            const h2 = Math.sin((x + 17) * 39.346 + (y + 31) * 11.135) * 24634.6345;
+            const n2 = h2 - Math.floor(h2);
+            const v = n1 * 0.65 + n2 * 0.35;
+            if (v > 0.24) {
+              const alpha = Math.min(0.95, (v - 0.2) * 1.12);
+              octx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+              octx.fillRect(x, y, v > 0.68 ? 2 : 1.5, v > 0.56 ? 2 : 1.5);
+            }
+          }
+        }
+        if (pencilGrainPatternCache.size >= 32) {
+          const firstKey = pencilGrainPatternCache.keys().next().value;
+          pencilGrainPatternCache.delete(firstKey);
+        }
+        pencilGrainPatternCache.set(key, off);
+      } catch (_) {
+        return key;
+      }
+    }
+    try {
+      return targetCtx.createPattern(off, 'repeat') || key;
+    } catch (_) {
+      return key;
+    }
+  }
+
   function drawSingleStroke(targetCtx, stroke, isPaperDark = false, isSelected = false, viewBounds = null) {
     if (!stroke.points || stroke.points.length === 0) return;
 
@@ -4488,17 +5140,22 @@
       return;
     }
 
+    const isPencil = stroke.tool === 'pencil' || stroke.penStyle === 'pencil';
     targetCtx.save();
     if (stroke.tool === 'highlighter') {
       targetCtx.globalAlpha = 0.36;
       targetCtx.globalCompositeOperation = isPaperDark ? 'screen' : 'multiply';
+    } else if (isPencil) {
+      targetCtx.globalAlpha = 0.88;
+      targetCtx.globalCompositeOperation = 'source-over';
     } else {
       targetCtx.globalAlpha = 1.0;
       targetCtx.globalCompositeOperation = 'source-over';
     }
 
     const color = stroke.color || '#1e293b';
-    targetCtx.fillStyle = color;
+    const paintStyle = isPencil ? getPencilGrainPattern(targetCtx, color) : color;
+    targetCtx.fillStyle = paintStyle;
 
     if (stroke.points.length === 1) {
       const p0 = stroke.points[0];
@@ -4516,7 +5173,7 @@
     targetCtx.setLineDash(getStrokeLineDash(lineStyle, sz));
     if (path2d) {
       if (renderMode === 'stroke') {
-        targetCtx.strokeStyle = color;
+        targetCtx.strokeStyle = paintStyle;
         targetCtx.lineWidth = sz;
         targetCtx.lineCap = 'round';
         targetCtx.lineJoin = 'round';
@@ -4533,7 +5190,7 @@
         targetCtx.stroke(path2d);
       }
     } else {
-      targetCtx.strokeStyle = color;
+      targetCtx.strokeStyle = paintStyle;
       targetCtx.lineWidth = stroke.size || 5;
       targetCtx.lineCap = 'round';
       targetCtx.lineJoin = 'round';
@@ -4987,6 +5644,7 @@
 
     const pts = stroke.points;
     const isHl = stroke.tool === 'highlighter';
+    const isPencil = stroke.tool === 'pencil' || stroke.penStyle === 'pencil';
     const size = Math.max(1, stroke.size || 5);
     const thinning = getStrokeThinning(stroke);
     const color = stroke.color || '#1e293b';
@@ -5061,10 +5719,11 @@
       activeCtx.rect(0, 0, pb.width, pb.height);
       activeCtx.clip();
     }
-    activeCtx.globalAlpha = 1.0;
+    const activePaint = isPencil ? getPencilGrainPattern(activeCtx, color) : color;
+    activeCtx.globalAlpha = isPencil ? 0.88 : 1.0;
     activeCtx.globalCompositeOperation = 'source-over';
-    activeCtx.fillStyle = color;
-    activeCtx.strokeStyle = color;
+    activeCtx.fillStyle = activePaint;
+    activeCtx.strokeStyle = activePaint;
 
     if (startIdx === 0) {
       const p0 = pts[0];
@@ -6051,31 +6710,42 @@
 
   function scheduleHoldShapeCheck() {
     cancelHoldShapeTimer();
-    if ((!state.autoShapeEnabled && !state.circleToLasso) || state.currentStrokeSnappedFromAutoShape) return;
-    if (state.tool !== 'pen' && state.tool !== 'highlighter') return;
+    const isAutoShapeTool = state.tool === 'shape' && state.shapeType === 'auto';
+    const holdShapeActive = state.tool === 'pencil' ? Boolean(state.pencilDrawAndHold) : Boolean(state.autoShapeEnabled);
+    if ((!isAutoShapeTool && !holdShapeActive && !state.circleToLasso) || state.currentStrokeSnappedFromAutoShape) return;
+    if (state.tool !== 'pen' && state.tool !== 'pencil' && state.tool !== 'highlighter' && !isAutoShapeTool) return;
     state.holdShapeTimer = setTimeout(() => {
       state.holdShapeTimer = null;
       trySnapStrokeToShape();
-    }, 460);
+    }, isAutoShapeTool ? 320 : 460);
   }
 
   function trySnapStrokeToShape() {
     if (!state.isDrawing || !state.currentStroke || state.currentStrokeSnappedFromAutoShape || state.colorWheelOpen) return;
-    if (state.tool !== 'pen' && state.tool !== 'highlighter') return;
+    const isAutoShapeTool = state.tool === 'shape' && state.shapeType === 'auto';
+    if (state.tool !== 'pen' && state.tool !== 'pencil' && state.tool !== 'highlighter' && !isAutoShapeTool) return;
     const pts = state.currentStroke.points || [];
-    if (pts.length < 5) return;
+    if (pts.length < (isAutoShapeTool ? 2 : 5)) return;
 
+    const page = getActivePage();
     // Geste GoodNotes : entourer des éléments et maintenir -> Sélection au lasso automatique
-    if (state.tool === 'pen' && state.circleToLasso && tryCircleToLassoSelection(pts, getActivePage())) {
+    if (state.tool === 'pen' && state.circleToLasso && tryCircleToLassoSelection(pts, page)) {
       return;
     }
 
-    if (!state.autoShapeEnabled) return;
+    const holdShapeActive = state.tool === 'pencil' ? Boolean(state.pencilDrawAndHold) : Boolean(state.autoShapeEnabled);
+    if (!isAutoShapeTool && !holdShapeActive) return;
     const detected = detectShapeFromStroke(
       pts,
       state.currentStroke.color,
       state.currentStroke.size,
-      state.currentStroke.tool === 'highlighter'
+      state.currentStroke.tool === 'highlighter',
+      {
+        forceSnap: isAutoShapeTool || Boolean(state.currentStroke._isInstantShapeStroke),
+        filled: isAutoShapeTool ? Boolean(state.shapeFilled) : false,
+        existingShapes: page ? page.shapes : null,
+        snapToOtherShapes: true
+      }
     );
     if (!detected) return;
 
@@ -6289,26 +6959,36 @@
     state.currentShape = null;
     const hadLassoSelection = hasAnyLassoSelection();
 
-    if (state.tool === 'pen' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) {
+    // Ferme automatiquement tout popover de réglages ouvert dès qu'on pose le stylet sur la page
+    if (state.gnPenPopoverOpen || state.gnPencilPopoverOpen || state.gnHighlighterPopoverOpen || state.gnStrokePopoverOpen) {
+      state.gnPenPopoverOpen = false;
+      state.gnPencilPopoverOpen = false;
+      state.gnHighlighterPopoverOpen = false;
+      state.gnStrokePopoverOpen = false;
+      updateToolbarActiveState();
+    }
+
+    if (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) {
       clearLassoSelection();
       pushHistorySnapshot();
       const isHl = state.tool === 'highlighter';
+      const isPencil = state.tool === 'pencil';
       const isAutoShapeTool = state.tool === 'shape' && state.shapeType === 'auto';
       const downTime = e.timeStamp || performance.now();
       state.predictedPoints = [];
       state.currentStroke = {
         id: createUid('st'),
         tool: isAutoShapeTool ? 'pen' : state.tool,
-        penStyle: isHl ? 'highlighter' : (isAutoShapeTool ? 'ballpoint' : state.penStyle),
-        lineStyle: isHl ? 'solid' : (isAutoShapeTool ? 'solid' : (state.penLineStyle || 'solid')),
-        color: isAutoShapeTool ? (state.shapeColor || state.penColor) : (isHl ? state.highlighterColor : state.penColor),
-        size: isAutoShapeTool ? Math.max(2, state.shapeSize || state.penSize) : (isHl ? state.highlighterSize : state.penSize),
-        smoothing: state.smoothing,
+        penStyle: isHl ? 'highlighter' : (isPencil ? 'pencil' : (isAutoShapeTool ? 'ballpoint' : state.penStyle)),
+        lineStyle: (isHl || isPencil || isAutoShapeTool) ? 'solid' : (state.penLineStyle || 'solid'),
+        color: isAutoShapeTool ? (state.shapeColor || state.penColor) : (isHl ? state.highlighterColor : (isPencil ? state.pencilColor : state.penColor)),
+        size: isAutoShapeTool ? Math.max(2, state.shapeSize || state.penSize) : (isHl ? state.highlighterSize : (isPencil ? state.pencilSize : state.penSize)),
+        smoothing: isAutoShapeTool ? 0 : (isHl ? (state.highlighterSmoothing ?? 0) : state.smoothing),
         tipSharpness: state.tipSharpness ?? 0.5,
         pressureSensitivity: state.pressureSensitivity ?? 0.5,
         pressureMode: (isHl || isAutoShapeTool) ? 'uniform' : state.pressureMode,
         simulatePressure: false,
-        _isInstantShapeStroke: isAutoShapeTool || (state.tool === 'pen' && Boolean(state.instantShapeMode)),
+        _isInstantShapeStroke: isAutoShapeTool || ((state.tool === 'pen' || isPencil) && Boolean(state.instantShapeMode)),
         points: [],
         _renderedUpToIndex: 0
       };
@@ -6491,21 +7171,19 @@
     if (!coalesced || coalesced.length === 0) coalesced = [e];
 
     const activePageForMove = getActivePage();
-    if (state.tool === 'pen' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) {
+    if (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) {
       if (!state.currentStroke && !state.drawingPausedOutsidePage) return;
 
       // Si la forme a déjà été détectée au maintien, ajuste en douceur l'extrémité pour Ligne / Flèche sur le canvas actif uniquement
       if (state.currentStrokeSnappedFromAutoShape && state.currentShape) {
         if (state.currentShape.type === 'line' || state.currentShape.type === 'arrow') {
           const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
-          const dx = wPt.x - state.currentShape.x1, dy = wPt.y - state.currentShape.y1;
-          let x2 = wPt.x, y2 = wPt.y;
-          const ang = Math.atan2(dy, dx);
-          const snapRad = (3.5 * Math.PI) / 180;
-          if (Math.abs(ang) < snapRad || Math.abs(Math.abs(ang) - Math.PI) < snapRad) y2 = state.currentShape.y1;
-          else if (Math.abs(Math.abs(ang) - Math.PI / 2) < snapRad) x2 = state.currentShape.x1;
-          state.currentShape.x2 = x2;
-          state.currentShape.y2 = y2;
+          const snappedEnd = snapLineEndpoint45(state.currentShape.x1, state.currentShape.y1, wPt.x, wPt.y, 5.0);
+          state.currentShape.x2 = snappedEnd.x;
+          state.currentShape.y2 = snappedEnd.y;
+          if (activePageForMove && activePageForMove.shapes) {
+            snapShapeToNearbyShapes(state.currentShape, activePageForMove.shapes, 16);
+          }
           renderActiveCanvasOnly();
         }
         return;
@@ -6543,6 +7221,7 @@
                 });
               }
               const finishedStroke = state.currentStroke;
+              const wasInstantShape = Boolean(finishedStroke._isInstantShapeStroke);
               delete finishedStroke._liveEuroX;
               delete finishedStroke._liveEuroY;
               delete finishedStroke._lastRawPt;
@@ -6550,10 +7229,31 @@
               delete finishedStroke._stabLastRawY;
               delete finishedStroke._stabPrevDirX;
               delete finishedStroke._stabPrevDirY;
-              invalidateStrokeCache(finishedStroke);
-              activePageForMove.strokes.push(finishedStroke);
+              delete finishedStroke._isInstantShapeStroke;
               state.currentStroke = null;
-              mergeCompletedItemIntoStaticCanvas(finishedStroke, 'stroke');
+              if (wasInstantShape && finishedStroke.points.length >= 2) {
+                const edgeShape = detectShapeFromStroke(
+                  finishedStroke.points,
+                  finishedStroke.color,
+                  finishedStroke.size,
+                  finishedStroke.tool === 'highlighter',
+                  {
+                    forceSnap: true,
+                    filled: state.tool === 'shape' ? Boolean(state.shapeFilled) : false,
+                    existingShapes: activePageForMove.shapes,
+                    snapToOtherShapes: true
+                  }
+                );
+                if (edgeShape) {
+                  delete edgeShape.detectedName;
+                  activePageForMove.shapes.push(edgeShape);
+                  mergeCompletedItemIntoStaticCanvas(edgeShape, 'shape');
+                }
+              } else {
+                invalidateStrokeCache(finishedStroke);
+                activePageForMove.strokes.push(finishedStroke);
+                mergeCompletedItemIntoStaticCanvas(finishedStroke, 'stroke');
+              }
               clearActiveCanvas();
               scheduleSaveActivePage(activePageForMove);
               state.drawingPausedOutsidePage = true;
@@ -6565,6 +7265,7 @@
           // Retour dans la feuille après en être sorti : démarre un nouveau trait net depuis le point d'entrée sur le bord
           if (state.drawingPausedOutsidePage) {
             const isHl = state.tool === 'highlighter';
+            const isPencil = state.tool === 'pencil';
             const entryPts = [];
             if (state.lastOutsideRawPt) {
               const hit = intersectSegmentWithRect(state.lastOutsideRawPt, rawPt, pageB.maxX, pageB.maxY);
@@ -6590,11 +7291,11 @@
             state.currentStroke = {
               id: createUid('st'),
               tool: state.tool,
-              penStyle: isHl ? 'highlighter' : state.penStyle,
-              lineStyle: isHl ? 'solid' : (state.penLineStyle || 'solid'),
-              color: isHl ? state.highlighterColor : state.penColor,
-              size: isHl ? state.highlighterSize : state.penSize,
-              smoothing: state.smoothing,
+              penStyle: isHl ? 'highlighter' : (isPencil ? 'pencil' : state.penStyle),
+              lineStyle: (isHl || isPencil) ? 'solid' : (state.penLineStyle || 'solid'),
+              color: isHl ? state.highlighterColor : (isPencil ? state.pencilColor : state.penColor),
+              size: isHl ? state.highlighterSize : (isPencil ? state.pencilSize : state.penSize),
+              smoothing: isHl ? (state.highlighterSmoothing ?? 0) : state.smoothing,
               tipSharpness: state.tipSharpness ?? 0.5,
               pressureSensitivity: state.pressureSensitivity ?? 0.5,
               pressureMode: isHl ? 'uniform' : state.pressureMode,
@@ -6664,7 +7365,8 @@
       }
 
       // Détection d'immobilité (Hold-to-Shape) après un tracé réel >= 24px (throttlée pour éviter clearTimeout/setTimeout à 240 Hz)
-      if (state.autoShapeEnabled) {
+      const holdShapeAllowed = state.tool === 'pencil' ? Boolean(state.pencilDrawAndHold) : Boolean(state.autoShapeEnabled);
+      if (holdShapeAllowed) {
         const anchor = state.holdShapeAnchorScreen;
         const movedScreen = anchor ? Math.hypot(e.clientX - anchor.x, e.clientY - anchor.y) : 99;
         const nowMs = performance.now();
@@ -6789,7 +7491,7 @@
     let mergedDirectlyIntoStatic = false;
     const page = getActivePage();
     if (page) {
-      if ((state.tool === 'pen' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) && state.currentStroke) {
+      if ((state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) && state.currentStroke) {
         if (state.currentStrokeSnappedFromAutoShape && state.currentShape) {
           const snapped = state.currentShape;
           delete snapped.detectedName;
@@ -6807,13 +7509,20 @@
           }
           const finishedStroke = state.currentStroke;
 
-          // Mode Forme instantanée (bouton Formes dans la barre stylo OU mode Forme libre auto) : convertit directement au relâchement sans maintenir
-          if (finishedStroke._isInstantShapeStroke && finishedStroke.points.length >= 4) {
+          // Mode Forme instantanée (Outil Formes de la barre principale OU bouton Formes instantanées) :
+          // comportement GoodNotes ShapeTool — convertit FORCÉMENT tout geste tracé en forme géométrique propre au relâchement
+          if (finishedStroke._isInstantShapeStroke && finishedStroke.points.length >= 2) {
             const instantDetected = detectShapeFromStroke(
               finishedStroke.points,
               finishedStroke.color,
               finishedStroke.size,
-              finishedStroke.tool === 'highlighter'
+              finishedStroke.tool === 'highlighter',
+              {
+                forceSnap: true,
+                filled: state.tool === 'shape' ? Boolean(state.shapeFilled) : false,
+                existingShapes: page.shapes,
+                snapToOtherShapes: true
+              }
             );
             if (instantDetected) {
               const detName = instantDetected.detectedName;
@@ -6825,6 +7534,13 @@
               mergedDirectlyIntoStatic = true;
               scheduleSaveActivePage(page);
               if (detName) showToast(`✨ ${detName}`);
+              clearActiveCanvas();
+              requestRender();
+              return;
+            } else if (state.tool === 'shape') {
+              // Tap accidentel minuscule (< 5px) dans l'outil Formes : on annule proprement au lieu de laisser un point brut
+              state.currentStroke = null;
+              state.currentShape = null;
               clearActiveCanvas();
               requestRender();
               return;
@@ -6971,6 +7687,7 @@
   }
 
   function getActiveCursorColor() {
+    if (state.tool === 'pencil') return state.pencilColor || '#111827';
     if (state.tool === 'highlighter') return state.highlighterColor || '#fde047';
     if (state.tool === 'shape') return state.shapeColor || state.penColor || '#1e293b';
     if (state.tool === 'tape') return state.tapeColor || '#f59e0b';
@@ -7004,7 +7721,7 @@
     if (state.eraserHighlighterOnly) return s.tool === 'highlighter';
     const f = state.eraserFilters || { pen: true, pencil: true, highlighter: true, tape: true };
     if (s.tool === 'highlighter') return f.highlighter !== false;
-    if (s.penStyle === 'ballpoint' || s.penStyle === 'pencil') return f.pencil !== false;
+    if (s.tool === 'pencil' || s.penStyle === 'ballpoint' || s.penStyle === 'pencil') return f.pencil !== false;
     return f.pen !== false;
   }
 
@@ -8169,7 +8886,7 @@
               blendMode: bm
             });
           }
-        } else if (sh.type === 'rect') {
+        } else if (sh.type === 'rect' || sh.type === 'roundedRect') {
           const minX = Math.min(sh.x1, sh.x2);
           const maxY = Math.max(sh.y1, sh.y2);
           const rw = Math.max(1, Math.abs(sh.x2 - sh.x1)) * scaleX;
@@ -8204,7 +8921,7 @@
             rotate: sh.angle && degrees ? degrees((-sh.angle * 180) / Math.PI) : undefined,
             blendMode: bm
           });
-        } else if (sh.type === 'triangle') {
+        } else if (sh.type === 'triangle' || sh.type === 'diamond' || sh.type === 'polygon') {
           const verts = getShapeVertices(sh);
           if (verts && verts.length >= 3) {
             let d = `M ${(verts[0].x * scaleX).toFixed(2)} ${(verts[0].y * scaleY).toFixed(2)}`;
@@ -8221,6 +8938,38 @@
               color: sh.filled ? col : undefined,
               opacity: fillOp,
               borderLineJoin: LineJoinStyle ? LineJoinStyle.Round : undefined,
+              blendMode: bm
+            });
+          }
+        } else if (sh.type === 'polyline') {
+          const verts = getShapeVertices(sh);
+          if (verts && verts.length >= 2) {
+            let d = `M ${(verts[0].x * scaleX).toFixed(2)} ${(verts[0].y * scaleY).toFixed(2)}`;
+            for (let i = 1; i < verts.length; i++) {
+              d += ` L ${(verts[i].x * scaleX).toFixed(2)} ${(verts[i].y * scaleY).toFixed(2)}`;
+            }
+            pdfPage.drawSvgPath(d, {
+              x: 0,
+              y: pdfH,
+              borderColor: col,
+              borderWidth: strokeW,
+              borderOpacity: op,
+              borderLineCap: LineCapStyle ? LineCapStyle.Round : undefined,
+              borderLineJoin: LineJoinStyle ? LineJoinStyle.Round : undefined,
+              blendMode: bm
+            });
+          }
+        } else if (sh.type === 'arc') {
+          const verts = getShapeVertices(sh);
+          if (verts && verts.length >= 4) {
+            const d = `M ${(verts[0].x * scaleX).toFixed(2)} ${(verts[0].y * scaleY).toFixed(2)} C ${(verts[1].x * scaleX).toFixed(2)} ${(verts[1].y * scaleY).toFixed(2)} ${(verts[2].x * scaleX).toFixed(2)} ${(verts[2].y * scaleY).toFixed(2)} ${(verts[3].x * scaleX).toFixed(2)} ${(verts[3].y * scaleY).toFixed(2)}`;
+            pdfPage.drawSvgPath(d, {
+              x: 0,
+              y: pdfH,
+              borderColor: col,
+              borderWidth: strokeW,
+              borderOpacity: op,
+              borderLineCap: LineCapStyle ? LineCapStyle.Round : undefined,
               blendMode: bm
             });
           }
@@ -9661,7 +10410,7 @@
     state.temporaryEraserOverride = false;
     state.temporaryLassoOverride = false;
     const isSameTool = state.tool === t;
-    const isPenSubBarGroupClick = toggleOptionsIfSame && t === 'pen' && (state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'tape');
+    const isPenSubBarGroupClick = toggleOptionsIfSame && t === 'pen' && (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || state.tool === 'tape');
     if ((isSameTool || isPenSubBarGroupClick) && toggleOptionsIfSame && t !== 'pan') {
       state.toolOptionsOpen = !state.toolOptionsOpen;
       if (state.toolOptionsOpen) {
@@ -9675,7 +10424,7 @@
       // Ouvre directement la sous-barre flottante GoodNotes au clic utilisateur sur Formes ou Gomme (mais reste fermé par défaut au démarrage / autres outils)
       state.toolOptionsOpen = Boolean((t === 'shape' || t === 'eraser') && toggleOptionsIfSame);
     }
-    if (state.tool === 'pen' || state.tool === 'highlighter') {
+    if (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter') {
       state.previousWritingTool = state.tool;
     }
     if (state.tool !== 'lasso') clearLassoSelection();
@@ -9699,15 +10448,15 @@
 
   function updateToolbarActiveState() {
     dom.toolBtns.forEach((b) => {
-      const isPenSubToolActive = b.dataset.tool === 'pen' && (state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'tape');
+      const isPenSubToolActive = b.dataset.tool === 'pen' && (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || state.tool === 'tape');
       b.classList.toggle('active', isPenSubToolActive || b.dataset.tool === state.tool);
     });
     dom.canvasViewport.classList.toggle('pan-cursor', state.tool === 'pan' || state.isSpacePressed);
     dom.canvasViewport.classList.toggle('text-cursor', state.tool === 'text');
     dom.canvasViewport.classList.toggle('eraser-cursor', state.tool === 'eraser');
 
-    // Permet au stylet de dessiner à travers les cartes de texte quand on est en outil Stylo/Surligneur/Gomme/Formes/Ruban/Laser
-    const isDrawingTool = state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'eraser' || state.tool === 'shape' || state.tool === 'tape' || state.tool === 'laser';
+    // Permet au stylet de dessiner à travers les cartes de texte quand on est en outil Stylo/Crayon/Surligneur/Gomme/Formes/Ruban/Laser
+    const isDrawingTool = state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || state.tool === 'eraser' || state.tool === 'shape' || state.tool === 'tape' || state.tool === 'laser';
     dom.canvasViewport.classList.toggle('drawing-mode-active', isDrawingTool);
 
     if (state.tool !== 'eraser') dom.eraserCursor.style.display = 'none';
@@ -9719,11 +10468,11 @@
       }
     }
 
-    const isInk = state.tool === 'pen' || state.tool === 'highlighter';
+    const isInk = state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter';
     const isShape = state.tool === 'shape', isText = state.tool === 'text', isEraser = state.tool === 'eraser', isLasso = state.tool === 'lasso';
     const isTape = state.tool === 'tape', isLaser = state.tool === 'laser';
 
-    const isGnPenBarTool = state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'tape';
+    const isGnPenBarTool = state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || state.tool === 'tape';
     const isGnShapeBarTool = state.tool === 'shape';
     const isGnEraserBarTool = state.tool === 'eraser';
     const showGnSubBar = Boolean(state.toolOptionsOpen && isGnPenBarTool);
@@ -9739,6 +10488,8 @@
     if (gnEraserBarEl) gnEraserBarEl.classList.toggle('hidden', !showGnEraserBar);
     if (!showGnSubBar) {
       state.gnPenPopoverOpen = false;
+      state.gnPencilPopoverOpen = false;
+      state.gnHighlighterPopoverOpen = false;
       state.gnStrokePopoverOpen = false;
     }
     if (!showGnEraserBar) {
@@ -9749,6 +10500,12 @@
     const gnPopoverEl = document.getElementById('gnPenPopover');
     const showGnPopover = Boolean(showGnSubBar && state.gnPenPopoverOpen);
     if (gnPopoverEl) gnPopoverEl.classList.toggle('hidden', !showGnPopover);
+    const gnPencilPopoverEl = document.getElementById('gnPencilPopover');
+    const showGnPencilPopover = Boolean(showGnSubBar && state.gnPencilPopoverOpen);
+    if (gnPencilPopoverEl) gnPencilPopoverEl.classList.toggle('hidden', !showGnPencilPopover);
+    const gnHighlighterPopoverEl = document.getElementById('gnHighlighterPopover');
+    const showGnHighlighterPopover = Boolean(showGnSubBar && state.gnHighlighterPopoverOpen);
+    if (gnHighlighterPopoverEl) gnHighlighterPopoverEl.classList.toggle('hidden', !showGnHighlighterPopover);
     const gnStrokePopoverEl = document.getElementById('gnStrokePopover');
     const showGnStrokePopover = Boolean(showGnSubBar && state.gnStrokePopoverOpen);
     if (gnStrokePopoverEl) gnStrokePopoverEl.classList.toggle('hidden', !showGnStrokePopover);
@@ -9794,7 +10551,9 @@
     if (dom.penColorDot) {
       dom.penColorDot.style.background = state.tool === 'highlighter'
         ? state.highlighterColor
-        : (state.tool === 'tape' ? (state.tapeColor || state.penColor) : state.penColor);
+        : (state.tool === 'pencil'
+          ? (state.pencilColor || '#111827')
+          : (state.tool === 'tape' ? (state.tapeColor || state.penColor) : state.penColor));
     }
     if (dom.hlColorDot) dom.hlColorDot.style.background = state.highlighterColor;
     dom.colorSwatches.forEach((sw) => sw.classList.toggle('active', sw.dataset.color.toLowerCase() === activeColor.toLowerCase()));
@@ -9945,6 +10704,7 @@
 
   const DEFAULT_TOOL_SIZE_SLOTS = {
     pen: [2.5, 5, 12],
+    pencil: [2.5, 5, 10],
     highlighter: [12, 22, 34],
     shape: [2, 4, 8],
     tape: [18, 26, 36],
@@ -9952,10 +10712,93 @@
   };
 
   function getToolSizeSliderConfig(tool = state.tool) {
+    if (tool === 'pencil') return { min: 1, max: 16, step: 0.5, label: 'Épaisseur Du Crayon' };
     if (tool === 'highlighter') return { min: 6, max: 42, step: 1, label: 'Épaisseur Du Surligneur' };
     if (tool === 'tape') return { min: 12, max: 48, step: 1, label: 'Épaisseur Du Ruban' };
     if (tool === 'shape') return { min: 1, max: 24, step: 0.5, label: 'Épaisseur De La Forme' };
     return { min: 1, max: 20, step: 0.5, label: 'Épaisseur Du Stylo' };
+  }
+
+  function isLightHexColor(hex) {
+    const c = String(hex || '').replace('#', '').trim();
+    if (!c) return false;
+    const full = c.length === 3 ? c.replace(/(.)/g, '$1$1') : c;
+    const n = parseInt(full, 16);
+    if (!Number.isFinite(n)) return false;
+    const r = (n >> 16) & 255;
+    const g = (n >> 8) & 255;
+    const b = n & 255;
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 186;
+  }
+
+  // Génère les 3 aperçus texturés graphite GoodNotes 6 (algorithme de grains déterministes extrait via REA)
+  function buildPencilThicknessPreviewSvg(thicknessVal, minVal = 1, maxVal = 16) {
+    const ratio = Math.max(0, Math.min(1, (thicknessVal - minVal) / Math.max(1, maxVal - minVal)));
+    const bandH = 2.4 + ratio * 3.8;
+    const cy = 5;
+    const w = 20;
+    const hash = (a, b) => {
+      const s = Math.sin(a * 12.9898 + (b + 1) * 78.233) * 43758.5453;
+      return s - Math.floor(s);
+    };
+    const count = Math.round(32 + ratio * 34);
+    let circles = '';
+    for (let i = 0; i < count; i++) {
+      const x = 1.5 + hash(4, i) * (w - 3);
+      const y = cy + (hash(5, i) - 0.5) * bandH;
+      const r = (0.38 + hash(6, i) * (0.48 + ratio * 0.28)).toFixed(2);
+      const op = (0.35 + hash(7, i) * 0.58).toFixed(2);
+      circles += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" fill="currentColor" opacity="${op}"/>`;
+    }
+    return `<svg width="20" height="10" viewBox="0 0 20 10" aria-hidden="true">${circles}</svg>`;
+  }
+
+  function renderGnPencilPreviewCanvas() {
+    const canvas = document.getElementById('gnPencilPreviewCanvas');
+    if (!canvas || typeof canvas.getContext !== 'function') return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const w = canvas.width || 268;
+    const h = canvas.height || 92;
+    ctx.clearRect(0, 0, w, h);
+
+    const col = state.pencilColor || '#111827';
+    const c = String(col).replace('#', '');
+    const full = c.length === 3 ? c.replace(/(.)/g, '$1$1') : c;
+    const num = parseInt(full, 16);
+    const r = Number.isFinite(num) ? ((num >> 16) & 255) : 17;
+    const g = Number.isFinite(num) ? ((num >> 8) & 255) : 24;
+    const b = Number.isFinite(num) ? (num & 255) : 39;
+
+    const baseHalf = Math.max(1.8, Math.min(4.8, 1.8 + (Number(state.pencilSize || 5) / 16) * 3.0));
+    const hash = (a, k) => {
+      const s = Math.sin(a * 12.9898 + (k + 1) * 78.233) * 43758.5453;
+      return s - Math.floor(s);
+    };
+
+    // Courbe en S inspirée de GoodNotes 6 (Crayon) avec grains graphite déterministes
+    const steps = 165;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = 24 + t * (w - 48);
+      const y = h * 0.52 + Math.sin(t * Math.PI * 1.92 + 0.42) * 26 * (0.78 + 0.22 * Math.sin(t * Math.PI));
+      const taper = Math.sin(Math.pow(t, 0.85) * Math.PI);
+      const rad = Math.max(0.9, baseHalf * (0.35 + 0.75 * taper));
+      const dots = 7;
+      for (let d = 0; d < dots; d++) {
+        const seed = i * 11 + d;
+        const angle = hash(1, seed) * Math.PI * 2;
+        const dist = Math.sqrt(hash(2, seed)) * rad;
+        const gx = x + Math.cos(angle) * dist;
+        const gy = y + Math.sin(angle) * dist;
+        const dr = 0.55 + hash(3, seed) * 1.05;
+        const alpha = (0.16 + hash(4, seed) * 0.44) * (0.55 + 0.45 * taper);
+        ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(gx, gy, dr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
 
   function getActiveToolSizeSlots(tool = state.tool) {
@@ -9970,16 +10813,38 @@
   function syncGnPenSubBarUi() {
     const subBar = document.getElementById('gnPenSubBar');
     if (!subBar) return;
-    const isBallpointQuick = state.tool === 'pen' && state.penStyle === 'ballpoint';
+    const setBtnColorVar = (el, hex) => {
+      if (el && el.style && typeof el.style.setProperty === 'function') {
+        el.style.setProperty('--gn-tool-color', hex || '#18181b');
+      }
+    };
+
     subBar.querySelectorAll('.gn-subtool-btn').forEach((btn) => {
       const st = btn.dataset.subtool;
       let isActive = false;
-      if (st === 'pen') isActive = state.tool === 'pen' && !isBallpointQuick;
-      else if (st === 'ballpoint') isActive = isBallpointQuick;
-      else if (st === 'instant-shape') isActive = Boolean(state.instantShapeMode);
-      else isActive = state.tool === st;
+      if (st === 'pen') {
+        isActive = state.tool === 'pen';
+        btn.dataset.penstyle = state.penStyle || 'fountain';
+        setBtnColorVar(btn, state.penColor || '#111827');
+        btn.classList.toggle('popover-open', Boolean(state.gnPenPopoverOpen));
+      } else if (st === 'pencil') {
+        isActive = state.tool === 'pencil';
+        setBtnColorVar(btn, state.pencilColor || '#111827');
+        btn.classList.toggle('popover-open', Boolean(state.gnPencilPopoverOpen));
+      } else if (st === 'highlighter') {
+        isActive = state.tool === 'highlighter';
+        btn.dataset.straight = String(Boolean(state.highlighterAutoStraighten));
+        setBtnColorVar(btn, state.highlighterColor || '#facc15');
+        btn.classList.toggle('popover-open', Boolean(state.gnHighlighterPopoverOpen));
+      } else if (st === 'tape') {
+        isActive = state.tool === 'tape';
+        setBtnColorVar(btn, state.tapeColor || '#f59e0b');
+      } else if (st === 'instant-shape') {
+        isActive = Boolean(state.instantShapeMode);
+      } else {
+        isActive = state.tool === st;
+      }
       btn.classList.toggle('active', isActive);
-      if (st === 'pen') btn.classList.toggle('popover-open', Boolean(state.gnPenPopoverOpen));
     });
 
     // Synchronisation de la sous-barre Formes GoodNotes (#gnShapeSubBar)
@@ -10001,6 +10866,9 @@
     const slots = getActiveToolSizeSlots(toolKey);
     const sliderCfg = getToolSizeSliderConfig(toolKey);
     const curSize = getActiveToolSize();
+    const thickWrap = document.getElementById('gnSubBarThickness');
+    if (thickWrap) thickWrap.classList.toggle('is-pencil-mode', state.tool === 'pencil');
+
     const thickBtns = Array.from(subBar.querySelectorAll('.gn-thick-btn'));
     let activeSlotIdx = state.activeSizeSlotByTool && typeof state.activeSizeSlotByTool[toolKey] === 'number'
       ? state.activeSizeSlotByTool[toolKey]
@@ -10033,7 +10901,28 @@
         lineEl.classList.toggle('is-dashed', Boolean(isAct && state.tool === 'pen' && lineStyle === 'dashed'));
         lineEl.classList.toggle('is-dotted', Boolean(isAct && state.tool === 'pen' && lineStyle === 'dotted'));
       }
+      const pencilPrevEl = b.querySelector('.gn-thick-pencil-preview');
+      if (pencilPrevEl && state.tool === 'pencil') {
+        const key = `${sv.toFixed(2)}`;
+        if (pencilPrevEl.dataset.renderedSize !== key) {
+          pencilPrevEl.innerHTML = buildPencilThicknessPreviewSvg(sv, sliderCfg.min, sliderCfg.max);
+          pencilPrevEl.dataset.renderedSize = key;
+        }
+      }
     });
+
+    const alignSubBarCaret = (anchorEl, popoverId, caretId, isOpen) => {
+      if (!isOpen || !anchorEl) return;
+      const pop = document.getElementById(popoverId);
+      const caret = document.getElementById(caretId);
+      if (!pop || !caret || typeof anchorEl.getBoundingClientRect !== 'function' || typeof pop.getBoundingClientRect !== 'function') return;
+      const aRect = anchorEl.getBoundingClientRect();
+      const pRect = pop.getBoundingClientRect();
+      if (aRect.width > 0 && pRect.width > 0) {
+        const relX = Math.max(24, Math.min(pRect.width - 24, (aRect.left + aRect.width * 0.5) - pRect.left));
+        caret.style.left = `${Math.round(relX)}px`;
+      }
+    };
 
     // Mise à jour du popover "Réglages Du Trait" (style GoodNotes 6)
     const strokePopover = document.getElementById('gnStrokePopover');
@@ -10059,25 +10948,65 @@
         wedgeSlider.step = String(sliderCfg.step);
         wedgeSlider.value = String(Math.max(sliderCfg.min, Math.min(sliderCfg.max, curSize)));
       }
+      alignSubBarCaret(thickBtns[activeSlotIdx], 'gnStrokePopover', 'gnStrokePopoverCaret', state.gnStrokePopoverOpen);
+    }
 
-      // Aligne la flèche du popover directement sous le bouton d'épaisseur actif
-      const caret = document.getElementById('gnStrokePopoverCaret');
-      const activeBtn = thickBtns[activeSlotIdx];
-      if (caret && activeBtn && state.gnStrokePopoverOpen && typeof activeBtn.getBoundingClientRect === 'function' && typeof strokePopover.getBoundingClientRect === 'function') {
-        const btnRect = activeBtn.getBoundingClientRect();
-        const popRect = strokePopover.getBoundingClientRect();
-        if (btnRect.width > 0 && popRect.width > 0) {
-          const btnCenter = btnRect.left + btnRect.width * 0.5;
-          const relX = Math.max(24, Math.min(popRect.width - 24, btnCenter - popRect.left));
-          caret.style.left = `${Math.round(relX)}px`;
+    // 3 pastilles de couleurs dynamiques propres à l'outil actif (Stylo, Crayon, Surligneur, Ruban)
+    const memForColors = state.toolMemory && state.toolMemory[toolKey];
+    const defaultColorsByTool = {
+      pen: ['#111827', '#3b82f6', '#dc2626'],
+      pencil: ['#111827', '#52525b', '#9ca3af'],
+      highlighter: ['#facc15', '#4ade80', '#f472b6'],
+      tape: ['#f59e0b', '#38bdf8', '#a855f7']
+    };
+    const paletteSlots = (memForColors && Array.isArray(memForColors.colorSlots) && memForColors.colorSlots.length >= 3)
+      ? memForColors.colorSlots.slice(0, 3)
+      : (defaultColorsByTool[toolKey] || defaultColorsByTool.pen);
+    const curColor = (getActiveToolColor() || '#111827').toLowerCase();
+    subBar.querySelectorAll('.gn-color-circle').forEach((c, idx) => {
+      const slotHex = paletteSlots[idx] || c.dataset.gnColor || '#111827';
+      c.dataset.gnColor = slotHex;
+      if (c.style) c.style.background = slotHex;
+      c.classList.toggle('is-light-color', isLightHexColor(slotHex));
+      c.classList.toggle('active', slotHex.toLowerCase() === curColor);
+    });
+
+    // Mise à jour du popover Crayon (aperçu graphite + Dessiner et maintenir)
+    const pencilHoldSw = document.getElementById('gnPencilHoldToShapeSwitch');
+    if (pencilHoldSw) pencilHoldSw.checked = Boolean(state.pencilDrawAndHold);
+    if (state.gnPencilPopoverOpen) {
+      renderGnPencilPreviewCanvas();
+      alignSubBarCaret(document.getElementById('gnSubToolPencil'), 'gnPencilPopover', 'gnPencilPopoverCaret', true);
+    }
+
+    // Mise à jour du popover Surligneur (Stabilisation + Tracer en ligne droite)
+    const hlStabPct = Math.round((state.highlighterSmoothing ?? 0) * 100);
+    const hlStabSlider = document.getElementById('gnHighlighterStabSlider');
+    const hlStabVal = document.getElementById('gnHighlighterStabVal');
+    if (hlStabSlider) {
+      hlStabSlider.value = String(hlStabPct);
+      if (hlStabSlider.style && typeof hlStabSlider.style.setProperty === 'function') {
+        hlStabSlider.style.setProperty('--val', `${hlStabPct}%`);
+      }
+    }
+    if (hlStabVal) hlStabVal.textContent = `${hlStabPct}%`;
+    const hlStraightSw = document.getElementById('gnHighlighterStraightSwitch');
+    if (hlStraightSw) hlStraightSw.checked = Boolean(state.highlighterAutoStraighten);
+    if (state.gnHighlighterPopoverOpen) {
+      alignSubBarCaret(document.getElementById('gnSubToolHighlighter'), 'gnHighlighterPopover', 'gnHighlighterPopoverCaret', true);
+    }
+    if (state.gnPenPopoverOpen) {
+      const penCaret = document.querySelector('#gnPenPopover .gn-pen-popover-caret');
+      const penAnchor = document.getElementById('gnSubToolPen');
+      const penPop = document.getElementById('gnPenPopover');
+      if (penCaret && penAnchor && penPop && typeof penAnchor.getBoundingClientRect === 'function' && typeof penPop.getBoundingClientRect === 'function') {
+        const aR = penAnchor.getBoundingClientRect();
+        const pR = penPop.getBoundingClientRect();
+        if (aR.width > 0 && pR.width > 0) {
+          penCaret.style.left = `${Math.round(Math.max(24, Math.min(pR.width - 24, (aR.left + aR.width * 0.5) - pR.left)))}px`;
         }
       }
     }
-
-    const curColor = (getActiveToolColor() || '#111827').toLowerCase();
-    subBar.querySelectorAll('.gn-color-circle').forEach((c) => {
-      c.classList.toggle('active', (c.dataset.gnColor || '').toLowerCase() === curColor);
-    });
 
     // Mise à jour du popover Réglages du stylo
     const titleEl = document.getElementById('gnPenPopoverTitle');
@@ -10240,60 +11169,112 @@
         const st = btn.dataset.subtool;
         state.gnStrokePopoverOpen = false;
         if (st === 'pen') {
-          if (state.tool === 'pen' && state.penStyle !== 'ballpoint') {
+          state.gnPencilPopoverOpen = false;
+          state.gnHighlighterPopoverOpen = false;
+          if (state.tool === 'pen') {
             state.gnPenPopoverOpen = !state.gnPenPopoverOpen;
             if (mainView) mainView.classList.remove('hidden');
             if (gesturesView) gesturesView.classList.add('hidden');
             updateToolbarActiveState();
           } else {
-            state.penStyle = 'fountain';
+            syncCanonicalToToolMemory(state.tool);
             state.tool = 'pen';
+            applyToolMemoryToCanonical('pen');
             state.toolOptionsOpen = true;
-            state.gnPenPopoverOpen = true;
+            state.gnPenPopoverOpen = false;
             if (mainView) mainView.classList.remove('hidden');
             if (gesturesView) gesturesView.classList.add('hidden');
             updateToolbarActiveState();
           }
-        } else if (st === 'ballpoint') {
-          if (state.tool === 'pen' && state.penStyle === 'ballpoint') {
-            state.gnPenPopoverOpen = !state.gnPenPopoverOpen;
-            if (mainView) mainView.classList.remove('hidden');
-            if (gesturesView) gesturesView.classList.add('hidden');
+        } else if (st === 'pencil') {
+          state.gnPenPopoverOpen = false;
+          state.gnHighlighterPopoverOpen = false;
+          if (state.tool === 'pencil') {
+            state.gnPencilPopoverOpen = !state.gnPencilPopoverOpen;
             updateToolbarActiveState();
           } else {
-            state.penStyle = 'ballpoint';
-            state.tool = 'pen';
+            syncCanonicalToToolMemory(state.tool);
+            state.tool = 'pencil';
+            applyToolMemoryToCanonical('pencil');
             state.toolOptionsOpen = true;
-            state.gnPenPopoverOpen = false;
+            state.gnPencilPopoverOpen = false;
+            updateToolbarActiveState();
+          }
+        } else if (st === 'highlighter') {
+          state.gnPenPopoverOpen = false;
+          state.gnPencilPopoverOpen = false;
+          if (state.tool === 'highlighter') {
+            state.gnHighlighterPopoverOpen = !state.gnHighlighterPopoverOpen;
+            updateToolbarActiveState();
+          } else {
+            syncCanonicalToToolMemory(state.tool);
+            state.tool = 'highlighter';
+            applyToolMemoryToCanonical('highlighter');
+            state.toolOptionsOpen = true;
+            state.gnHighlighterPopoverOpen = false;
             updateToolbarActiveState();
           }
         } else if (st === 'instant-shape') {
           state.instantShapeMode = !state.instantShapeMode;
-          if (state.tool !== 'pen') {
+          if (state.tool !== 'pen' && state.tool !== 'pencil') {
             syncCanonicalToToolMemory(state.tool);
             state.tool = 'pen';
             applyToolMemoryToCanonical('pen');
           }
           state.toolOptionsOpen = true;
           state.gnPenPopoverOpen = false;
+          state.gnPencilPopoverOpen = false;
+          state.gnHighlighterPopoverOpen = false;
           updateToolbarActiveState();
           showToast(
             state.instantShapeMode
-              ? 'Formes instantanées activées — dessinez une forme au stylo sans maintenir'
+              ? 'Formes instantanées activées — dessinez une forme sans maintenir'
               : 'Formes instantanées désactivées',
             'info',
             1800
           );
-        } else if (st === 'highlighter' || st === 'tape') {
+        } else if (st === 'tape') {
           syncCanonicalToToolMemory(state.tool);
           state.tool = st;
           applyToolMemoryToCanonical(st);
           state.toolOptionsOpen = true;
           state.gnPenPopoverOpen = false;
+          state.gnPencilPopoverOpen = false;
+          state.gnHighlighterPopoverOpen = false;
           updateToolbarActiveState();
         }
       });
     });
+
+    // Événements du popover Crayon (Dessiner et maintenir)
+    const gnPencilHoldSw = document.getElementById('gnPencilHoldToShapeSwitch');
+    if (gnPencilHoldSw) {
+      gnPencilHoldSw.addEventListener('change', (e) => {
+        state.pencilDrawAndHold = Boolean(e.target.checked);
+        savePencilPrefsToStorage();
+        syncGnPenSubBarUi();
+      });
+    }
+
+    // Événements du popover Surligneur (Stabilisation des traits + Tracer en ligne droite)
+    const gnHlStabSlider = document.getElementById('gnHighlighterStabSlider');
+    if (gnHlStabSlider) {
+      gnHlStabSlider.addEventListener('input', (e) => {
+        state.highlighterSmoothing = Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 100));
+        saveHighlighterPrefsToStorage();
+        syncGnPenSubBarUi();
+      });
+    }
+    const gnHlStraightSw = document.getElementById('gnHighlighterStraightSwitch');
+    if (gnHlStraightSw) {
+      gnHlStraightSw.addEventListener('change', (e) => {
+        state.highlighterAutoStraighten = Boolean(e.target.checked);
+        saveHighlighterPrefsToStorage();
+        const dockHlToggle = document.getElementById('hlAutoStraightenToggle');
+        if (dockHlToggle) dockHlToggle.checked = state.highlighterAutoStraighten;
+        syncGnPenSubBarUi();
+      });
+    }
 
     subBar.querySelectorAll('.gn-thick-btn').forEach((btn, idx) => {
       btn.addEventListener('click', () => {
@@ -10311,6 +11292,8 @@
         if (state.activeSizeSlotByTool) state.activeSizeSlotByTool[toolKey] = slotIdx;
         if (Number.isFinite(sz) && sz > 0) setToolSize(state.tool, sz);
         state.gnPenPopoverOpen = false;
+        state.gnPencilPopoverOpen = false;
+        state.gnHighlighterPopoverOpen = false;
         state.gnStrokePopoverOpen = true;
         updateToolbarActiveState();
       });
@@ -10374,6 +11357,9 @@
 
     subBar.querySelectorAll('.gn-color-circle').forEach((btn) => {
       btn.addEventListener('click', () => {
+        state.gnPenPopoverOpen = false;
+        state.gnPencilPopoverOpen = false;
+        state.gnHighlighterPopoverOpen = false;
         state.gnStrokePopoverOpen = false;
         const col = btn.dataset.gnColor;
         if (btn.classList.contains('active') && dom.customColorPicker) {
@@ -11090,20 +12076,30 @@
             const ax2 = sh.x2 - hl * Math.cos(ang + Math.PI / 6), ay2 = sh.y2 - hl * Math.sin(ang + Math.PI / 6);
             svg += `<path d="M ${ax1.toFixed(1)} ${ay1.toFixed(1)} L ${sh.x2.toFixed(1)} ${sh.y2.toFixed(1)} L ${ax2.toFixed(1)} ${ay2.toFixed(1)}" fill="none" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="${op}"/>`;
           }
-        } else if (sh.type === 'rect') {
+        } else if (sh.type === 'rect' || sh.type === 'roundedRect') {
           const cx = (sh.x1 + sh.x2) * 0.5, cy = (sh.y1 + sh.y2) * 0.5;
           const rw = Math.abs(sh.x2 - sh.x1), rh = Math.abs(sh.y2 - sh.y1);
+          const rad = sh.type === 'roundedRect' ? (Math.min(rw, rh) * 0.28).toFixed(1) : '6';
           const rot = sh.angle ? ` transform="rotate(${(sh.angle * 180 / Math.PI).toFixed(2)} ${cx.toFixed(1)} ${cy.toFixed(1)})"` : '';
-          svg += `<rect x="${(cx - rw * 0.5).toFixed(1)}" y="${(cy - rh * 0.5).toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="6" fill="${fillCol}" stroke="${col}" stroke-width="${sw}" stroke-opacity="${op}"${rot}/>`;
+          svg += `<rect x="${(cx - rw * 0.5).toFixed(1)}" y="${(cy - rh * 0.5).toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="${rad}" fill="${fillCol}" stroke="${col}" stroke-width="${sw}" stroke-opacity="${op}"${rot}/>`;
         } else if (sh.type === 'ellipse') {
           const cx = (sh.x1 + sh.x2) * 0.5, cy = (sh.y1 + sh.y2) * 0.5;
           const rx = Math.max(1, Math.abs(sh.x2 - sh.x1) * 0.5), ry = Math.max(1, Math.abs(sh.y2 - sh.y1) * 0.5);
           const rot = sh.angle ? ` transform="rotate(${(sh.angle * 180 / Math.PI).toFixed(2)} ${cx.toFixed(1)} ${cy.toFixed(1)})"` : '';
           svg += `<ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="${fillCol}" stroke="${col}" stroke-width="${sw}" stroke-opacity="${op}"${rot}/>`;
-        } else if (sh.type === 'triangle') {
+        } else if (sh.type === 'triangle' || sh.type === 'diamond' || sh.type === 'polygon') {
           const verts = getShapeVertices(sh) || [];
           const ptsAttr = verts.map((v) => `${v.x.toFixed(1)},${v.y.toFixed(1)}`).join(' ');
           svg += `<polygon points="${ptsAttr}" fill="${fillCol}" stroke="${col}" stroke-width="${sw}" stroke-linejoin="round" stroke-opacity="${op}"/>`;
+        } else if (sh.type === 'polyline') {
+          const verts = getShapeVertices(sh) || [];
+          const ptsAttr = verts.map((v) => `${v.x.toFixed(1)},${v.y.toFixed(1)}`).join(' ');
+          svg += `<polyline points="${ptsAttr}" fill="none" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="${op}"/>`;
+        } else if (sh.type === 'arc') {
+          const verts = getShapeVertices(sh) || [];
+          if (verts.length >= 4) {
+            svg += `<path d="M ${verts[0].x.toFixed(1)} ${verts[0].y.toFixed(1)} C ${verts[1].x.toFixed(1)} ${verts[1].y.toFixed(1)} ${verts[2].x.toFixed(1)} ${verts[2].y.toFixed(1)} ${verts[3].x.toFixed(1)} ${verts[3].y.toFixed(1)}" fill="none" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-opacity="${op}"/>`;
+          }
         }
       });
       (p.strokes || []).forEach((s) => {

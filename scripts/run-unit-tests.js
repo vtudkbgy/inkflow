@@ -856,6 +856,55 @@ async function runTests() {
     api.handlePointerMove({ pointerId: 915, pointerType: 'pen', button: 0, buttons: 0, clientX: 145, clientY: 165, pressure: 0, getCoalescedEvents: () => [], preventDefault() {} });
     assert.equal(colorDotEl.style.display, 'none', 'Le point coloré doit être masqué lorsque la gomme est active');
 
+    // Outil Formes principal (GoodNotes ShapeTool : forceSnap garanti — tout tracé devient une forme géométrique propre)
+    st.tool = 'shape';
+    st.shapeType = 'auto';
+    const strokesBeforeShapes = pg.strokes.length;
+    const shapesBeforeShapes = pg.shapes.length;
+    const drawShapeGesture = (pid, coords) => {
+      api.handlePointerDown({ pointerId: pid, pointerType: 'pen', button: 0, buttons: 1, clientX: coords[0][0], clientY: coords[0][1], pressure: 0.5, timeStamp: 2000, preventDefault() {} });
+      for (let i = 1; i < coords.length; i++) {
+        api.handlePointerMove({ pointerId: pid, pointerType: 'pen', button: 0, buttons: 1, clientX: coords[i][0], clientY: coords[i][1], pressure: 0.5, timeStamp: 2000 + i * 15, getCoalescedEvents: () => [], preventDefault() {} });
+      }
+      const last = coords[coords.length - 1];
+      api.handlePointerUpOrCancel({ pointerId: pid, pointerType: 'pen', button: 0, buttons: 0, clientX: last[0], clientY: last[1], pressure: 0, timeStamp: 2000 + coords.length * 15, preventDefault() {} });
+      return pg.shapes[pg.shapes.length - 1];
+    };
+    // 1) Ligne rapide (2 points) -> doit forcément devenir 'line'
+    const shFastLine = drawShapeGesture(920, [[120, 120], [260, 123]]);
+    assert.equal(shFastLine.type, 'line', 'Un tracé rapide de 2 points en outil Formes doit forcément devenir une ligne');
+    // 2) Forme en L ouverte -> doit devenir 'polyline'
+    const shElbow = drawShapeGesture(921, [[120, 200], [122, 260], [121, 310], [180, 312], [250, 309]]);
+    assert.equal(shElbow.type, 'polyline', 'Un tracé en L ouvert en outil Formes doit devenir une polyligne / angle');
+    // 3) Arc courbe lisse ouvert -> doit devenir 'arc'
+    const arcPts = [];
+    for (let i = 0; i <= 14; i++) {
+      const a = Math.PI + (i / 14) * Math.PI * 0.82;
+      arcPts.push([380 + Math.cos(a) * 65, 240 + Math.sin(a) * 65]);
+    }
+    const shArc = drawShapeGesture(922, arcPts);
+    assert.equal(shArc.type, 'arc', 'Une courbe ouverte lisse en outil Formes doit devenir un arc cubique lisse');
+    // 4) Losange fermé -> doit devenir 'diamond'
+    const shDiamond = drawShapeGesture(923, [[480, 160], [510, 190], [540, 220], [510, 250], [480, 280], [450, 250], [420, 220], [450, 190], [480, 162]]);
+    assert.equal(shDiamond.type, 'diamond', 'Un losange fermé en outil Formes doit être reconnu en diamond');
+    // 5) Pentagone fermé -> doit devenir 'polygon' (5 sommets)
+    const pentPts = [];
+    for (let i = 0; i <= 5; i++) {
+      const a = -Math.PI / 2 + (i / 5) * Math.PI * 2;
+      const nextA = -Math.PI / 2 + ((i + 1) / 5) * Math.PI * 2;
+      pentPts.push([640 + Math.cos(a) * 60, 220 + Math.sin(a) * 60]);
+      if (i < 5) {
+        pentPts.push([
+          640 + (Math.cos(a) + Math.cos(nextA)) * 30,
+          220 + (Math.sin(a) + Math.sin(nextA)) * 30
+        ]);
+      }
+    }
+    const shPent = drawShapeGesture(924, pentPts);
+    assert.equal(shPent.type, 'polygon', 'Un pentagone fermé en outil Formes doit être reconnu en polygon');
+    assert.equal(pg.strokes.length, strokesBeforeShapes, 'L’outil Formes principal ne doit jamais laisser de trait brut non converti');
+    assert.equal(pg.shapes.length, shapesBeforeShapes + 5, 'Les 5 gestes en outil Formes doivent tous avoir produit une forme géométrique');
+
     // Gomme mode "segment" + "Surligneur seul" (eraserHighlighterOnly)
     st.eraserMode = 'segment';
     st.eraserHighlighterOnly = true;

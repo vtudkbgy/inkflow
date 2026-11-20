@@ -3081,9 +3081,11 @@ html, body {
 }
 
 .gn-subtool-btn {
+  --gn-tool-color: #18181b;
+  position: relative;
   height: 40px;
   min-width: 40px;
-  padding: 0 10px;
+  padding: 0 8px;
   border-radius: 13px;
   border: none;
   background: transparent;
@@ -3091,9 +3093,18 @@ html, body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 0;
   cursor: pointer;
-  transition: background 0.16s ease, transform 0.16s ease, color 0.16s ease;
+  will-change: transform;
+  transition:
+    background-color 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1),
+    color 0.22s ease;
+}
+
+.gn-subtool-btn:active {
+  transform: scale(0.86);
 }
 
 [data-theme="dark"] .gn-subtool-btn {
@@ -3109,8 +3120,13 @@ html, body {
 }
 
 .gn-subtool-btn.active {
-  background: #cfe7f5;
-  color: #0f172a;
+  background: #cbe4f2;
+  color: #18181b;
+}
+
+.gn-subtool-btn.active.gn-has-submenu,
+#gnSubToolPen.active {
+  padding: 0 7px 0 9px;
 }
 
 [data-theme="dark"] .gn-subtool-btn.active {
@@ -3118,9 +3134,223 @@ html, body {
   color: #ffffff;
 }
 
-.gn-sub-chevron {
+.gn-subtool-icon-wrap {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.gn-subtool-btn.active .gn-subtool-icon-wrap {
+  animation: gnToolSelectPop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes gnToolSelectPop {
+  0% { transform: scale(0.86) rotate(-5deg); }
+  55% { transform: scale(1.09) rotate(2deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+/* Switch d'icône Stylo (Plume / Bille / Pinceau) dans le 1er bouton */
+#gnSubToolPen .gn-tool-svg {
+  display: none;
+}
+
+#gnSubToolPen[data-penstyle="fountain"] .gn-svg-fountain,
+#gnSubToolPen:not([data-penstyle]) .gn-svg-fountain,
+#gnSubToolPen[data-penstyle="ballpoint"] .gn-svg-ballpoint,
+#gnSubToolPen[data-penstyle="brush"] .gn-svg-brush {
+  display: block;
+}
+
+/* Transitions douces de mise en couleur des pictogrammes GoodNotes 6 (REA) */
+.gn-tool-svg path,
+.gn-tool-svg circle,
+.gn-tool-svg rect {
+  transition:
+    fill 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    stroke 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    fill-opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* --- Stylo À Plume (Sue) --- */
+.gn-svg-fountain .gn-svg-tip_fill,
+.gn-svg-fountain .gn-svg-circle,
+.gn-svg-fountain .gn-svg-body_fill,
+.gn-svg-fountain .gn-svg-straightline {
+  opacity: 0;
+}
+
+.gn-subtool-btn.active .gn-svg-fountain .gn-svg-tip_fill {
+  opacity: 1;
+}
+
+.gn-subtool-btn.active .gn-svg-fountain .gn-svg-circle,
+.gn-subtool-btn.active .gn-svg-fountain .gn-svg-body_fill,
+.gn-subtool-btn.active .gn-svg-fountain .gn-svg-straightline {
+  fill: var(--gn-tool-color);
+  opacity: 1;
+}
+
+/* --- Stylo À Bille (vue) --- */
+.gn-svg-ballpoint .gn-svg-tip_fill,
+.gn-svg-ballpoint .gn-svg-tip2_fill,
+.gn-svg-ballpoint .gn-svg-straightline {
+  opacity: 0;
+}
+
+.gn-svg-ballpoint .gn-svg-body_fill {
+  fill: transparent;
+}
+
+.gn-subtool-btn.active .gn-svg-ballpoint .gn-svg-tip_fill,
+.gn-subtool-btn.active .gn-svg-ballpoint .gn-svg-tip2_fill {
+  opacity: 1;
+}
+
+.gn-subtool-btn.active .gn-svg-ballpoint .gn-svg-body_fill {
+  fill: var(--gn-tool-color);
+}
+
+.gn-subtool-btn.active .gn-svg-ballpoint .gn-svg-straightline {
+  stroke: var(--gn-tool-color);
+  opacity: 1;
+}
+
+/* --- Stylo Pinceau (yue) --- */
+.gn-svg-brush .gn-svg-body_fill,
+.gn-svg-brush .gn-svg-straightline {
+  opacity: 0;
+}
+
+.gn-svg-brush .gn-svg-tip_fill {
+  fill: transparent;
+}
+
+.gn-subtool-btn.active .gn-svg-brush .gn-svg-body_fill {
+  opacity: 1;
+}
+
+.gn-subtool-btn.active .gn-svg-brush .gn-svg-tip_fill,
+.gn-subtool-btn.active .gn-svg-brush .gn-svg-straightline {
+  fill: var(--gn-tool-color);
+  opacity: 1;
+}
+
+/* --- Crayon (Due) : bois beige #E0D596 + corps/mine/trait texturé en couleur active --- */
+.gn-svg-pencil .gn-svg-opacity,
+.gn-svg-pencil .gn-svg-straightline {
+  opacity: 0;
+}
+
+.gn-svg-pencil .gn-svg-body,
+.gn-svg-pencil .gn-svg-tip {
+  fill: transparent;
+}
+
+.gn-subtool-btn.active .gn-svg-pencil .gn-svg-opacity {
+  opacity: 1;
+}
+
+.gn-subtool-btn.active .gn-svg-pencil .gn-svg-body,
+.gn-subtool-btn.active .gn-svg-pencil .gn-svg-tip,
+.gn-subtool-btn.active .gn-svg-pencil .gn-svg-straightline {
+  fill: var(--gn-tool-color);
+  opacity: 1;
+}
+
+/* --- Surligneur (Cue) : corps/pointe en couleur + ligne droite ou ondulée selon le mode --- */
+.gn-svg-highlighter .gn-svg-body,
+.gn-svg-highlighter .gn-svg-tip {
+  fill: transparent;
+}
+
+.gn-svg-highlighter .gn-svg-opacity {
+  fill-opacity: 0;
+}
+
+.gn-svg-highlighter .gn-svg-straightline,
+.gn-svg-highlighter .gn-svg-curlyline {
+  opacity: 0;
+}
+
+.gn-subtool-btn.active .gn-svg-highlighter .gn-svg-body,
+.gn-subtool-btn.active .gn-svg-highlighter .gn-svg-tip {
+  fill: var(--gn-tool-color);
+}
+
+.gn-subtool-btn.active .gn-svg-highlighter .gn-svg-opacity {
+  fill-opacity: 0.56;
+}
+
+.gn-subtool-btn.active[data-straight="true"] .gn-svg-highlighter .gn-svg-straightline {
+  stroke: var(--gn-tool-color);
+  opacity: 1;
+}
+
+.gn-subtool-btn.active[data-straight="false"] .gn-svg-highlighter .gn-svg-curlyline,
+.gn-subtool-btn.active:not([data-straight]) .gn-svg-highlighter .gn-svg-curlyline {
+  stroke: var(--gn-tool-color);
+  opacity: 1;
+}
+
+/* --- Ruban (Nue) --- */
+.gn-svg-tape .gn-svg-tape-path {
+  fill: transparent;
+}
+
+.gn-subtool-btn.active .gn-svg-tape .gn-svg-tape-path {
+  fill: var(--gn-tool-color);
+}
+
+/* --- Formes instantanées (Eue) --- */
+.gn-svg-shape .gn-svg-circle,
+.gn-svg-shape .gn-svg-rectangle,
+.gn-svg-shape .gn-svg-triangle {
+  fill: transparent;
+}
+
+.gn-subtool-btn.active .gn-svg-shape .gn-svg-circle {
+  fill: #DBE5A9;
+}
+
+.gn-subtool-btn.active .gn-svg-shape .gn-svg-rectangle {
+  fill: #D0CCE1;
+}
+
+.gn-subtool-btn.active .gn-svg-shape .gn-svg-triangle {
+  fill: #662625;
+}
+
+/* Chevron animé GoodNotes 6 (s'ouvre et s'affiche uniquement quand l'outil est actif) */
+.gn-sub-chevron-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  margin-left: 0;
+  transition:
+    max-width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease,
+    margin-left 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.gn-subtool-btn.active .gn-sub-chevron-wrap {
+  max-width: 16px;
   opacity: 0.72;
-  transition: transform 0.2s ease;
+  margin-left: 3px;
+}
+
+.gn-sub-chevron {
+  flex-shrink: 0;
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .gn-subtool-btn.popover-open .gn-sub-chevron {
@@ -3141,14 +3371,20 @@ html, body {
 .gn-thick-btn {
   width: 38px;
   height: 38px;
-  border-radius: 11px;
+  border-radius: 12px;
   border: none;
   background: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.14s ease;
+  transition:
+    background-color 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.gn-thick-btn:active {
+  transform: scale(0.88);
 }
 
 .gn-thick-btn:hover {
@@ -3168,10 +3404,39 @@ html, body {
   border-radius: 999px;
   background: #27272a;
   display: block;
+  transition: height 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
 }
 
 [data-theme="dark"] .gn-thick-line {
   background: #f4f4f5;
+}
+
+/* Aperçu texturé graphite pour les 3 épaisseurs du Crayon */
+.gn-thick-pencil-preview {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 14px;
+  color: #3f3f46;
+}
+
+[data-theme="dark"] .gn-thick-pencil-preview {
+  color: #e4e4e7;
+}
+
+.gn-subbar-thickness.is-pencil-mode .gn-thick-line {
+  display: none;
+}
+
+.gn-subbar-thickness.is-pencil-mode .gn-thick-pencil-preview {
+  display: inline-flex;
+  animation: gnFadeMicro 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes gnFadeMicro {
+  from { opacity: 0; transform: scale(0.86); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .gn-color-circle {
@@ -3179,21 +3444,35 @@ html, body {
   height: 28px;
   border-radius: 50%;
   border: 1.5px solid rgba(15, 23, 42, 0.14);
+  color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  transition: transform 0.16s ease, box-shadow 0.16s ease;
+  transition:
+    background-color 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.22s ease,
+    color 0.2s ease;
+}
+
+.gn-color-circle.is-light-color {
+  color: #18181b;
 }
 
 .gn-color-circle:hover {
-  transform: scale(1.08);
+  transform: scale(1.1);
+}
+
+.gn-color-circle:active {
+  transform: scale(0.9);
 }
 
 .gn-color-circle .gn-color-chevron {
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transform: scale(0.7);
+  transition: opacity 0.18s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .gn-color-circle.active {
@@ -3207,6 +3486,7 @@ html, body {
 
 .gn-color-circle.active .gn-color-chevron {
   opacity: 1;
+  transform: scale(1);
 }
 
 .gn-add-color-btn {
@@ -3333,6 +3613,66 @@ html, body {
   align-items: center;
   gap: 10px;
   padding: 16px 18px 6px;
+}
+
+/* ==================== POPOVER CRAYON & POPOVER SURLIGNEUR GOODNOTES 6 ==================== */
+.gn-pencil-popover,
+.gn-highlighter-popover {
+  width: 316px;
+  padding-bottom: 14px;
+  animation: gnPopoverSpringIn 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes gnPopoverSpringIn {
+  0% { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.gn-pencil-preview-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px 14px;
+}
+
+#gnPencilPreviewCanvas {
+  width: 268px;
+  height: 92px;
+  display: block;
+}
+
+.gn-pencil-settings-section {
+  padding-top: 2px;
+}
+
+.gn-pencil-setting-desc {
+  padding: 2px 18px 4px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #6b7280;
+}
+
+[data-theme="dark"] .gn-pencil-setting-desc {
+  color: #9ca3af;
+}
+
+.gn-hl-stab-section {
+  padding: 12px 18px 14px;
+}
+
+.gn-hl-popover-divider {
+  height: 1px;
+  background: rgba(30, 27, 27, 0.1);
+  margin: 2px 0 8px;
+}
+
+[data-theme="dark"] .gn-hl-popover-divider {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.gn-hl-toggle-section {
+  padding: 2px 0 2px;
 }
 
 .gn-pen-popover-title {
