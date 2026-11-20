@@ -1988,9 +1988,16 @@
     pagesSubTab: 'pages',
     pagesFilterBookmarks: false,
     movingNotebookId: null,
+    movingItems: null,
     editingFolderId: null,
     folderModalColor: '#0072ce',
     folderModalIcon: 'folder',
+    filesPageOpen: false,
+    filesPageTab: 'all',
+    filesPageViewMode: 'grid',
+    filesPageFavFilter: 'any',
+    filesPageSelectMode: false,
+    filesPageSelectedIds: new Set(),
     pagesByNotebook: new Map(),
     activeNotebookId: null,
     activePageId: null,
@@ -2271,6 +2278,9 @@
       }
     }
     saveToolMemoryToStorage();
+    if (typeof dom !== 'undefined' && dom.colorDotCursor && dom.colorDotCursor.style.display === 'block') {
+      dom.colorDotCursor.style.backgroundColor = getActiveCursorColor();
+    }
   }
 
   function setToolSize(tool, sizeVal) {
@@ -2429,6 +2439,7 @@
     activeInkCanvas: document.getElementById('activeInkCanvas'),
     worldObjectsLayer: document.getElementById('worldObjectsLayer'),
     eraserCursor: document.getElementById('eraserCursor'),
+    colorDotCursor: document.getElementById('colorDotCursor'),
     lassoFloatingActions: document.getElementById('lassoFloatingActions'),
     btnQuickDupLasso: document.getElementById('btnQuickDupLasso'),
     btnQuickRecogLasso: document.getElementById('btnQuickRecogLasso'),
@@ -2681,6 +2692,7 @@
     if (typeof resetPullToAddState === 'function') resetPullToAddState();
     if (dom.canvasViewport) dom.canvasViewport.classList.remove('panning');
     if (dom.eraserCursor) dom.eraserCursor.style.display = 'none';
+    if (dom.colorDotCursor) dom.colorDotCursor.style.display = 'none';
     if (state.temporaryEraserOverride) {
       state.temporaryEraserOverride = false;
       state.tool = state.previousToolBeforeEraser || 'pen';
@@ -3786,8 +3798,10 @@
     const spacing = (!isThumbnail && baseSpacing * state.zoom < 10)
       ? baseSpacing * Math.pow(2, Math.ceil(Math.log2(10 / (baseSpacing * state.zoom))))
       : baseSpacing;
+    const pageW = (page && Number.isFinite(page.pdfWidth) && page.pdfWidth > 0) ? page.pdfWidth : PAGE_WIDTH;
+    const pageH = (page && Number.isFinite(page.pdfHeight) && page.pdfHeight > 0) ? page.pdfHeight : PAGE_HEIGHT;
     const isInfinite = (page.viewMode || 'infinite') === 'infinite' && !isThumbnail;
-    let minX = 0, minY = 0, maxX = PAGE_WIDTH, maxY = PAGE_HEIGHT;
+    let minX = 0, minY = 0, maxX = pageW, maxY = pageH;
 
     if (isInfinite) {
       // Coordonnées monde exactes des bords du canevas (indépendantes du décalage de la barre latérale)
@@ -3809,14 +3823,14 @@
         targetCtx.fillRect(tl.x - 100, tl.y - 100, (br.x - tl.x) + 200, (br.y - tl.y) + 200);
       } else {
         targetCtx.fillStyle = palette.bg;
-        targetCtx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+        targetCtx.fillRect(0, 0, pageW, pageH);
       }
     }
 
     targetCtx.save();
     if (!isInfinite) {
       targetCtx.beginPath();
-      targetCtx.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+      targetCtx.rect(0, 0, pageW, pageH);
       targetCtx.clip();
     }
 
@@ -3941,7 +3955,7 @@
       targetCtx.strokeStyle = palette.gridLine;
       targetCtx.beginPath();
       const startY = isInfinite ? Math.max(88, minY) : 88;
-      const summaryY = PAGE_HEIGHT - 180;
+      const summaryY = pageH - 180;
       for (let y = startY; y <= maxY; y += spacing) {
         if (!isInfinite && y > summaryY) break;
         targetCtx.moveTo(Math.max(216, minX), y);
@@ -3974,14 +3988,14 @@
       targetCtx.beginPath();
       targetCtx.moveTo(minX, 80);
       targetCtx.lineTo(maxX, 80);
-      const midX = PAGE_WIDTH * 0.5;
+      const midX = pageW * 0.5;
       targetCtx.moveTo(midX, 80);
       targetCtx.lineTo(midX, maxY);
       targetCtx.stroke();
     } else if (paperType === 'planner') {
       // Planning hebdomadaire GoodNotes : 7 bandes de jours + colonne objectifs/notes à droite
-      const splitX = Math.round(PAGE_WIDTH * 0.62);
-      const rowH = Math.round((PAGE_HEIGHT - 96) / 7);
+      const splitX = Math.round(pageW * 0.62);
+      const rowH = Math.round((pageH - 96) / 7);
       targetCtx.lineWidth = 1.2 * invZoom;
       targetCtx.strokeStyle = palette.seyesMain;
       targetCtx.beginPath();
@@ -4025,7 +4039,7 @@
     if (!isInfinite && isThumbnail) {
       targetCtx.strokeStyle = 'rgba(100, 116, 139, 0.25)';
       targetCtx.lineWidth = 1;
-      targetCtx.strokeRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+      targetCtx.strokeRect(0, 0, pageW, pageH);
     }
     targetCtx.restore();
   }
@@ -5572,6 +5586,7 @@
     renderRadialColorWheelSvg(currentHex);
 
     state.colorWheelOpen = true;
+    if (dom.colorDotCursor) dom.colorDotCursor.style.display = 'none';
     state.colorWheelTapMode = false;
     state.colorWheelHoveredColor = null;
     state.colorWheelCenterScreen = { x: vpRect.left + clampedX, y: vpRect.top + clampedY };
@@ -6129,6 +6144,7 @@
       clearLassoSelection();
       pushHistorySnapshot();
       updateEraserCursor(e.clientX, e.clientY, true);
+      updateColorDotCursor(e.clientX, e.clientY, false);
       applyEraserAtPoint(worldPt.x, worldPt.y);
       requestRender();
     } else if (state.tool === 'lasso') {
@@ -6140,6 +6156,10 @@
       else requestRender();
     }
 
+    if (state.tool !== 'eraser') {
+      updateColorDotCursor(e.clientX, e.clientY, shouldShowColorDotCursor(e, false));
+    }
+
     try {
       if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId);
     } catch (_) {}
@@ -6148,6 +6168,7 @@
   function handlePointerMove(e) {
     const showEraserCircle = state.tool === 'eraser' || (!state.isDrawing && isPenEraserButton(e));
     updateEraserCursor(e.clientX, e.clientY, showEraserCircle);
+    updateColorDotCursor(e.clientX, e.clientY, shouldShowColorDotCursor(e, showEraserCircle));
 
     // Pincement à 2 doigts (Pinch-to-Zoom + Pan simultané)
     if (e.pointerType === 'touch' && state.touchPoints.has(e.pointerId)) {
@@ -6717,6 +6738,35 @@
     dom.eraserCursor.style.height = `${d}px`;
     dom.eraserCursor.style.left = `${clientX}px`;
     dom.eraserCursor.style.top = `${clientY}px`;
+  }
+
+  function getActiveCursorColor() {
+    if (state.tool === 'highlighter') return state.highlighterColor || '#fde047';
+    if (state.tool === 'shape') return state.shapeColor || state.penColor || '#1e293b';
+    if (state.tool === 'tape') return state.tapeColor || '#f59e0b';
+    if (state.tool === 'laser') return state.laserColor || '#ef4444';
+    if (state.tool === 'text') return state.textColor || state.penColor || '#1e293b';
+    return state.penColor || '#1e293b';
+  }
+
+  function shouldShowColorDotCursor(e, showEraserCircle) {
+    if (showEraserCircle) return false;
+    if (state.tool === 'eraser' || state.tool === 'pan' || state.tool === 'text') return false;
+    if (state.isSpacePressed || state.isPanning || state.colorWheelOpen) return false;
+    if (e && e.pointerType === 'touch') return false;
+    return true;
+  }
+
+  function updateColorDotCursor(clientX, clientY, visible) {
+    if (!dom.colorDotCursor) return;
+    if (!visible) {
+      dom.colorDotCursor.style.display = 'none';
+      return;
+    }
+    dom.colorDotCursor.style.backgroundColor = getActiveCursorColor();
+    dom.colorDotCursor.style.display = 'block';
+    dom.colorDotCursor.style.left = `${clientX}px`;
+    dom.colorDotCursor.style.top = `${clientY}px`;
   }
 
   function canEraserEraseStroke(s) {
@@ -8207,15 +8257,18 @@
   }
 
   const FOLDER_ICON_SVGS = {
-    folder: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
-    book: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
-    math: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 4H6l6 8-6 8h12"/></svg>',
-    code: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
-    science: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 2v7.31"/><path d="M14 9.3V1.99"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/></svg>',
-    star: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
-    briefcase: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>',
-    art: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>',
-    music: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'
+    folder: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+    book: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+    math: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 4H6l6 8-6 8h12"/></svg>',
+    calc: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 4H6l6 8-6 8h12"/></svg>',
+    code: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+    science: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.31"/><path d="M14 9.3V1.99"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/></svg>',
+    atom: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.8" fill="currentColor"/><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(30 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(-30 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(90 12 12)"/></svg>',
+    grad: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/></svg>',
+    star: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+    briefcase: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>',
+    art: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>',
+    music: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'
   };
 
   function getFolderIconSvg(iconKey) {
@@ -8255,15 +8308,145 @@
 
   async function emptyTrash() {
     const trashedNbs = state.notebooks.filter((n) => Boolean(n.trashedAt));
-    if (trashedNbs.length === 0) return 0;
+    const trashedFlds = (state.folders || []).filter((f) => Boolean(f.trashedAt));
+    if (trashedNbs.length === 0 && trashedFlds.length === 0) return 0;
     let deletedCount = 0;
     for (const nb of trashedNbs) {
       const ok = await deleteNotebookById(nb.id);
       if (ok) deletedCount++;
     }
+    if (trashedFlds.length > 0) {
+      const trashedIds = new Set(trashedFlds.map((f) => f.id));
+      state.folders = (state.folders || []).filter((f) => !trashedIds.has(f.id));
+      deletedCount += trashedFlds.length;
+      await db.saveFolders(state.folders);
+    }
     renderNotebooksSidebar();
-    showToast(`Corbeille vidée (${deletedCount} cahier${deletedCount > 1 ? 's' : ''})`);
+    showToast(`Corbeille vidée (${deletedCount} élément${deletedCount > 1 ? 's' : ''})`);
     return deletedCount;
+  }
+
+  function isFolderDescendant(candidateId, ancestorId) {
+    if (!candidateId || !ancestorId) return false;
+    if (candidateId === ancestorId) return true;
+    const seen = new Set();
+    let cur = candidateId;
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const f = (state.folders || []).find((x) => x.id === cur);
+      if (!f) break;
+      if (f.parentId === ancestorId) return true;
+      cur = f.parentId || null;
+    }
+    return false;
+  }
+
+  function moveFolderToParent(folderId, targetParentId) {
+    const fld = (state.folders || []).find((f) => f.id === folderId && !f.trashedAt);
+    if (!fld) return false;
+    const nextParent = targetParentId || null;
+    if ((fld.parentId || null) === nextParent) return false;
+    if (nextParent && isFolderDescendant(nextParent, folderId)) {
+      showToast('Impossible de déplacer un dossier dans lui-même.', 'error');
+      return false;
+    }
+    fld.parentId = nextParent;
+    fld.updatedAt = Date.now();
+    db.saveFolders(state.folders);
+    renderNotebooksSidebar();
+    const targetFolder = nextParent ? (state.folders || []).find((f) => f.id === nextParent) : null;
+    showToast(`Dossier « ${fld.name} » déplacé dans ${targetFolder ? `« ${targetFolder.name} »` : 'Documents'}`);
+    return true;
+  }
+
+  async function moveFolderToTrash(folderId) {
+    const fld = (state.folders || []).find((f) => f.id === folderId);
+    if (!fld || fld.trashedAt) return false;
+    const now = Date.now();
+    fld.trashedAt = now;
+    fld.updatedAt = now;
+    if (state.currentFolderId && isFolderDescendant(state.currentFolderId, folderId)) {
+      state.currentFolderId = fld.parentId || null;
+    }
+    await db.saveFolders(state.folders);
+    renderNotebooksSidebar();
+    showToast(`Dossier « ${fld.name} » déplacé dans la Corbeille`);
+    return true;
+  }
+
+  async function restoreFolderFromTrash(folderId) {
+    const fld = (state.folders || []).find((f) => f.id === folderId);
+    if (!fld) return false;
+    fld.trashedAt = null;
+    if (fld.parentId) {
+      const parent = (state.folders || []).find((f) => f.id === fld.parentId && !f.trashedAt);
+      if (!parent) fld.parentId = null;
+    }
+    fld.updatedAt = Date.now();
+    await db.saveFolders(state.folders);
+    renderNotebooksSidebar();
+    showToast(`Dossier « ${fld.name} » restauré`);
+    return true;
+  }
+
+  async function deleteFolderPermanently(folderId) {
+    const fld = (state.folders || []).find((f) => f.id === folderId);
+    if (!fld) return false;
+    const parentId = fld.parentId || null;
+    (state.folders || []).forEach((sub) => { if (sub.parentId === folderId) sub.parentId = parentId; });
+    (state.notebooks || []).forEach((nb) => {
+      if (nb.folderId === folderId) {
+        nb.folderId = parentId;
+        db.saveNotebook(nb);
+      }
+    });
+    state.folders = (state.folders || []).filter((x) => x.id !== folderId);
+    if (state.currentFolderId === folderId) state.currentFolderId = parentId;
+    await db.saveFolders(state.folders);
+    renderNotebooksSidebar();
+    showToast(`Dossier « ${fld.name} » supprimé définitivement`);
+    return true;
+  }
+
+  async function duplicateNotebookById(nbId) {
+    const srcNb = (state.notebooks || []).find((n) => n.id === nbId);
+    if (!srcNb) return null;
+    await flushPendingPageSaves();
+    const srcPages = state.pagesByNotebook.get(nbId) || [];
+    const now = Date.now();
+    const copyNb = {
+      ...srcNb,
+      id: createUid('nb'),
+      title: `${srcNb.title} (copie)`,
+      trashedAt: null,
+      createdAt: now,
+      updatedAt: now
+    };
+    const copiedPages = srcPages.map((pg, idx) => {
+      const cloned = clonePageContent(pg);
+      return {
+        ...pg,
+        id: createUid('pg'),
+        notebookId: copyNb.id,
+        order: idx,
+        strokes: cloned.strokes,
+        shapes: cloned.shapes,
+        textCards: cloned.textCards,
+        tapes: cloned.tapes,
+        images: cloned.images,
+        createdAt: now,
+        updatedAt: now
+      };
+    });
+    state.notebooks.push(copyNb);
+    state.pagesByNotebook.set(copyNb.id, copiedPages);
+    await db.saveNotebook(copyNb);
+    for (const p of copiedPages) {
+      await db.savePage(p);
+    }
+    renderNotebooksSidebar();
+    showToast(`« ${copyNb.title} » dupliqué`);
+    return copyNb;
   }
 
   const PAPER_TYPE_LABELS = {
@@ -8313,7 +8496,7 @@
       }
       for (let i = 0; i < folders.length; i++) {
         const sub = folders[i];
-        if (sub.parentId === fid && !visited.has(sub.id)) {
+        if (!sub.trashedAt && sub.parentId === fid && !visited.has(sub.id)) {
           subfolders++;
           visit(sub.id);
         }
@@ -8431,6 +8614,7 @@
 
     // 1. Dossiers Goodnotes (masqués dans Récents et Corbeille)
     const visibleFolders = (trashOnly || recentsOnly) ? [] : (state.folders || []).filter((f) => {
+      if (f.trashedAt) return false;
       if (favOnly && !f.starred) return false;
       if (search) return (f.name || '').toLowerCase().includes(search);
       if (!showGlobal) return (f.parentId || null) === (state.currentFolderId || null);
@@ -8667,6 +8851,9 @@
       });
       dom.notebookList.appendChild(card);
     });
+    if (state.filesPageOpen && typeof renderGnFilesPage === 'function') {
+      renderGnFilesPage();
+    }
   }
 
   async function rotatePageById(pageId, deltaDeg = 90) {
@@ -8900,6 +9087,9 @@
     dom.paperOptionBtns.forEach((b) => b.classList.toggle('active', b.dataset.paper === (page.paperType || 'grid')));
     dom.toneBtns.forEach((b) => b.classList.toggle('active', b.dataset.tone === (page.paperTone || 'ivory')));
     dom.viewModeBtns.forEach((b) => b.classList.toggle('active', b.dataset.viewmode === (page.viewMode || 'infinite')));
+    const gSize = Number.isFinite(page.gridSize) ? page.gridSize : 28;
+    if (dom.gridSpacingSlider) dom.gridSpacingSlider.value = String(gSize);
+    if (dom.gridSpacingVal) dom.gridSpacingVal.textContent = `${gSize}px`;
   }
 
   function selectNotebook(nbId) {
@@ -8955,11 +9145,51 @@
     requestRender();
   }
 
-  async function createNotebookProgrammatically(title, paperType = 'grid', coverColor = state.newNotebookCover) {
+  function extractInheritedPageSettings(sourcePage, fallbackNotebook = null, overrides = {}) {
+    const src = sourcePage || null;
+    const opts = (overrides && typeof overrides === 'object' && !('target' in overrides && 'preventDefault' in overrides))
+      ? overrides
+      : {};
+    const isSrcPdf = Boolean(src && (src.pdfId || src.isPdfPage));
+    const inheritedPaperType = opts.paperType
+      || (src && src.paperType)
+      || (fallbackNotebook && fallbackNotebook.defaultPaperType)
+      || 'grid';
+    const inheritedPaperTone = opts.paperTone
+      || (src && src.paperTone)
+      || 'ivory';
+    const inheritedGridSize = Number.isFinite(opts.gridSize)
+      ? opts.gridSize
+      : (src && Number.isFinite(src.gridSize) ? src.gridSize : 28);
+    const inheritedViewMode = opts.viewMode
+      || (isSrcPdf ? 'page' : (src && src.viewMode ? src.viewMode : 'infinite'));
+    const inheritedRotation = Number.isFinite(opts.rotation)
+      ? opts.rotation
+      : (src && Number.isFinite(src.rotation) ? src.rotation : 0);
+    const hasCustomDims = Boolean(
+      src && Number.isFinite(src.pdfWidth) && src.pdfWidth > 0 && Number.isFinite(src.pdfHeight) && src.pdfHeight > 0
+    );
+    return {
+      paperType: inheritedPaperType,
+      paperTone: inheritedPaperTone,
+      gridSize: inheritedGridSize,
+      viewMode: inheritedViewMode,
+      rotation: inheritedRotation,
+      pdfWidth: hasCustomDims ? src.pdfWidth : null,
+      pdfHeight: hasCustomDims ? src.pdfHeight : null,
+      pdfOriginalWidth: (src && Number.isFinite(src.pdfOriginalWidth) && src.pdfOriginalWidth > 0) ? src.pdfOriginalWidth : null,
+      pdfOriginalHeight: (src && Number.isFinite(src.pdfOriginalHeight) && src.pdfOriginalHeight > 0) ? src.pdfOriginalHeight : null
+    };
+  }
+
+  async function createNotebookProgrammatically(title, paperType = 'grid', coverColor = state.newNotebookCover, templatePageOrOptions = null) {
     finalizeActiveDrawingOnCurrentPage();
     await flushPendingPageSaves();
     cleanupTransientInteractionState(false);
 
+    const inherited = extractInheritedPageSettings(templatePageOrOptions, null, {
+      paperType: paperType || (templatePageOrOptions && templatePageOrOptions.paperType) || 'grid'
+    });
     const nbId = createUid('nb');
     const cleanTitle = (title && String(title).trim()) || `Cahier ${state.notebooks.length + 1}`;
     const newNb = {
@@ -8968,7 +9198,7 @@
       folderId: state.currentFolderId || null,
       starred: false,
       coverColor: coverColor || '#1d4ed8',
-      defaultPaperType: paperType || 'grid',
+      defaultPaperType: inherited.paperType,
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
@@ -8977,10 +9207,15 @@
       notebookId: nbId,
       title: '1. Page 1',
       order: 0,
-      paperType: paperType || 'grid',
-      paperTone: 'ivory',
-      gridSize: 28,
-      viewMode: 'infinite',
+      paperType: inherited.paperType,
+      paperTone: inherited.paperTone,
+      gridSize: inherited.gridSize,
+      viewMode: inherited.viewMode,
+      rotation: inherited.rotation,
+      pdfWidth: inherited.pdfWidth,
+      pdfHeight: inherited.pdfHeight,
+      pdfOriginalWidth: inherited.pdfOriginalWidth,
+      pdfOriginalHeight: inherited.pdfOriginalHeight,
       strokes: [],
       shapes: [],
       texts: [],
@@ -8995,6 +9230,7 @@
     await db.saveNotebook(newNb);
     await db.savePage(p1);
     selectNotebook(nbId);
+    if (isBoundedPage(p1)) fitPageToViewport(false);
     return { notebook: newNb, firstPage: p1 };
   }
 
@@ -9005,19 +9241,28 @@
     await flushPendingPageSaves();
     cleanupTransientInteractionState(false);
 
+    const opts = (options && typeof options === 'object' && !('target' in options && 'preventDefault' in options))
+      ? options
+      : {};
     const pages = getActiveNotebookPages();
     const cur = getActivePage();
+    const prevPage = opts.sourcePage || cur || pages[pages.length - 1] || null;
+    const inherited = extractInheritedPageSettings(prevPage, nb, opts);
     const num = pages.length + 1;
-    const inheritedViewMode = options.viewMode || (cur ? (cur.viewMode || 'infinite') : 'infinite');
     const np = {
       id: createUid('page'),
       notebookId: nb.id,
       title: `${num}. Page ${num}`,
       order: pages.length,
-      paperType: cur ? cur.paperType : 'grid',
-      paperTone: cur ? cur.paperTone : 'ivory',
-      gridSize: cur ? cur.gridSize : 28,
-      viewMode: inheritedViewMode,
+      paperType: inherited.paperType,
+      paperTone: inherited.paperTone,
+      gridSize: inherited.gridSize,
+      viewMode: inherited.viewMode,
+      rotation: inherited.rotation,
+      pdfWidth: inherited.pdfWidth,
+      pdfHeight: inherited.pdfHeight,
+      pdfOriginalWidth: inherited.pdfOriginalWidth,
+      pdfOriginalHeight: inherited.pdfOriginalHeight,
       strokes: [],
       shapes: [],
       texts: [],
@@ -9037,12 +9282,14 @@
     renderPagesSidebar();
     updateUndoRedoButtons();
     renderWorldTextCards();
-    if (options.fromPullToAdd && isBoundedPage(np)) {
+    if (opts.fromPullToAdd && isBoundedPage(np)) {
       positionBoundedPageAfterTransition('top');
+    } else if (isBoundedPage(np)) {
+      fitPageToViewport(false);
     } else {
       requestRender();
     }
-    showToast(`Page ${num} (${inheritedViewMode === 'page' ? 'A4' : 'Infinie'}) créée`);
+    showToast(`Page ${num} (${inherited.viewMode === 'page' ? 'A4' : 'Infinie'}) créée`);
     return np;
   }
 
@@ -9222,6 +9469,13 @@
     dom.canvasViewport.classList.toggle('drawing-mode-active', isDrawingTool);
 
     if (state.tool !== 'eraser') dom.eraserCursor.style.display = 'none';
+    if (dom.colorDotCursor) {
+      if (state.tool === 'eraser' || state.tool === 'pan' || state.tool === 'text' || state.isSpacePressed || state.colorWheelOpen) {
+        dom.colorDotCursor.style.display = 'none';
+      } else {
+        dom.colorDotCursor.style.backgroundColor = getActiveCursorColor();
+      }
+    }
 
     const isInk = state.tool === 'pen' || state.tool === 'highlighter';
     const isShape = state.tool === 'shape', isText = state.tool === 'text', isEraser = state.tool === 'eraser', isLasso = state.tool === 'lasso';
@@ -10157,7 +10411,10 @@
     dom.inkCanvas.addEventListener('pointermove', handlePointerMove, { passive: false });
     dom.inkCanvas.addEventListener('pointerup', handlePointerUpOrCancel);
     dom.inkCanvas.addEventListener('pointercancel', handlePointerUpOrCancel);
-    dom.inkCanvas.addEventListener('pointerleave', () => { dom.eraserCursor.style.display = 'none'; });
+    dom.inkCanvas.addEventListener('pointerleave', () => {
+      dom.eraserCursor.style.display = 'none';
+      if (dom.colorDotCursor) dom.colorDotCursor.style.display = 'none';
+    });
     dom.inkCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
     dom.inkCanvas.addEventListener('auxclick', (e) => e.preventDefault());
     dom.inkCanvas.addEventListener('selectstart', (e) => e.preventDefault());
@@ -10524,7 +10781,7 @@
     }));
     dom.toneBtns.forEach((b) => b.addEventListener('click', () => {
       const p = getActivePage(); if (!p) return;
-      p.paperTone = b.dataset.tone; updateBreadcrumbs(); requestRender(); scheduleSaveActivePage();
+      p.paperTone = b.dataset.tone; invalidateStaticInkCache(); updateBreadcrumbs(); requestRender(); scheduleSaveActivePage();
     }));
     dom.gridSpacingSlider.addEventListener('input', (e) => {
       const p = getActivePage(); if (!p) return;
@@ -10535,6 +10792,7 @@
     dom.viewModeBtns.forEach((b) => b.addEventListener('click', () => {
       const p = getActivePage(); if (!p) return;
       p.viewMode = b.dataset.viewmode;
+      invalidateStaticInkCache();
       resetPullToAddState();
       updateBreadcrumbs();
       if (isBoundedPage(p)) fitPageToViewport(true);
@@ -10837,10 +11095,10 @@
       });
     }
     if (dom.btnQuickAddPage) {
-      dom.btnQuickAddPage.addEventListener('click', addNewPageToActiveNotebook);
+      dom.btnQuickAddPage.addEventListener('click', () => addNewPageToActiveNotebook());
     }
     if (dom.btnNewPageSidebar) {
-      dom.btnNewPageSidebar.addEventListener('click', addNewPageToActiveNotebook);
+      dom.btnNewPageSidebar.addEventListener('click', () => addNewPageToActiveNotebook());
     }
 
     if (dom.btnZoomIn) {
@@ -10891,6 +11149,9 @@
       const paperType = dom.selectDefaultPaper.value || 'grid';
       closeNb();
       await createNotebookProgrammatically(title, paperType, state.newNotebookCover);
+      if (state.filesPageOpen && typeof closeFilesPage === 'function') {
+        closeFilesPage();
+      }
     });
 
     dom.btnBackupJson.addEventListener('click', () => {
@@ -10931,8 +11192,27 @@
         toggleFullscreenMode();
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        toggleFilesPage();
+        return;
+      }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === 'Escape') {
+        if (state.filesPageOpen) {
+          const newMenu = document.getElementById('gnFilesNewMenu');
+          const ctxMenu = document.getElementById('gnFilesContextMenu');
+          if ((newMenu && !newMenu.classList.contains('hidden')) || (ctxMenu && !ctxMenu.classList.contains('hidden'))) {
+            closeGnFilesMenus();
+          } else if (state.filesPageSelectMode) {
+            state.filesPageSelectMode = false;
+            state.filesPageSelectedIds.clear();
+            renderGnFilesPage();
+          } else {
+            closeFilesPage();
+          }
+          return;
+        }
         if (state.colorWheelOpen) { closeRadialColorWheel(true); requestRender(); }
         else if (hasAnyLassoSelection()) { clearLassoSelection(); requestRender(); }
         return;
@@ -11133,18 +11413,32 @@
   // 18. EXTENSIONS GOODNOTES : DOSSIERS, IMAGES, FENÊTRE DE ZOOM & GOOGLE DRIVE
   // ============================================================================
 
-  function openMoveNotebookModal(nb) {
+  function openMoveNotebookModal(nbOrItems) {
     const modal = document.getElementById('modalMoveNotebook');
     const select = document.getElementById('selectTargetFolder');
-    if (!modal || !select || !nb) return;
-    state.movingNotebookId = nb.id;
+    if (!modal || !select || !nbOrItems) return;
+    const items = Array.isArray(nbOrItems)
+      ? nbOrItems
+      : (nbOrItems.type ? [nbOrItems] : [{ type: 'nb', id: nbOrItems.id }]);
+    state.movingItems = items;
+    state.movingNotebookId = items.length === 1 && items[0].type === 'nb' ? items[0].id : null;
+    const movingFolderIds = new Set(items.filter((x) => x.type === 'fld').map((x) => x.id));
     select.innerHTML = `<option value="">📁 Documents (Racine)</option>`;
-    (state.folders || []).forEach((f) => {
+    (state.folders || []).filter((f) => !f.trashedAt).forEach((f) => {
+      for (const fid of movingFolderIds) {
+        if (isFolderDescendant(f.id, fid)) return;
+      }
       const pathLabel = getFolderPath(f.id).map((x) => x.name).join(' › ');
       const opt = document.createElement('option');
       opt.value = f.id;
       opt.textContent = `📁 ${pathLabel}`;
-      if ((nb.folderId || '') === f.id) opt.selected = true;
+      if (items.length === 1 && items[0].type === 'nb') {
+        const nb = state.notebooks.find((n) => n.id === items[0].id);
+        if (nb && (nb.folderId || '') === f.id) opt.selected = true;
+      } else if (items.length === 1 && items[0].type === 'fld') {
+        const fld = (state.folders || []).find((x) => x.id === items[0].id);
+        if (fld && (fld.parentId || '') === f.id) opt.selected = true;
+      }
       select.appendChild(opt);
     });
     modal.classList.remove('hidden');
@@ -11400,8 +11694,899 @@
     state.editingFolderId = null;
   }
 
+  // ============================================================================
+  // 18. PAGE PLEIN ÉCRAN : GESTIONNAIRE DE FICHIERS GOODNOTES 6 (#gnFilesPage)
+  // Architecture calquée sur GoodNotes for Windows 2.4.6 (analysé via REA)
+  // ============================================================================
+
+  let draggedFilesItem = null; // { type: 'nb' | 'fld', id: string }
+
+  function closeGnFilesMenus() {
+    const newMenu = document.getElementById('gnFilesNewMenu');
+    const ctxMenu = document.getElementById('gnFilesContextMenu');
+    if (newMenu) newMenu.classList.add('hidden');
+    if (ctxMenu) ctxMenu.classList.add('hidden');
+  }
+
+  function positionGnFilesPopover(popoverEl, anchorRectOrPoint) {
+    if (!popoverEl) return;
+    popoverEl.classList.remove('hidden');
+    const vw = typeof window !== 'undefined' ? (window.innerWidth || 1280) : 1280;
+    const vh = typeof window !== 'undefined' ? (window.innerHeight || 800) : 800;
+    const pw = popoverEl.offsetWidth || 252;
+    const ph = popoverEl.offsetHeight || 240;
+    let left = anchorRectOrPoint.left ?? anchorRectOrPoint.x ?? 120;
+    let top = (anchorRectOrPoint.bottom !== undefined ? anchorRectOrPoint.bottom + 6 : (anchorRectOrPoint.y ?? 120));
+    if (left + pw > vw - 14) left = Math.max(14, vw - pw - 14);
+    if (top + ph > vh - 14) top = Math.max(14, (anchorRectOrPoint.top ?? top) - ph - 6);
+    popoverEl.style.left = `${Math.round(left)}px`;
+    popoverEl.style.top = `${Math.round(top)}px`;
+  }
+
+  function openGnFilesNewMenu(anchorEl) {
+    const newMenu = document.getElementById('gnFilesNewMenu');
+    const ctxMenu = document.getElementById('gnFilesContextMenu');
+    if (ctxMenu) ctxMenu.classList.add('hidden');
+    if (!newMenu) return;
+    const rect = anchorEl && typeof anchorEl.getBoundingClientRect === 'function'
+      ? anchorEl.getBoundingClientRect()
+      : { left: 280, bottom: 110, top: 80 };
+    positionGnFilesPopover(newMenu, rect);
+  }
+
+  function openGnFilesContextMenu(itemType, item, anchorPoint) {
+    const ctxMenu = document.getElementById('gnFilesContextMenu');
+    const newMenu = document.getElementById('gnFilesNewMenu');
+    if (newMenu) newMenu.classList.add('hidden');
+    if (!ctxMenu || !item) return;
+
+    const isTrashed = Boolean(item.trashedAt);
+    const entries = [];
+    if (itemType === 'fld') {
+      if (isTrashed) {
+        entries.push({ act: 'restore', label: 'Restaurer le dossier' });
+        entries.push({ sep: true });
+        entries.push({ act: 'purge', label: 'Supprimer définitivement', danger: true });
+      } else {
+        entries.push({ act: 'open', label: 'Ouvrir le dossier' });
+        entries.push({ act: 'customize', label: 'Couleur & symbole...' });
+        entries.push({ act: 'rename', label: 'Renommer' });
+        entries.push({ act: 'star', label: item.starred ? 'Retirer des favoris' : 'Ajouter aux favoris' });
+        entries.push({ act: 'move', label: 'Déplacer vers...' });
+        entries.push({ sep: true });
+        entries.push({ act: 'trash', label: 'Mettre à la corbeille', danger: true });
+      }
+    } else {
+      if (isTrashed) {
+        entries.push({ act: 'restore', label: 'Restaurer le cahier' });
+        entries.push({ sep: true });
+        entries.push({ act: 'purge', label: 'Supprimer définitivement', danger: true });
+      } else {
+        entries.push({ act: 'open', label: 'Ouvrir le cahier' });
+        entries.push({ act: 'rename', label: 'Renommer' });
+        entries.push({ act: 'duplicate', label: 'Dupliquer' });
+        entries.push({ act: 'move', label: 'Déplacer vers...' });
+        entries.push({ act: 'star', label: item.starred ? 'Retirer des favoris' : 'Ajouter aux favoris' });
+        entries.push({ sep: true });
+        entries.push({ act: 'trash', label: 'Mettre à la corbeille', danger: true });
+      }
+    }
+
+    ctxMenu.innerHTML = entries.map((entry) => {
+      if (entry.sep) return '<div class="gn-files-menu-sep"></div>';
+      return `<button class="gn-files-menu-item${entry.danger ? ' danger' : ''}" type="button" data-ctx-act="${entry.act}">${escapeHtml(entry.label)}</button>`;
+    }).join('');
+
+    ctxMenu.querySelectorAll('[data-ctx-act]').forEach((btn) => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const act = btn.dataset.ctxAct;
+        closeGnFilesMenus();
+        if (itemType === 'fld') {
+          if (act === 'open') {
+            state.filesPageTab = 'all';
+            state.currentFolderId = item.id;
+            renderNotebooksSidebar();
+          } else if (act === 'customize') {
+            openFolderCustomizeModal(item);
+          } else if (act === 'rename') {
+            openRenameModal('Renommer le dossier', item.name, (val) => {
+              item.name = val;
+              item.updatedAt = Date.now();
+              db.saveFolders(state.folders);
+              renderNotebooksSidebar();
+            });
+          } else if (act === 'star') {
+            item.starred = !item.starred;
+            item.updatedAt = Date.now();
+            db.saveFolders(state.folders);
+            renderNotebooksSidebar();
+          } else if (act === 'move') {
+            openMoveNotebookModal({ type: 'fld', id: item.id });
+          } else if (act === 'trash') {
+            await moveFolderToTrash(item.id);
+          } else if (act === 'restore') {
+            await restoreFolderFromTrash(item.id);
+          } else if (act === 'purge') {
+            await deleteFolderPermanently(item.id);
+          }
+        } else {
+          if (act === 'open') {
+            selectNotebook(item.id);
+            closeFilesPage();
+          } else if (act === 'rename') {
+            openRenameModal('Renommer le cahier', item.title, (val) => {
+              item.title = val;
+              item.updatedAt = Date.now();
+              db.saveNotebook(item);
+              renderNotebooksSidebar();
+              updateBreadcrumbs();
+            });
+          } else if (act === 'duplicate') {
+            await duplicateNotebookById(item.id);
+          } else if (act === 'move') {
+            openMoveNotebookModal({ type: 'nb', id: item.id });
+          } else if (act === 'star') {
+            item.starred = !item.starred;
+            item.updatedAt = Date.now();
+            db.saveNotebook(item);
+            renderNotebooksSidebar();
+          } else if (act === 'trash') {
+            await moveNotebookToTrash(item.id);
+          } else if (act === 'restore') {
+            await restoreNotebookFromTrash(item.id);
+          } else if (act === 'purge') {
+            await deleteNotebookById(item.id);
+          }
+        }
+      });
+    });
+
+    positionGnFilesPopover(ctxMenu, anchorPoint);
+  }
+
+  function getGnFilesVisibleData() {
+    const tab = state.filesPageTab || 'all';
+    const search = (state.sidebarSearch || '').trim().toLowerCase();
+    const favFilter = state.filesPageFavFilter || 'any';
+    const sortBy = state.notebookSortBy || 'date_desc';
+
+    const sortFoldersFn = (a, b) => {
+      if (sortBy === 'name_asc') return (a.name || '').localeCompare(b.name || '', 'fr', { sensitivity: 'base' });
+      if (sortBy === 'name_desc') return (b.name || '').localeCompare(a.name || '', 'fr', { sensitivity: 'base' });
+      return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+    };
+    const sortNotebooksFn = (a, b) => {
+      if (tab === 'recents' || sortBy === 'date_desc') {
+        return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+      }
+      if (sortBy === 'name_asc') return (a.title || '').localeCompare(b.title || '', 'fr', { sensitivity: 'base' });
+      if (sortBy === 'name_desc') return (b.title || '').localeCompare(a.title || '', 'fr', { sensitivity: 'base' });
+      if (sortBy === 'type') {
+        const aPdf = a.isPdfNotebook || a.pdfId ? 1 : 0;
+        const bPdf = b.isPdfNotebook || b.pdfId ? 1 : 0;
+        if (bPdf !== aPdf) return bPdf - aPdf;
+        return (a.title || '').localeCompare(b.title || '', 'fr', { sensitivity: 'base' });
+      }
+      return 0;
+    };
+
+    const folders = (state.folders || []).filter((f) => {
+      const isTrashed = Boolean(f.trashedAt);
+      if (tab === 'trash') return isTrashed && (!search || (f.name || '').toLowerCase().includes(search));
+      if (isTrashed) return false;
+      if (tab === 'recents') return false;
+      if (tab === 'favorites') {
+        if (favFilter === 'document') return false;
+        return Boolean(f.starred) && (!search || (f.name || '').toLowerCase().includes(search));
+      }
+      if (search) return (f.name || '').toLowerCase().includes(search);
+      return (f.parentId || null) === (state.currentFolderId || null);
+    }).sort(sortFoldersFn);
+
+    const notebooks = (state.notebooks || []).filter((nb) => {
+      const isTrashed = Boolean(nb.trashedAt);
+      if (tab === 'trash') return isTrashed && (!search || (nb.title || '').toLowerCase().includes(search));
+      if (isTrashed) return false;
+      if (tab === 'favorites') {
+        if (favFilter === 'folder') return false;
+        return Boolean(nb.starred) && (!search || (nb.title || '').toLowerCase().includes(search));
+      }
+      if (tab === 'recents') {
+        return !search || (nb.title || '').toLowerCase().includes(search);
+      }
+      if (search) return (nb.title || '').toLowerCase().includes(search);
+      return (nb.folderId || null) === (state.currentFolderId || null);
+    }).sort(sortNotebooksFn);
+
+    return { tab, search, folders, notebooks };
+  }
+
+  function renderGnFilesPage() {
+    const pageEl = document.getElementById('gnFilesPage');
+    const contentEl = document.getElementById('gnFilesContent');
+    if (!pageEl || !contentEl) return;
+
+    const { tab, search, folders, notebooks } = getGnFilesVisibleData();
+    const isTrash = tab === 'trash';
+    const isFavorites = tab === 'favorites';
+    const isRecents = tab === 'recents';
+    const isGrid = (state.filesPageViewMode || 'grid') === 'grid';
+
+    // 1. Sidebar active tab & badges
+    document.querySelectorAll('#gnFilesSidebarNav [data-files-tab]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.filesTab === tab);
+    });
+    const activeDocsCount = (state.notebooks || []).filter((n) => !n.trashedAt).length;
+    const favCount = (state.notebooks || []).filter((n) => !n.trashedAt && n.starred).length +
+      (state.folders || []).filter((f) => !f.trashedAt && f.starred).length;
+    const trashCount = (state.notebooks || []).filter((n) => Boolean(n.trashedAt)).length +
+      (state.folders || []).filter((f) => Boolean(f.trashedAt)).length;
+
+    const badgeDocs = document.getElementById('gnFilesBadgeDocs');
+    const badgeFav = document.getElementById('gnFilesBadgeFav');
+    const badgeTrash = document.getElementById('gnFilesBadgeTrash');
+    if (badgeDocs) badgeDocs.textContent = String(activeDocsCount);
+    if (badgeFav) badgeFav.textContent = String(favCount);
+    if (badgeTrash) badgeTrash.textContent = String(trashCount);
+
+    const activeNb = getActiveNotebook();
+    const activeNbLabel = document.getElementById('gnFilesActiveNbName');
+    if (activeNbLabel) activeNbLabel.textContent = activeNb ? activeNb.title : 'Cahier actif';
+
+    // 2. Breadcrumbs & Back button (GoodNotes top-bar-breadcrumbs)
+    const backBtn = document.getElementById('btnGnFilesBack');
+    const crumbsEl = document.getElementById('gnFilesBreadcrumbs');
+    const showSubfolder = tab === 'all' && Boolean(state.currentFolderId) && !search;
+    if (backBtn) backBtn.classList.toggle('hidden', !showSubfolder);
+
+    if (crumbsEl) {
+      if (tab === 'all') {
+        const chain = showSubfolder ? getFolderPath(state.currentFolderId) : [];
+        const parts = [{ id: '', label: 'Documents', isCurrent: chain.length === 0 }];
+        chain.forEach((f, idx) => parts.push({ id: f.id, label: f.name, isCurrent: idx === chain.length - 1 }));
+        crumbsEl.innerHTML = parts.map((p, idx) => {
+          const sep = idx > 0 ? '<span class="gn-files-crumb-sep">›</span>' : '';
+          return `${sep}<button class="gn-files-crumb${p.isCurrent ? ' current' : ''}" type="button" data-gn-crumb="${p.id}">${escapeHtml(p.label)}</button>`;
+        }).join('');
+        crumbsEl.querySelectorAll('[data-gn-crumb]').forEach((b) => {
+          b.addEventListener('click', () => {
+            const targetId = b.dataset.gnCrumb || null;
+            if (targetId === (state.currentFolderId || null)) return;
+            state.currentFolderId = targetId;
+            renderNotebooksSidebar();
+          });
+          b.addEventListener('dragover', (ev) => {
+            if (!draggedFilesItem) return;
+            ev.preventDefault();
+            b.classList.add('drag-over');
+          });
+          b.addEventListener('dragleave', () => b.classList.remove('drag-over'));
+          b.addEventListener('drop', (ev) => {
+            ev.preventDefault();
+            b.classList.remove('drag-over');
+            if (!draggedFilesItem) return;
+            const targetId = b.dataset.gnCrumb || null;
+            if (draggedFilesItem.type === 'nb') moveNotebookToFolder(draggedFilesItem.id, targetId);
+            else if (draggedFilesItem.type === 'fld') moveFolderToParent(draggedFilesItem.id, targetId);
+            draggedFilesItem = null;
+          });
+        });
+      } else {
+        const titles = { recents: 'Récents', favorites: 'Favoris', trash: 'Corbeille' };
+        crumbsEl.innerHTML = `<span class="gn-files-crumb current">${titles[tab] || 'Documents'}</span>`;
+      }
+    }
+
+    // 3. Header controls sync
+    const searchInput = document.getElementById('gnFilesSearchInput');
+    const searchClear = document.getElementById('btnGnFilesSearchClear');
+    if (searchInput && searchInput.value !== (state.sidebarSearch || '')) {
+      searchInput.value = state.sidebarSearch || '';
+    }
+    if (searchClear) searchClear.classList.toggle('hidden', !search);
+
+    const sortSel = document.getElementById('gnFilesSortSelect');
+    if (sortSel) sortSel.value = state.notebookSortBy || 'date_desc';
+
+    const gridBtn = document.getElementById('btnGnFilesViewGrid');
+    const listBtn = document.getElementById('btnGnFilesViewList');
+    if (gridBtn) gridBtn.classList.toggle('active', isGrid);
+    if (listBtn) listBtn.classList.toggle('active', !isGrid);
+
+    const selModeBtn = document.getElementById('btnGnFilesSelectMode');
+    if (selModeBtn) {
+      selModeBtn.classList.toggle('active', Boolean(state.filesPageSelectMode));
+      if (typeof selModeBtn.setAttribute === 'function') {
+        selModeBtn.setAttribute('aria-pressed', state.filesPageSelectMode ? 'true' : 'false');
+      }
+    }
+
+    const topNewBtn = document.getElementById('btnGnFilesTopNew');
+    if (topNewBtn) topNewBtn.classList.toggle('hidden', isTrash);
+
+    // 4. Contextual subbars
+    const favBar = document.getElementById('gnFilesFavFilterBar');
+    if (favBar) {
+      favBar.classList.toggle('hidden', !isFavorites);
+      favBar.querySelectorAll('[data-fav-filter]').forEach((p) => {
+        p.classList.toggle('active', p.dataset.favFilter === (state.filesPageFavFilter || 'any'));
+      });
+    }
+
+    const selBar = document.getElementById('gnFilesSelectionBar');
+    if (selBar) {
+      selBar.classList.toggle('hidden', !state.filesPageSelectMode);
+      const count = state.filesPageSelectedIds.size;
+      const selCountEl = document.getElementById('gnFilesSelCount');
+      if (selCountEl) selCountEl.textContent = `${count} sélectionné${count > 1 ? 's' : ''}`;
+      const dupBtn = document.getElementById('btnGnFilesSelDuplicate');
+      const starBtn = document.getElementById('btnGnFilesSelStar');
+      const moveBtn = document.getElementById('btnGnFilesSelMove');
+      const trashBtn = document.getElementById('btnGnFilesSelTrash');
+      if (dupBtn) dupBtn.classList.toggle('hidden', isTrash);
+      if (starBtn) starBtn.classList.toggle('hidden', isTrash);
+      if (moveBtn) moveBtn.textContent = isTrash ? 'Restaurer' : 'Déplacer';
+      if (trashBtn) trashBtn.textContent = isTrash ? 'Supprimer' : 'Corbeille';
+    }
+
+    const trashBar = document.getElementById('gnFilesTrashBar');
+    if (trashBar) {
+      trashBar.classList.toggle('hidden', !isTrash || trashCount === 0);
+      const sumEl = document.getElementById('gnFilesTrashSummary');
+      if (sumEl) {
+        sumEl.textContent = `${trashCount} élément${trashCount > 1 ? 's' : ''} dans la corbeille — cliquez sur un élément pour le restaurer.`;
+      }
+    }
+
+    // 5. Render Grid or List content
+    contentEl.className = `gn-files-content ${isGrid ? 'mode-grid' : 'mode-list'}`;
+    contentEl.innerHTML = '';
+
+    // GoodNotes dashed "+ Nouveau" card as first tile in Grid mode (Documents tab)
+    if (isGrid && tab === 'all' && !search && !state.filesPageSelectMode) {
+      const newCard = document.createElement('button');
+      newCard.type = 'button';
+      newCard.className = 'gn-file-new-card';
+      newCard.innerHTML = `
+        <div class="gn-file-new-visual">
+          <span class="gn-file-new-plus">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </span>
+          <span class="gn-file-new-label">Nouveau...</span>
+        </div>
+      `;
+      newCard.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openGnFilesNewMenu(newCard);
+      });
+      contentEl.appendChild(newCard);
+    }
+
+    const toggleSelectKey = (key) => {
+      if (state.filesPageSelectedIds.has(key)) state.filesPageSelectedIds.delete(key);
+      else state.filesPageSelectedIds.add(key);
+      renderGnFilesPage();
+    };
+
+    // Render Folders
+    folders.forEach((folder) => {
+      const key = `fld:${folder.id}`;
+      const isSelected = state.filesPageSelectedIds.has(key);
+      const counts = getFolderItemCounts(folder.id);
+      const countText = formatFolderItemCountLabel(counts);
+      const color = folder.color || '#0072ce';
+      const iconSvg = getFolderIconSvg(folder.icon || 'folder');
+      const el = document.createElement('div');
+      el.className = `${isGrid ? 'gn-file-card' : 'gn-file-row'} gn-file-folder${isSelected ? ' selected' : ''}`;
+      el.draggable = !isTrash && !state.filesPageSelectMode;
+
+      if (isGrid) {
+        el.innerHTML = `
+          ${state.filesPageSelectMode ? `<span class="gn-card-check">${isSelected ? '✓' : ''}</span>` : ''}
+          ${!isTrash ? `<button class="gn-card-star-btn${folder.starred ? ' starred' : ''}" type="button" data-f-act="star" title="Favori">${folder.starred ? '★' : '☆'}</button>` : ''}
+          <div class="gn-folder-visual">
+            <div class="gn-folder-shape" style="--gn-folder-color:${escapeHtml(color)}">
+              <span class="gn-folder-watermark">${iconSvg}</span>
+            </div>
+          </div>
+          <div class="gn-card-footer">
+            <div class="gn-card-meta">
+              <div class="gn-card-title" title="${escapeHtml(folder.name)}">${escapeHtml(folder.name)}</div>
+              <div class="gn-card-sub">${escapeHtml(countText)}</div>
+            </div>
+            <button class="gn-card-more-btn" type="button" data-f-act="more" title="Options">⋯</button>
+          </div>
+        `;
+      } else {
+        el.innerHTML = `
+          ${state.filesPageSelectMode ? `<span class="gn-card-check" style="position:static;">${isSelected ? '✓' : ''}</span>` : ''}
+          <div class="gn-row-icon" style="background:${escapeHtml(color)}">${iconSvg}</div>
+          <div class="gn-row-main">
+            <div class="gn-card-title">${escapeHtml(folder.name)}</div>
+            <div class="gn-card-sub">${escapeHtml(countText)}</div>
+          </div>
+          <span class="gn-row-date">${escapeHtml(formatCompactDate(folder.updatedAt || folder.createdAt))}</span>
+          <div class="gn-row-actions">
+            ${!isTrash ? `<button class="gn-card-more-btn" type="button" data-f-act="star" style="color:${folder.starred ? '#f59e0b' : ''}" title="Favori">${folder.starred ? '★' : '☆'}</button>` : ''}
+            <button class="gn-card-more-btn" type="button" data-f-act="more" title="Options">⋯</button>
+          </div>
+        `;
+      }
+
+      if (!isTrash) {
+        el.addEventListener('dragstart', (ev) => {
+          draggedFilesItem = { type: 'fld', id: folder.id };
+          el.classList.add('dragging');
+          if (ev.dataTransfer) {
+            ev.dataTransfer.effectAllowed = 'move';
+            try { ev.dataTransfer.setData('text/plain', key); } catch (_) {}
+          }
+        });
+        el.addEventListener('dragend', () => {
+          draggedFilesItem = null;
+          el.classList.remove('dragging');
+        });
+        el.addEventListener('dragover', (ev) => {
+          if (!draggedFilesItem) return;
+          if (draggedFilesItem.type === 'fld' && isFolderDescendant(folder.id, draggedFilesItem.id)) return;
+          ev.preventDefault();
+          el.classList.add('drag-over');
+        });
+        el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+        el.addEventListener('drop', (ev) => {
+          ev.preventDefault();
+          el.classList.remove('drag-over');
+          if (!draggedFilesItem) return;
+          if (draggedFilesItem.type === 'nb') moveNotebookToFolder(draggedFilesItem.id, folder.id);
+          else if (draggedFilesItem.type === 'fld') moveFolderToParent(draggedFilesItem.id, folder.id);
+          draggedFilesItem = null;
+        });
+      }
+
+      el.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        openGnFilesContextMenu('fld', folder, { x: ev.clientX, y: ev.clientY });
+      });
+
+      el.addEventListener('click', (ev) => {
+        const actBtn = ev.target.closest('[data-f-act]');
+        if (actBtn) {
+          ev.stopPropagation();
+          if (actBtn.dataset.fAct === 'star') {
+            folder.starred = !folder.starred;
+            folder.updatedAt = Date.now();
+            db.saveFolders(state.folders);
+            renderNotebooksSidebar();
+          } else if (actBtn.dataset.fAct === 'more') {
+            openGnFilesContextMenu('fld', folder, actBtn.getBoundingClientRect());
+          }
+          return;
+        }
+        if (state.filesPageSelectMode) {
+          toggleSelectKey(key);
+          return;
+        }
+        if (isTrash) {
+          restoreFolderFromTrash(folder.id);
+          return;
+        }
+        state.filesPageTab = 'all';
+        state.currentFolderId = folder.id;
+        renderNotebooksSidebar();
+      });
+
+      contentEl.appendChild(el);
+    });
+
+    // Render Notebooks
+    notebooks.forEach((nb) => {
+      const key = `nb:${nb.id}`;
+      const isSelected = state.filesPageSelectedIds.has(key);
+      const pages = state.pagesByNotebook.get(nb.id) || [];
+      const firstPage = pages[0] || null;
+      const thumbSrc = firstPage && firstPage.thumbnail && firstPage.thumbnail.startsWith('data:image/')
+        ? firstPage.thumbnail
+        : '';
+      const cover = nb.cover || '#0072ce';
+      const paperLabel = PAPER_TYPE_LABELS[firstPage?.paperType] || 'Notes';
+      const isPdf = Boolean(nb.isPdfNotebook || nb.pdfId);
+      const isActiveNb = nb.id === state.activeNotebookId && !isTrash;
+      const dateStr = formatCompactDate(nb.updatedAt || nb.createdAt);
+      const pagesLabel = `${pages.length} page${pages.length > 1 ? 's' : ''}`;
+
+      const el = document.createElement('div');
+      el.className = `${isGrid ? 'gn-file-card' : 'gn-file-row'} gn-file-notebook${isSelected ? ' selected' : ''}`;
+      el.draggable = !isTrash && !state.filesPageSelectMode;
+
+      if (isGrid) {
+        el.innerHTML = `
+          ${state.filesPageSelectMode ? `<span class="gn-card-check">${isSelected ? '✓' : ''}</span>` : ''}
+          ${!isTrash ? `<button class="gn-card-star-btn${nb.starred ? ' starred' : ''}" type="button" data-nb-act="star" title="Favori">${nb.starred ? '★' : '☆'}</button>` : ''}
+          <div class="gn-nb-visual${thumbSrc ? ' has-thumb' : ''}" style="--gn-nb-cover:${escapeHtml(cover)}">
+            ${thumbSrc
+              ? `<img class="gn-nb-thumb-img" src="${thumbSrc}" alt="" loading="lazy" />`
+              : `<div class="gn-nb-cover-stripe">${escapeHtml(nb.title)}</div>`}
+            <div class="gn-nb-pill-row">
+              ${isActiveNb ? '<span class="gn-nb-pill active-pill">Ouvert</span>' : ''}
+              ${isPdf ? '<span class="gn-nb-pill pdf-pill">PDF</span>' : `<span class="gn-nb-pill">${escapeHtml(paperLabel)}</span>`}
+            </div>
+          </div>
+          <div class="gn-card-footer">
+            <div class="gn-card-meta">
+              <div class="gn-card-title" title="${escapeHtml(nb.title)}">${escapeHtml(nb.title)}</div>
+              <div class="gn-card-sub">${escapeHtml([dateStr, pagesLabel].filter(Boolean).join(' • '))}</div>
+            </div>
+            <button class="gn-card-more-btn" type="button" data-nb-act="more" title="Options">⋯</button>
+          </div>
+        `;
+      } else {
+        el.innerHTML = `
+          ${state.filesPageSelectMode ? `<span class="gn-card-check" style="position:static;">${isSelected ? '✓' : ''}</span>` : ''}
+          <div class="gn-row-icon" style="background:${escapeHtml(cover)}">
+            ${thumbSrc ? `<img src="${thumbSrc}" alt="" loading="lazy" />` : '<span>📓</span>'}
+          </div>
+          <div class="gn-row-main">
+            <div class="gn-card-title">${escapeHtml(nb.title)}${isActiveNb ? ' • Ouvert' : ''}</div>
+            <div class="gn-card-sub">${escapeHtml(isPdf ? 'PDF annoté' : paperLabel)}</div>
+          </div>
+          <span class="gn-row-count">${escapeHtml(pagesLabel)}</span>
+          <span class="gn-row-date">${escapeHtml(dateStr)}</span>
+          <div class="gn-row-actions">
+            ${!isTrash ? `<button class="gn-card-more-btn" type="button" data-nb-act="star" style="color:${nb.starred ? '#f59e0b' : ''}" title="Favori">${nb.starred ? '★' : '☆'}</button>` : ''}
+            <button class="gn-card-more-btn" type="button" data-nb-act="more" title="Options">⋯</button>
+          </div>
+        `;
+      }
+
+      if (!isTrash) {
+        el.addEventListener('dragstart', (ev) => {
+          draggedFilesItem = { type: 'nb', id: nb.id };
+          el.classList.add('dragging');
+          if (ev.dataTransfer) {
+            ev.dataTransfer.effectAllowed = 'move';
+            try { ev.dataTransfer.setData('text/plain', key); } catch (_) {}
+          }
+        });
+        el.addEventListener('dragend', () => {
+          draggedFilesItem = null;
+          el.classList.remove('dragging');
+        });
+      }
+
+      el.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        openGnFilesContextMenu('nb', nb, { x: ev.clientX, y: ev.clientY });
+      });
+
+      el.addEventListener('click', (ev) => {
+        const actBtn = ev.target.closest('[data-nb-act]');
+        if (actBtn) {
+          ev.stopPropagation();
+          if (actBtn.dataset.nbAct === 'star') {
+            nb.starred = !nb.starred;
+            nb.updatedAt = Date.now();
+            db.saveNotebook(nb);
+            renderNotebooksSidebar();
+          } else if (actBtn.dataset.nbAct === 'more') {
+            openGnFilesContextMenu('nb', nb, actBtn.getBoundingClientRect());
+          }
+          return;
+        }
+        if (state.filesPageSelectMode) {
+          toggleSelectKey(key);
+          return;
+        }
+        if (isTrash) {
+          restoreNotebookFromTrash(nb.id);
+          return;
+        }
+        selectNotebook(nb.id);
+        closeFilesPage();
+      });
+
+      contentEl.appendChild(el);
+    });
+
+    // Empty state
+    if (folders.length === 0 && notebooks.length === 0 && !(isGrid && tab === 'all' && !search && !state.filesPageSelectMode)) {
+      const empty = document.createElement('div');
+      empty.className = 'gn-files-empty';
+      const emptyTitle = isTrash
+        ? 'La corbeille est vide'
+        : (isFavorites ? 'Aucun favori pour le moment' : (search ? `Aucun résultat pour « ${search} »` : 'Ce dossier est vide'));
+      const emptySub = isTrash
+        ? 'Les cahiers et dossiers supprimés apparaîtront ici.'
+        : (isFavorites ? 'Cliquez sur l’étoile ☆ d’un cahier ou d’un dossier pour le retrouver ici.' : 'Créez un cahier, un dossier ou importez un PDF.');
+      empty.innerHTML = `<div class="gn-files-empty-title">${escapeHtml(emptyTitle)}</div><div>${escapeHtml(emptySub)}</div>`;
+      contentEl.appendChild(empty);
+    }
+  }
+
+  function openFilesPage(initialTab) {
+    const pageEl = document.getElementById('gnFilesPage');
+    if (!pageEl) return false;
+    finalizeActiveDrawingOnCurrentPage();
+    flushPendingPageSaves();
+    if (initialTab) state.filesPageTab = initialTab;
+    state.filesPageOpen = true;
+    closeGnFilesMenus();
+    pageEl.classList.remove('hidden');
+    const triggerBtn = document.getElementById('btnOpenFilesView');
+    if (triggerBtn) triggerBtn.classList.add('active');
+    renderGnFilesPage();
+    return true;
+  }
+
+  function closeFilesPage() {
+    const pageEl = document.getElementById('gnFilesPage');
+    state.filesPageOpen = false;
+    state.filesPageSelectMode = false;
+    state.filesPageSelectedIds.clear();
+    closeGnFilesMenus();
+    if (pageEl) pageEl.classList.add('hidden');
+    const triggerBtn = document.getElementById('btnOpenFilesView');
+    if (triggerBtn) triggerBtn.classList.remove('active');
+    requestRender();
+    return false;
+  }
+
+  function toggleFilesPage() {
+    return state.filesPageOpen ? closeFilesPage() : openFilesPage();
+  }
+
+  function initGnFilesPageEvents() {
+    const triggerBtn = document.getElementById('btnOpenFilesView');
+    if (triggerBtn) {
+      triggerBtn.addEventListener('click', () => toggleFilesPage());
+    }
+
+    document.getElementById('btnCloseFilesPage')?.addEventListener('click', closeFilesPage);
+    document.getElementById('btnFilesReturnToCanvas')?.addEventListener('click', closeFilesPage);
+    document.getElementById('btnFilesCloudBackup')?.addEventListener('click', () => {
+      const modal = document.getElementById('modalGoogleDrive');
+      if (modal) modal.classList.remove('hidden');
+    });
+
+    // Navigation latérale GoodNotes + Drop targets (Documents = racine, Corbeille = supprimer)
+    document.querySelectorAll('#gnFilesSidebarNav [data-files-tab]').forEach((btn) => {
+      const tabKey = btn.dataset.filesTab;
+      btn.addEventListener('click', () => {
+        closeGnFilesMenus();
+        state.filesPageTab = tabKey || 'all';
+        if (tabKey === 'all') state.currentFolderId = null;
+        state.filesPageSelectMode = false;
+        state.filesPageSelectedIds.clear();
+        renderGnFilesPage();
+      });
+      if (tabKey === 'all' || tabKey === 'trash') {
+        btn.addEventListener('dragover', (ev) => {
+          if (!draggedFilesItem) return;
+          ev.preventDefault();
+          btn.classList.add('drag-over');
+        });
+        btn.addEventListener('dragleave', () => btn.classList.remove('drag-over'));
+        btn.addEventListener('drop', async (ev) => {
+          ev.preventDefault();
+          btn.classList.remove('drag-over');
+          if (!draggedFilesItem) return;
+          const item = draggedFilesItem;
+          draggedFilesItem = null;
+          if (tabKey === 'all') {
+            if (item.type === 'nb') moveNotebookToFolder(item.id, null);
+            else if (item.type === 'fld') moveFolderToParent(item.id, null);
+          } else if (tabKey === 'trash') {
+            if (item.type === 'nb') await moveNotebookToTrash(item.id);
+            else if (item.type === 'fld') await moveFolderToTrash(item.id);
+          }
+        });
+      }
+    });
+
+    // Bouton Retour dossier parent
+    document.getElementById('btnGnFilesBack')?.addEventListener('click', () => {
+      if (!state.currentFolderId) return;
+      const cur = (state.folders || []).find((f) => f.id === state.currentFolderId);
+      state.currentFolderId = cur ? (cur.parentId || null) : null;
+      renderNotebooksSidebar();
+    });
+
+    // Recherche instantanée
+    const searchInput = document.getElementById('gnFilesSearchInput');
+    const searchClear = document.getElementById('btnGnFilesSearchClear');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        state.sidebarSearch = searchInput.value || '';
+        renderNotebooksSidebar();
+      });
+    }
+    if (searchClear) {
+      searchClear.addEventListener('click', () => {
+        state.sidebarSearch = '';
+        if (searchInput) searchInput.value = '';
+        renderNotebooksSidebar();
+      });
+    }
+
+    // Tri
+    const sortSel = document.getElementById('gnFilesSortSelect');
+    if (sortSel) {
+      sortSel.addEventListener('change', () => {
+        state.notebookSortBy = sortSel.value || 'date_desc';
+        state.sidebarSort = (state.notebookSortBy === 'name_asc' || state.notebookSortBy === 'name_desc') ? 'name' : 'date';
+        syncSortControlsUi();
+        renderNotebooksSidebar();
+      });
+    }
+
+    // Mode Grille / Liste
+    document.getElementById('btnGnFilesViewGrid')?.addEventListener('click', () => {
+      state.filesPageViewMode = 'grid';
+      renderGnFilesPage();
+    });
+    document.getElementById('btnGnFilesViewList')?.addEventListener('click', () => {
+      state.filesPageViewMode = 'list';
+      renderGnFilesPage();
+    });
+
+    // Bouton "+ Nouveau" dans l'en-tête
+    const topNewBtn = document.getElementById('btnGnFilesTopNew');
+    if (topNewBtn) {
+      topNewBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openGnFilesNewMenu(topNewBtn);
+      });
+    }
+
+    // Actions du popover "+ Nouveau"
+    document.querySelectorAll('#gnFilesNewMenu [data-new-action]').forEach((btn) => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const act = btn.dataset.newAction;
+        closeGnFilesMenus();
+        if (act === 'notebook') {
+          if (dom.inputNotebookName) dom.inputNotebookName.value = '';
+          if (dom.modalNewNotebook) dom.modalNewNotebook.classList.remove('hidden');
+        } else if (act === 'folder') {
+          openFolderCustomizeModal(null);
+        } else if (act === 'quicknote') {
+          const curPage = getActivePage();
+          await createNotebookProgrammatically(
+            `Note rapide ${state.notebooks.length + 1}`,
+            curPage ? curPage.paperType : 'grid',
+            state.newNotebookCover,
+            curPage
+          );
+          closeFilesPage();
+          showToast('⚡ Note rapide créée');
+        } else if (act === 'import-pdf') {
+          if (dom.modalImportPdf) dom.modalImportPdf.classList.remove('hidden');
+        }
+      });
+    });
+
+    // Filtres Favoris (Tous / Cahiers / Dossiers)
+    document.querySelectorAll('#gnFilesFavFilterBar [data-fav-filter]').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        state.filesPageFavFilter = pill.dataset.favFilter || 'any';
+        renderGnFilesPage();
+      });
+    });
+
+    // Mode sélection multiple GoodNotes
+    document.getElementById('btnGnFilesSelectMode')?.addEventListener('click', () => {
+      state.filesPageSelectMode = !state.filesPageSelectMode;
+      if (!state.filesPageSelectMode) state.filesPageSelectedIds.clear();
+      renderGnFilesPage();
+    });
+    document.getElementById('btnGnFilesSelDone')?.addEventListener('click', () => {
+      state.filesPageSelectMode = false;
+      state.filesPageSelectedIds.clear();
+      renderGnFilesPage();
+    });
+    document.getElementById('btnGnFilesSelAll')?.addEventListener('click', () => {
+      const { folders, notebooks } = getGnFilesVisibleData();
+      const allKeys = [...folders.map((f) => `fld:${f.id}`), ...notebooks.map((n) => `nb:${n.id}`)];
+      if (state.filesPageSelectedIds.size === allKeys.length && allKeys.length > 0) {
+        state.filesPageSelectedIds.clear();
+      } else {
+        allKeys.forEach((k) => state.filesPageSelectedIds.add(k));
+      }
+      renderGnFilesPage();
+    });
+
+    const getSelectedParsed = () => Array.from(state.filesPageSelectedIds).map((k) => {
+      const idx = k.indexOf(':');
+      return { type: k.slice(0, idx), id: k.slice(idx + 1) };
+    });
+
+    document.getElementById('btnGnFilesSelMove')?.addEventListener('click', async () => {
+      const items = getSelectedParsed();
+      if (items.length === 0) return;
+      if (state.filesPageTab === 'trash') {
+        for (const it of items) {
+          if (it.type === 'nb') await restoreNotebookFromTrash(it.id);
+          else if (it.type === 'fld') await restoreFolderFromTrash(it.id);
+        }
+        state.filesPageSelectMode = false;
+        state.filesPageSelectedIds.clear();
+        renderGnFilesPage();
+        return;
+      }
+      openMoveNotebookModal(items);
+    });
+
+    document.getElementById('btnGnFilesSelStar')?.addEventListener('click', () => {
+      const items = getSelectedParsed();
+      if (items.length === 0) return;
+      let foldersDirty = false;
+      items.forEach((it) => {
+        if (it.type === 'nb') {
+          const nb = state.notebooks.find((n) => n.id === it.id);
+          if (nb) { nb.starred = !nb.starred; nb.updatedAt = Date.now(); db.saveNotebook(nb); }
+        } else if (it.type === 'fld') {
+          const fld = (state.folders || []).find((f) => f.id === it.id);
+          if (fld) { fld.starred = !fld.starred; fld.updatedAt = Date.now(); foldersDirty = true; }
+        }
+      });
+      if (foldersDirty) db.saveFolders(state.folders);
+      renderNotebooksSidebar();
+    });
+
+    document.getElementById('btnGnFilesSelDuplicate')?.addEventListener('click', async () => {
+      const items = getSelectedParsed().filter((it) => it.type === 'nb');
+      if (items.length === 0) return;
+      for (const it of items) await duplicateNotebookById(it.id);
+      state.filesPageSelectMode = false;
+      state.filesPageSelectedIds.clear();
+      renderGnFilesPage();
+    });
+
+    document.getElementById('btnGnFilesSelTrash')?.addEventListener('click', async () => {
+      const items = getSelectedParsed();
+      if (items.length === 0) return;
+      const inTrash = state.filesPageTab === 'trash';
+      for (const it of items) {
+        if (inTrash) {
+          if (it.type === 'nb') await deleteNotebookById(it.id);
+          else if (it.type === 'fld') await deleteFolderPermanently(it.id);
+        } else {
+          if (it.type === 'nb') await moveNotebookToTrash(it.id);
+          else if (it.type === 'fld') await moveFolderToTrash(it.id);
+        }
+      }
+      state.filesPageSelectMode = false;
+      state.filesPageSelectedIds.clear();
+      renderGnFilesPage();
+    });
+
+    // Actions Corbeille globale
+    document.getElementById('btnGnFilesRestoreAll')?.addEventListener('click', async () => {
+      const trashedNbs = state.notebooks.filter((n) => Boolean(n.trashedAt));
+      const trashedFlds = (state.folders || []).filter((f) => Boolean(f.trashedAt));
+      for (const fld of trashedFlds) await restoreFolderFromTrash(fld.id);
+      for (const nb of trashedNbs) await restoreNotebookFromTrash(nb.id);
+      renderGnFilesPage();
+    });
+    document.getElementById('btnGnFilesEmptyTrash')?.addEventListener('click', async () => {
+      await emptyTrash();
+      renderGnFilesPage();
+    });
+
+    // Fermer les popovers au clic en dehors
+    const pageEl = document.getElementById('gnFilesPage');
+    if (pageEl) {
+      pageEl.addEventListener('click', (ev) => {
+        if (!ev.target.closest('#gnFilesNewMenu') && !ev.target.closest('#gnFilesContextMenu')) {
+          closeGnFilesMenus();
+        }
+      });
+    }
+  }
+
   let gdriveAutoBackupInterval = null;
   function initGoodnotesExtensions() {
+    initGnFilesPageEvents();
     // 1. Dossiers, Recherche, Tri, Vue Grille/Liste, Corbeille & Favoris Goodnotes
     const btnNewFolder = document.getElementById('btnNewFolder');
     if (btnNewFolder) {
@@ -11465,7 +12650,8 @@
         await createNotebookProgrammatically(
           `Note rapide ${state.notebooks.length + 1}`,
           curPage ? curPage.paperType : 'grid',
-          state.newNotebookCover
+          state.newNotebookCover,
+          curPage
         );
         showToast('⚡ Note rapide créée');
       });
@@ -11564,19 +12750,46 @@
       });
     }
 
-    // Modal déplacer cahier
+    // Modal déplacer cahier / dossier / sélection multiple
     const moveModal = document.getElementById('modalMoveNotebook');
-    const closeMove = () => { if (moveModal) moveModal.classList.add('hidden'); state.movingNotebookId = null; };
+    const closeMove = () => { if (moveModal) moveModal.classList.add('hidden'); state.movingNotebookId = null; state.movingItems = null; };
     document.getElementById('btnCloseMoveNotebookModal')?.addEventListener('click', closeMove);
     document.getElementById('btnCancelMoveNotebookModal')?.addEventListener('click', closeMove);
     document.getElementById('btnConfirmMoveNotebookModal')?.addEventListener('click', () => {
-      const nb = state.notebooks.find((n) => n.id === state.movingNotebookId);
       const sel = document.getElementById('selectTargetFolder');
-      if (nb && sel) {
-        nb.folderId = sel.value || null;
-        db.saveNotebook(nb);
+      const targetFolderId = (sel && sel.value) || null;
+      const items = Array.isArray(state.movingItems) && state.movingItems.length
+        ? state.movingItems
+        : (state.movingNotebookId ? [{ type: 'nb', id: state.movingNotebookId }] : []);
+      let movedCount = 0;
+      let foldersDirty = false;
+      items.forEach((item) => {
+        if (item.type === 'nb') {
+          const nb = state.notebooks.find((n) => n.id === item.id);
+          if (nb && (nb.folderId || null) !== targetFolderId) {
+            nb.folderId = targetFolderId;
+            nb.updatedAt = Date.now();
+            db.saveNotebook(nb);
+            movedCount++;
+          }
+        } else if (item.type === 'fld') {
+          const fld = (state.folders || []).find((f) => f.id === item.id);
+          if (fld && (fld.parentId || null) !== targetFolderId && (!targetFolderId || !isFolderDescendant(targetFolderId, fld.id))) {
+            fld.parentId = targetFolderId;
+            fld.updatedAt = Date.now();
+            foldersDirty = true;
+            movedCount++;
+          }
+        }
+      });
+      if (foldersDirty) db.saveFolders(state.folders);
+      if (movedCount > 0) {
+        if (state.filesPageSelectMode) {
+          state.filesPageSelectMode = false;
+          state.filesPageSelectedIds.clear();
+        }
         renderNotebooksSidebar();
-        showToast('Cahier déplacé !');
+        showToast(movedCount > 1 ? `${movedCount} éléments déplacés !` : 'Élément déplacé !');
       }
       closeMove();
     });
@@ -11781,7 +12994,7 @@
       state.pagesByNotebook.clear();
       for (const nb of state.notebooks) {
         const pages = await db.getPagesForNotebook(nb.id);
-        pages.forEach((p) => { p.viewMode = 'infinite'; });
+        pages.forEach((p) => { if (!p.viewMode) p.viewMode = 'infinite'; });
         state.pagesByNotebook.set(nb.id, pages.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
       }
       state.activeNotebookId = state.notebooks[0].id;
@@ -11853,6 +13066,13 @@
       setFullscreenMode,
       toggleFullscreenMode,
       syncFullscreenState,
+      openFilesPage,
+      closeFilesPage,
+      toggleFilesPage,
+      duplicateNotebookById,
+      moveFolderToParent,
+      moveFolderToTrash,
+      restoreFolderFromTrash,
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,

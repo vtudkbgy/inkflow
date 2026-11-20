@@ -314,6 +314,15 @@
               <span class="gn-sr-label">Export</span>
             </button>
 
+            <button class="tool-btn gn-icon-only gn-files-trigger-btn" id="btnOpenFilesView" title="Mes fichiers — Bibliothèque GoodNotes (Ctrl+Shift+L)" aria-label="Ouvrir la page des fichiers">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4.2l2 2.4h6.8A2.5 2.5 0 0 1 21 9.9v7.6a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-10z" fill="currentColor" fill-opacity="0.16"></path>
+                <line x1="7.5" y1="13" x2="16.5" y2="13" stroke-opacity="0.72"></line>
+                <line x1="7.5" y1="16" x2="13" y2="16" stroke-opacity="0.72"></line>
+              </svg>
+              <span class="gn-sr-label">Fichiers</span>
+            </button>
+
             <button class="tool-btn gn-icon-only" id="btnThemeToggle" title="Basculer le thème Clair / Sombre">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M20.4 13.4A8.4 8.4 0 1 1 10.6 3.6a6.6 6.6 0 0 0 9.8 9.8z" fill="currentColor" fill-opacity="0.16"></path>
@@ -1037,6 +1046,7 @@
         <canvas id="activeInkCanvas" aria-hidden="true"></canvas>
         <div class="world-objects-layer" id="worldObjectsLayer"></div>
         <div class="custom-cursor" id="eraserCursor"></div>
+        <div class="color-dot-cursor" id="colorDotCursor" aria-hidden="true"></div>
 
         <!-- Mini barre flottante de sélection lasso (apparaît brièvement quand des éléments sont entourés) -->
         <div class="lasso-floating-actions hidden" id="lassoFloatingActions">
@@ -1182,6 +1192,237 @@
         <button class="btn-primary" id="btnReplaceWithLatex">∑ Convertir en Bloc LaTeX sur la page</button>
       </div>
     </div>
+  </div>
+
+  <!-- ==================== PAGE PLEIN ÉCRAN : GESTIONNAIRE DE FICHIERS GOODNOTES 6 ==================== -->
+  <div class="gn-files-page hidden" id="gnFilesPage" role="dialog" aria-label="Bibliothèque de fichiers GoodNotes" aria-modal="true">
+    <!-- Barre latérale gauche GoodNotes (Documents, Récents, Favoris, Corbeille) -->
+    <aside class="gn-files-sidebar" aria-label="Navigation des fichiers">
+      <div class="gn-files-brand">
+        <img class="gn-files-brand-logo" src="./assets/inkflow-logo.png" alt="InkFlow" width="32" height="32" />
+        <div class="gn-files-brand-text">
+          <span class="gn-files-brand-name">InkFlow</span>
+          <span class="gn-files-brand-sub">Bibliothèque</span>
+        </div>
+      </div>
+
+      <nav class="gn-files-nav" id="gnFilesSidebarNav">
+        <button class="gn-files-nav-item active" type="button" data-files-tab="all" id="gnFilesTabDocuments">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4.2l2 2.4h6.8A2.5 2.5 0 0 1 21 9.9v7.6a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-10z"></path>
+          </svg>
+          <span>Documents</span>
+          <span class="gn-files-nav-badge" id="gnFilesBadgeDocs">0</span>
+        </button>
+
+        <button class="gn-files-nav-item" type="button" data-files-tab="recents" id="gnFilesTabRecents">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <polyline points="12 7 12 12 15.5 14"></polyline>
+          </svg>
+          <span>Récents</span>
+        </button>
+
+        <button class="gn-files-nav-item" type="button" data-files-tab="favorites" id="gnFilesTabFavorites">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="12 2.8 14.9 8.7 21.4 9.6 16.7 14.2 17.8 20.7 12 17.6 6.2 20.7 7.3 14.2 2.6 9.6 9.1 8.7 12 2.8"></polygon>
+          </svg>
+          <span>Favoris</span>
+          <span class="gn-files-nav-badge" id="gnFilesBadgeFav">0</span>
+        </button>
+
+        <div class="gn-files-nav-divider"></div>
+
+        <button class="gn-files-nav-item" type="button" data-files-tab="trash" id="gnFilesTabTrash">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+            <path d="M10 11v6M14 11v6"></path>
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+          </svg>
+          <span>Corbeille</span>
+          <span class="gn-files-nav-badge" id="gnFilesBadgeTrash">0</span>
+        </button>
+      </nav>
+
+      <div class="gn-files-sidebar-footer">
+        <button class="gn-files-return-card" type="button" id="btnFilesReturnToCanvas" title="Revenir au cahier actuellement ouvert">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+          <div class="gn-files-return-meta">
+            <span class="gn-files-return-label">Retour à la note</span>
+            <span class="gn-files-return-name" id="gnFilesActiveNbName">Cahier actif</span>
+          </div>
+        </button>
+
+        <button class="gn-files-cloud-btn" type="button" id="btnFilesCloudBackup" title="Sauvegarde &amp; synchronisation Google Drive">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+          </svg>
+          <span>Sauvegarde Cloud</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Zone principale GoodNotes (Fil d'Ariane, Recherche, Tri, Grille/Liste, Multi-sélection) -->
+    <section class="gn-files-main">
+      <header class="gn-files-header">
+        <div class="gn-files-header-left">
+          <button class="gn-files-icon-btn hidden" type="button" id="btnGnFilesBack" title="Dossier parent" aria-label="Retour au dossier parent">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+          <div class="gn-files-breadcrumbs" id="gnFilesBreadcrumbs" aria-label="Fil d'Ariane"></div>
+        </div>
+
+        <div class="gn-files-header-right">
+          <div class="gn-files-search-wrap">
+            <svg class="gn-files-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7.5"></circle>
+              <line x1="20" y1="20" x2="16.4" y2="16.4"></line>
+            </svg>
+            <input type="search" id="gnFilesSearchInput" class="gn-files-search-input" placeholder="Rechercher..." autocomplete="off" />
+            <button class="gn-files-search-clear hidden" type="button" id="btnGnFilesSearchClear" aria-label="Effacer la recherche">✕</button>
+          </div>
+
+          <button class="gn-files-new-pill" type="button" id="btnGnFilesTopNew" title="Créer un cahier, un dossier, une note rapide ou importer un PDF">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Nouveau</span>
+          </button>
+
+          <select id="gnFilesSortSelect" class="gn-files-sort-select" title="Trier les fichiers">
+            <option value="date_desc">Date (récent)</option>
+            <option value="name_asc">Nom (A → Z)</option>
+            <option value="name_desc">Nom (Z → A)</option>
+            <option value="type">Type</option>
+          </select>
+
+          <div class="gn-files-view-toggle" role="group" aria-label="Mode d'affichage">
+            <button class="gn-files-view-btn active" type="button" id="btnGnFilesViewGrid" title="Vue Grille">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+                <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+                <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+                <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+              </svg>
+            </button>
+            <button class="gn-files-view-btn" type="button" id="btnGnFilesViewList" title="Vue Liste">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <line x1="8" y1="6" x2="21" y2="6"></line>
+                <line x1="8" y1="12" x2="21" y2="12"></line>
+                <line x1="8" y1="18" x2="21" y2="18"></line>
+                <circle cx="4" cy="6" r="1" fill="currentColor"></circle>
+                <circle cx="4" cy="12" r="1" fill="currentColor"></circle>
+                <circle cx="4" cy="18" r="1" fill="currentColor"></circle>
+              </svg>
+            </button>
+          </div>
+
+          <button class="gn-files-icon-btn" type="button" id="btnGnFilesSelectMode" title="Sélectionner plusieurs éléments" aria-label="Mode sélection multiple" aria-pressed="false">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"></circle>
+              <polyline points="8.5 12.2 11 14.7 15.8 9.5"></polyline>
+            </svg>
+          </button>
+
+          <button class="gn-files-icon-btn gn-files-close-btn" type="button" id="btnCloseFilesPage" title="Fermer et revenir à la note (Échap)" aria-label="Fermer la bibliothèque">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Barre de filtres Favoris (Tous / Cahiers / Dossiers — GoodNotes FAVORITES_FILTER_BY) -->
+      <div class="gn-files-subbar hidden" id="gnFilesFavFilterBar">
+        <div class="gn-files-filter-pills">
+          <button class="gn-files-filter-pill active" type="button" data-fav-filter="any">Tous</button>
+          <button class="gn-files-filter-pill" type="button" data-fav-filter="document">Cahiers</button>
+          <button class="gn-files-filter-pill" type="button" data-fav-filter="folder">Dossiers</button>
+        </div>
+      </div>
+
+      <!-- Barre de sélection multiple (GoodNotes multipleLibraryItemsSelection) -->
+      <div class="gn-files-subbar gn-files-selection-bar hidden" id="gnFilesSelectionBar">
+        <span class="gn-files-sel-count" id="gnFilesSelCount">0 sélectionné</span>
+        <div class="gn-files-sel-actions">
+          <button class="gn-files-action-pill" type="button" id="btnGnFilesSelAll">Tout sélectionner</button>
+          <button class="gn-files-action-pill" type="button" id="btnGnFilesSelMove">Déplacer</button>
+          <button class="gn-files-action-pill" type="button" id="btnGnFilesSelStar">★ Favori</button>
+          <button class="gn-files-action-pill" type="button" id="btnGnFilesSelDuplicate">Dupliquer</button>
+          <button class="gn-files-action-pill danger" type="button" id="btnGnFilesSelTrash">Corbeille</button>
+          <button class="gn-files-action-pill primary" type="button" id="btnGnFilesSelDone">Terminer</button>
+        </div>
+      </div>
+
+      <!-- Bannière Corbeille GoodNotes -->
+      <div class="gn-files-subbar gn-files-trash-bar hidden" id="gnFilesTrashBar">
+        <span id="gnFilesTrashSummary">Les éléments supprimés peuvent être restaurés à tout moment.</span>
+        <div class="gn-files-sel-actions">
+          <button class="gn-files-action-pill" type="button" id="btnGnFilesRestoreAll">Tout restaurer</button>
+          <button class="gn-files-action-pill danger" type="button" id="btnGnFilesEmptyTrash">Vider la corbeille</button>
+        </div>
+      </div>
+
+      <!-- Grille / Liste principale des dossiers & cahiers -->
+      <div class="gn-files-scroll" id="gnFilesScroll">
+        <div class="gn-files-content" id="gnFilesContent"></div>
+      </div>
+    </section>
+
+    <!-- Popover "+ Nouveau" style GoodNotes (Cahier, Dossier, Note rapide, Importer PDF) -->
+    <div class="gn-files-popover hidden" id="gnFilesNewMenu" role="menu" aria-label="Créer un nouvel élément">
+      <button class="gn-files-menu-item" type="button" data-new-action="notebook">
+        <span class="gn-files-menu-icon blue">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+        </span>
+        <span class="gn-files-menu-text">
+          <strong>Cahier</strong>
+          <small>Choisir couverture et papier</small>
+        </span>
+      </button>
+
+      <button class="gn-files-menu-item" type="button" data-new-action="folder">
+        <span class="gn-files-menu-icon amber">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        </span>
+        <span class="gn-files-menu-text">
+          <strong>Dossier</strong>
+          <small>Couleur &amp; symbole GoodNotes</small>
+        </span>
+      </button>
+
+      <button class="gn-files-menu-item" type="button" data-new-action="quicknote">
+        <span class="gn-files-menu-icon emerald">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        </span>
+        <span class="gn-files-menu-text">
+          <strong>Note rapide</strong>
+          <small>Ouvrir une nouvelle feuille instantanément</small>
+        </span>
+      </button>
+
+      <div class="gn-files-menu-sep"></div>
+
+      <button class="gn-files-menu-item" type="button" data-new-action="import-pdf">
+        <span class="gn-files-menu-icon violet">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><polyline points="9 15 12 12 15 15"></polyline></svg>
+        </span>
+        <span class="gn-files-menu-text">
+          <strong>Importer un PDF</strong>
+          <small>Annoter un document local hors-ligne</small>
+        </span>
+      </button>
+    </div>
+
+    <!-- Menu contextuel dynamique pour un dossier ou un cahier -->
+    <div class="gn-files-popover hidden" id="gnFilesContextMenu" role="menu" aria-label="Actions sur l'élément"></div>
   </div>
 
   <!-- MODAL : NOUVEAU CAHIER -->

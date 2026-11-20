@@ -412,7 +412,22 @@ async function runVerification() {
     throw new Error('La sortie du mode plein écran natif Tauri v2 a échoué');
   }
 
-  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran natif (Tauri v2 IPC) vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+  // Vérification de la page plein écran de gestion de fichiers GoodNotes (#gnFilesPage)
+  const openedFiles = api.openFilesPage('all');
+  const filesPageEl = elementsById.get('gnFilesPage');
+  if (!openedFiles || !state.filesPageOpen || filesPageEl.classList.contains('hidden')) {
+    throw new Error('L\'ouverture de la page plein écran des fichiers GoodNotes a échoué');
+  }
+  const dupNb = await api.duplicateNotebookById(activeNb.id);
+  if (!dupNb || dupNb.id === activeNb.id || !dupNb.title.includes('(copie)')) {
+    throw new Error('La duplication d\'un cahier depuis la page fichiers a échoué');
+  }
+  api.closeFilesPage();
+  if (state.filesPageOpen || !filesPageEl.classList.contains('hidden')) {
+    throw new Error('La fermeture de la page plein écran des fichiers GoodNotes a échoué');
+  }
+
+  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran + Gestionnaire GoodNotes vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {

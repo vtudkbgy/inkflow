@@ -506,6 +506,25 @@ async function runTests() {
     const rotated = await api.rotatePageById(gnP1.id, 90);
     assert.equal(rotated.rotation, 90, 'rotatePageById doit pivoter la page de 90°');
 
+    // Vérification héritage complet des paramètres de la page précédente lors de la création d'une nouvelle page
+    gnP1.paperType = 'seyes';
+    gnP1.paperTone = 'dark';
+    gnP1.gridSize = 40;
+    gnP1.viewMode = 'page';
+    gnP1.bookmarked = true;
+    api.selectPage(gnP1.id);
+    const gnP3Inherited = await api.addNewPageToActiveNotebook();
+    assert.equal(gnP3Inherited.paperType, 'seyes', 'La nouvelle page doit hériter de paperType');
+    assert.equal(gnP3Inherited.paperTone, 'dark', 'La nouvelle page doit hériter de paperTone');
+    assert.equal(gnP3Inherited.gridSize, 40, 'La nouvelle page doit hériter de gridSize');
+    assert.equal(gnP3Inherited.viewMode, 'page', 'La nouvelle page doit hériter de viewMode (A4/Infinie)');
+    assert.equal(gnP3Inherited.rotation, 90, 'La nouvelle page doit hériter de la rotation (90°)');
+    assert.equal(gnP3Inherited.pdfWidth, gnP1.pdfWidth, 'La nouvelle page doit hériter de la largeur orientée');
+    assert.equal(gnP3Inherited.pdfHeight, gnP1.pdfHeight, 'La nouvelle page doit hériter de la hauteur orientée');
+    assert.equal(gnP3Inherited.bookmarked, false, 'La nouvelle page ne doit pas copier le signet');
+    assert.equal((gnP3Inherited.strokes || []).length, 0, 'La nouvelle page doit être vierge de traits');
+    await api.deletePageById(gnP3Inherited.id);
+
     // Réorganisation des pages (glisser-déposer page 0 -> index 1)
     const reordered = await api.reorderPagesInActiveNotebook(0, 1);
     assert.equal(reordered, true, 'reorderPagesInActiveNotebook(0, 1) doit réussir');
@@ -816,14 +835,26 @@ async function runTests() {
     // Surligneur Auto-Straighten : un trait quasi-rectiligne doit être redressé en 2 points alignés
     st.tool = 'highlighter';
     st.highlighterAutoStraighten = true;
-    api.handlePointerDown({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 1, clientX: 100, clientY: 200, pressure: 0.5, preventDefault() {} });
-    api.handlePointerMove({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 1, clientX: 180, clientY: 202, pressure: 0.5, getCoalescedEvents: () => [], preventDefault() {} });
-    api.handlePointerMove({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 1, clientX: 260, clientY: 201, pressure: 0.5, getCoalescedEvents: () => [], preventDefault() {} });
-    api.handlePointerUpOrCancel({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 0, clientX: 260, clientY: 201, pressure: 0, preventDefault() {} });
+    api.handlePointerDown({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 1, clientX: 100, clientY: 200, pressure: 0.5, timeStamp: 1000, preventDefault() {} });
+    api.handlePointerMove({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 1, clientX: 230, clientY: 202, pressure: 0.5, timeStamp: 1025, getCoalescedEvents: () => [], preventDefault() {} });
+    api.handlePointerMove({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 1, clientX: 360, clientY: 201, pressure: 0.5, timeStamp: 1050, getCoalescedEvents: () => [], preventDefault() {} });
+    api.handlePointerUpOrCancel({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 0, clientX: 360, clientY: 201, pressure: 0, timeStamp: 1070, preventDefault() {} });
     const autoStraightHl = pg.strokes[pg.strokes.length - 1];
     assert.equal(autoStraightHl.tool, 'highlighter', 'Le dernier trait doit être un surligneur');
     assert.equal(autoStraightHl.points.length, 2, 'Le surligneur quasi-rectiligne doit être redressé en un segment parfait de 2 points');
     assert.equal(autoStraightHl.points[0].y, autoStraightHl.points[1].y, 'Le surligneur quasi-horizontal (< 4°) doit être aligné horizontalement');
+
+    // Curseur point coloré minimaliste (#colorDotCursor) synchronisé sur la couleur de l'outil actif
+    const colorDotEl = sandbox.document.getElementById('colorDotCursor');
+    assert.ok(colorDotEl, 'L’élément #colorDotCursor doit exister dans le DOM');
+    st.tool = 'pen';
+    st.penColor = '#2563eb';
+    api.handlePointerMove({ pointerId: 915, pointerType: 'pen', button: 0, buttons: 0, clientX: 140, clientY: 160, pressure: 0, getCoalescedEvents: () => [], preventDefault() {} });
+    assert.equal(colorDotEl.style.display, 'block', 'Le point coloré doit s’afficher au survol du stylo');
+    assert.equal(colorDotEl.style.backgroundColor, '#2563eb', 'Le point coloré doit refléter la couleur sélectionnée du stylo');
+    st.tool = 'eraser';
+    api.handlePointerMove({ pointerId: 915, pointerType: 'pen', button: 0, buttons: 0, clientX: 145, clientY: 165, pressure: 0, getCoalescedEvents: () => [], preventDefault() {} });
+    assert.equal(colorDotEl.style.display, 'none', 'Le point coloré doit être masqué lorsque la gomme est active');
 
     // Gomme mode "segment" + "Surligneur seul" (eraserHighlighterOnly)
     st.eraserMode = 'segment';
