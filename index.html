@@ -383,7 +383,7 @@
             </div>
             <div class="dock-divider"></div>
             <span>Lissage</span>
-            <input type="range" class="range-slider" id="smoothingSlider" min="0" max="0.95" step="0.05" value="0.65" />
+            <input type="range" class="range-slider" id="smoothingSlider" min="0" max="1" step="0.05" value="0.65" />
             <span class="value-badge" id="smoothingValue">65%</span>
             <div class="dock-divider"></div>
             <div class="segmented-pills">
@@ -490,7 +490,7 @@
               </svg>
             </button>
 
-            <button class="gn-subtool-btn" id="gnSubToolShape" data-subtool="shape" title="Formes géométriques">
+            <button class="gn-subtool-btn" id="gnSubToolShape" data-subtool="instant-shape" title="Formes instantanées au stylo — Dessine un cercle, carré, flèche directement sans maintenir">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="4" y="4" width="8.5" height="8.5" rx="1.6"></rect>
                 <circle cx="8" cy="15.5" r="4.2"></circle>
@@ -714,6 +714,78 @@
               <path d="M 3 10.2 L 272 3.2 A 7.8 7.8 0 0 1 272 18.8 L 3 11.8 A 0.8 0.8 0 0 1 3 10.2 Z"></path>
             </svg>
             <input type="range" class="gn-wedge-range" id="gnStrokeSizeSlider" min="1" max="20" step="0.5" value="5" aria-label="Épaisseur du trait" />
+          </div>
+        </div>
+
+        <!-- SOUS-BARRE FLOTTANTE FORMES (STYLE GOODNOTES) -->
+        <div class="gn-shape-subbar hidden" id="gnShapeSubBar" role="toolbar" aria-label="Outils de formes GoodNotes">
+          <!-- Forme libre auto + Connecteurs coudé & courbe -->
+          <div class="gn-shapebar-group">
+            <button class="gn-shape-btn active" data-gn-shapetype="auto" title="Forme libre instantanée (cercle, carré, flèche sans maintenir)">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="8.5" y="4.5" width="10.5" height="10.5" rx="3"></rect>
+                <path d="M14.6 15.2a5.4 5.4 0 1 1-2.2-6.7"></path>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="elbowArrow" title="Connecteur coudé avec flèche">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="6" cy="6.5" r="2"></circle>
+                <path d="M6 8.5V12h11v6.5"></path>
+                <polyline points="14 15.8 17 18.8 20 15.8"></polyline>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="curvedArrow" title="Connecteur courbe avec flèche">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="6" cy="6.5" r="2"></circle>
+                <path d="M6 8.5c0 6.5 4.2 7 6 3s5.5-3.5 5.5 7"></path>
+                <polyline points="14.6 15.8 17.5 18.8 20.4 15.8"></polyline>
+              </svg>
+            </button>
+          </div>
+
+          <div class="gn-subbar-divider"></div>
+
+          <!-- 5 Formes géométriques prédéfinies -->
+          <div class="gn-shapebar-group">
+            <button class="gn-shape-btn" data-gn-shapetype="rect" title="Rectangle / Carré">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="4.5" width="16" height="15" rx="1.2" fill="currentColor" fill-opacity="0.14"></rect>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="ellipse" title="Cercle / Ellipse">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="8" fill="currentColor" fill-opacity="0.14"></circle>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="triangle" title="Triangle">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="12 4.5 20.2 19 3.8 19" fill="currentColor" fill-opacity="0.14"></polygon>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="diamond" title="Losange">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="12 3.8 20.2 12 12 20.2 3.8 12" fill="currentColor" fill-opacity="0.14"></polygon>
+              </svg>
+            </button>
+            <button class="gn-shape-btn" data-gn-shapetype="roundedRect" title="Rectangle arrondi">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="5.2" width="16" height="13.6" rx="5.6" fill="currentColor" fill-opacity="0.14"></rect>
+              </svg>
+            </button>
+          </div>
+
+          <div class="gn-subbar-divider"></div>
+
+          <!-- Épaisseur empilée (3 niveaux) + Pastille couleur active -->
+          <div class="gn-shapebar-group">
+            <button class="gn-shape-thick-btn" id="gnShapeThicknessBtn" title="Épaisseur du contour (cliquer pour changer : Fin / Moyen / Épais)">
+              <span class="gn-shape-bar gn-shape-bar-1 active"></span>
+              <span class="gn-shape-bar gn-shape-bar-2"></span>
+              <span class="gn-shape-bar gn-shape-bar-3"></span>
+            </button>
+            <button class="gn-color-circle active" id="gnShapeColorBtn" style="background:#111827" title="Couleur de la forme">
+              <svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
           </div>
         </div>
       </header>

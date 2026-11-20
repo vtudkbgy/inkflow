@@ -658,14 +658,17 @@
       st.tPrev = tSec;
       return val;
     }
-    const dt = Math.max(0.0001, tSec - st.tPrev);
-    st.tPrev = tSec;
+    const rawDt = tSec - st.tPrev;
+    // Les événements coalescés (Windows Ink / Chromium) partagent souvent le même timeStamp :
+    // éviter dt = 0.0001 qui fait exploser dx = Δx/dt à 30 000 px/s et désactive le filtre !
+    const dt = rawDt > 0.0005 ? Math.min(0.05, rawDt) : 0.004;
+    st.tPrev = rawDt > 0.0005 ? tSec : (st.tPrev + dt);
     const rD = 6.283185307179586 * (st.dCutoff || 1.0) * dt;
     const alphaD = rD / (rD + 1);
     const dx = (val - st.xPrev) / dt;
     const dxHat = dx * alphaD + st.dxPrev * (1 - alphaD);
     st.dxPrev = dxHat;
-    const fc = (st.minCutoff || 1.4) + (st.beta || 0.025) * Math.abs(dxHat);
+    const fc = (st.minCutoff || 1.4) + (st.beta || 0.002) * Math.abs(dxHat);
     const r = 6.283185307179586 * fc * dt;
     const alpha = r / (r + 1);
     const xHat = alpha * val + (1 - alpha) * st.xPrev;
@@ -674,26 +677,55 @@
   }
 
   function initLiveStabilizer(stroke, x, y, tMs) {
-    const s = Math.max(0, Math.min(0.95, stroke.smoothing ?? 0.65));
-    const minCutoff = Math.max(0.65, 5.4 - s * 4.6);
-    const beta = 0.010 + (1 - s) * 0.055;
+    const s = Math.max(0, Math.min(1.0, stroke.smoothing ?? 0.65));
+    // Paramètres One-Euro calibrés pour coordonnées pixels monde (0% = brut, 100% = ultra-fluide StreamLine)
+    const minCutoff = Math.max(0.42, 5.2 - s * 4.78);
+    const invS = 1 - s;
+    const beta = 0.00035 + invS * invS * 0.0078;
     const tSec = (typeof tMs === 'number' && Number.isFinite(tMs) ? tMs : performance.now()) * 0.001;
     stroke._liveStabilized = true;
     stroke._liveEuroX = { initialized: false, minCutoff, beta, dCutoff: 1.0, xPrev: x, dxPrev: 0, tPrev: tSec };
     stroke._liveEuroY = { initialized: false, minCutoff, beta, dCutoff: 1.0, xPrev: y, dxPrev: 0, tPrev: tSec };
+    stroke._stabLastRawX = x;
+    stroke._stabLastRawY = y;
+    stroke._stabPrevDirX = 0;
+    stroke._stabPrevDirY = 0;
     oneEuroFilterStep(x, tSec, stroke._liveEuroX);
     oneEuroFilterStep(y, tSec, stroke._liveEuroY);
   }
 
   function applyLiveStabilization(stroke, rawX, rawY, tMs) {
-    const s = Math.max(0, Math.min(0.95, stroke.smoothing ?? 0.65));
-    if (s <= 0.04 || !stroke._liveEuroX || !stroke._liveEuroY) {
+    const s = Math.max(0, Math.min(1.0, stroke.smoothing ?? 0.65));
+    if (s <= 0.02 || !stroke._liveEuroX || !stroke._liveEuroY) {
       return { x: rawX, y: rawY };
     }
     const tSec = (typeof tMs === 'number' && Number.isFinite(tMs) ? tMs : performance.now()) * 0.001;
+
+    // Préservation légère des angles vifs (sommets de lettres m, n, v, 7, z) sans casser la fluidité des courbes
+    const vx = rawX - (stroke._stabLastRawX ?? rawX);
+    const vy = rawY - (stroke._stabLastRawY ?? rawY);
+    const vLen = Math.hypot(vx, vy);
+    if (vLen > 2.2) {
+      const ux = vx / vLen;
+      const uy = vy / vLen;
+      const pLen = Math.hypot(stroke._stabPrevDirX || 0, stroke._stabPrevDirY || 0);
+      if (pLen > 0.5) {
+        const cosTheta = ux * stroke._stabPrevDirX + uy * stroke._stabPrevDirY;
+        if (cosTheta < -0.28) {
+          const cornerBoost = 0.24 * (1 - s * 0.45);
+          stroke._liveEuroX.xPrev += (rawX - stroke._liveEuroX.xPrev) * cornerBoost;
+          stroke._liveEuroY.xPrev += (rawY - stroke._liveEuroY.xPrev) * cornerBoost;
+        }
+      }
+      stroke._stabPrevDirX = ux;
+      stroke._stabPrevDirY = uy;
+      stroke._stabLastRawX = rawX;
+      stroke._stabLastRawY = rawY;
+    }
+
     const fx = oneEuroFilterStep(rawX, tSec, stroke._liveEuroX);
     const fy = oneEuroFilterStep(rawY, tSec, stroke._liveEuroY);
-    const blend = Math.min(0.92, s * 0.95);
+    const blend = Math.min(1.0, s / 0.20);
     return {
       x: rawX * (1 - blend) + fx * blend,
       y: rawY * (1 - blend) + fy * blend
@@ -736,7 +768,7 @@
     const isHl = stroke.tool === 'highlighter';
     const penStyle = stroke.penStyle || 'fountain';
     const size = Math.max(1, stroke.size || 5);
-    const smoothing = Math.max(0, Math.min(0.95, stroke.smoothing ?? 0.65));
+    const smoothing = Math.max(0, Math.min(1.0, stroke.smoothing ?? 0.65));
     const thinning = getStrokeThinning(stroke);
     const simulatePressure = Boolean(stroke.simulatePressure && stroke.pressureMode !== 'uniform' && !isHl);
 
@@ -1997,8 +2029,9 @@
     eraserAutoDeselect: false,
     lassoMode: 'freehand',
     lassoStartWorld: null,
-    shapeType: 'line',
+    shapeType: 'auto',
     shapeFilled: false,
+    instantShapeMode: false,
     autoShapeEnabled: true,
     scribbleToErase: true,
     scribbleEraseShapesAndHl: true,
@@ -2075,6 +2108,10 @@
   try {
     const savedAutoShape = localStorage.getItem('plume_auto_shape_enabled');
     if (savedAutoShape === 'false') state.autoShapeEnabled = false;
+    const savedSmoothing = parseFloat(localStorage.getItem('inkflow_smoothing_v1'));
+    if (Number.isFinite(savedSmoothing) && savedSmoothing >= 0 && savedSmoothing <= 1) {
+      state.smoothing = savedSmoothing;
+    }
   } catch (_) {}
 
   const TOOL_PREFS_STORAGE_KEY = 'inkflow_tool_prefs_v1';
@@ -3803,10 +3840,52 @@
     const dx = wx - cx, dy = wy - cy;
     const lx = dx * cosA - dy * sinA;
     const ly = dx * sinA + dy * cosA;
-    if (sh.type === 'rect') {
+    if (sh.type === 'rect' || sh.type === 'roundedRect') {
       if (Math.abs(lx) <= hw + thr && Math.abs(ly) <= hh + thr) {
         if (sh.filled) return true;
         return Math.abs(Math.abs(lx) - hw) <= thr || Math.abs(Math.abs(ly) - hh) <= thr;
+      }
+      return false;
+    }
+    if (sh.type === 'diamond') {
+      const verts = [
+        { x: cx, y: Math.min(sh.y1, sh.y2) },
+        { x: Math.max(sh.x1, sh.x2), y: cy },
+        { x: cx, y: Math.max(sh.y1, sh.y2) },
+        { x: Math.min(sh.x1, sh.x2), y: cy }
+      ];
+      for (let i = 0; i < verts.length; i++) {
+        if (pointToSegmentDist({ x: wx, y: wy }, verts[i], verts[(i + 1) % verts.length]) <= thr) return true;
+      }
+      return Boolean(sh.filled && pointInPolygon(wx, wy, verts));
+    }
+    if (sh.type === 'elbowArrow') {
+      const midY = (sh.y1 + sh.y2) * 0.5;
+      const p0 = { x: sh.x1, y: sh.y1 };
+      const p1 = { x: sh.x1, y: midY };
+      const p2 = { x: sh.x2, y: midY };
+      const p3 = { x: sh.x2, y: sh.y2 };
+      const pt = { x: wx, y: wy };
+      return pointToSegmentDist(pt, p0, p1) <= thr ||
+        pointToSegmentDist(pt, p1, p2) <= thr ||
+        pointToSegmentDist(pt, p2, p3) <= thr;
+    }
+    if (sh.type === 'curvedArrow') {
+      const dy = sh.y2 - sh.y1;
+      const cp1x = sh.x1, cp1y = sh.y1 + dy * 0.65;
+      const cp2x = sh.x2, cp2y = sh.y2 - dy * 0.65;
+      const pt = { x: wx, y: wy };
+      let prev = { x: sh.x1, y: sh.y1 };
+      const steps = 14;
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        const mt = 1 - t;
+        const cur = {
+          x: mt * mt * mt * sh.x1 + 3 * mt * mt * t * cp1x + 3 * mt * t * t * cp2x + t * t * t * sh.x2,
+          y: mt * mt * mt * sh.y1 + 3 * mt * mt * t * cp1y + 3 * mt * t * t * cp2y + t * t * t * sh.y2
+        };
+        if (pointToSegmentDist(pt, prev, cur) <= thr) return true;
+        prev = cur;
       }
       return false;
     }
@@ -3861,6 +3940,65 @@
       targetCtx.ellipse((x1 + x2) * 0.5, (y1 + y2) * 0.5, Math.max(1, Math.abs(x2 - x1) * 0.5), Math.max(1, Math.abs(y2 - y1) * 0.5), angle || 0, 0, Math.PI * 2);
       if (filled) targetCtx.fill();
       targetCtx.stroke();
+    } else if (type === 'elbowArrow') {
+      const midY = (y1 + y2) * 0.5;
+      const dotR = Math.max(3, (shape.size || 3) * 0.95);
+      targetCtx.beginPath();
+      targetCtx.arc(x1, y1, dotR, 0, Math.PI * 2);
+      targetCtx.stroke();
+      targetCtx.beginPath();
+      targetCtx.moveTo(x1, y1 + (y2 >= y1 ? dotR : -dotR));
+      targetCtx.lineTo(x1, midY);
+      targetCtx.lineTo(x2, midY);
+      targetCtx.lineTo(x2, y2);
+      targetCtx.stroke();
+      const ang = y2 >= midY ? Math.PI / 2 : -Math.PI / 2;
+      const headLen = Math.max(12, Math.min(26, (shape.size || 3) * 3.6));
+      targetCtx.beginPath();
+      targetCtx.moveTo(x2, y2);
+      targetCtx.lineTo(x2 - headLen * Math.cos(ang - Math.PI / 6), y2 - headLen * Math.sin(ang - Math.PI / 6));
+      targetCtx.moveTo(x2, y2);
+      targetCtx.lineTo(x2 - headLen * Math.cos(ang + Math.PI / 6), y2 - headLen * Math.sin(ang + Math.PI / 6));
+      targetCtx.stroke();
+    } else if (type === 'curvedArrow') {
+      const dx = x2 - x1, dy = y2 - y1;
+      const dotR = Math.max(3, (shape.size || 3) * 0.95);
+      const cp1x = x1, cp1y = y1 + dy * 0.65;
+      const cp2x = x2, cp2y = y2 - dy * 0.65;
+      targetCtx.beginPath();
+      targetCtx.arc(x1, y1, dotR, 0, Math.PI * 2);
+      targetCtx.stroke();
+      targetCtx.beginPath();
+      targetCtx.moveTo(x1, y1);
+      targetCtx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
+      targetCtx.stroke();
+      const tangX = x2 - cp2x || dx;
+      const tangY = y2 - cp2y || dy;
+      const ang = Math.atan2(tangY, tangX);
+      const headLen = Math.max(12, Math.min(26, (shape.size || 3) * 3.6));
+      targetCtx.beginPath();
+      targetCtx.moveTo(x2, y2);
+      targetCtx.lineTo(x2 - headLen * Math.cos(ang - Math.PI / 6), y2 - headLen * Math.sin(ang - Math.PI / 6));
+      targetCtx.moveTo(x2, y2);
+      targetCtx.lineTo(x2 - headLen * Math.cos(ang + Math.PI / 6), y2 - headLen * Math.sin(ang + Math.PI / 6));
+      targetCtx.stroke();
+    } else if (type === 'diamond') {
+      const cx = (x1 + x2) * 0.5, cy = (y1 + y2) * 0.5;
+      targetCtx.moveTo(cx, Math.min(y1, y2));
+      targetCtx.lineTo(Math.max(x1, x2), cy);
+      targetCtx.lineTo(cx, Math.max(y1, y2));
+      targetCtx.lineTo(Math.min(x1, x2), cy);
+      targetCtx.closePath();
+      if (filled) targetCtx.fill();
+      targetCtx.stroke();
+    } else if (type === 'roundedRect') {
+      const rx = Math.min(x1, x2), ry = Math.min(y1, y2);
+      const rw = Math.abs(x2 - x1), rh = Math.abs(y2 - y1);
+      const rad = Math.min(rw, rh) * 0.28;
+      if (targetCtx.roundRect) targetCtx.roundRect(rx, ry, rw, rh, rad);
+      else targetCtx.rect(rx, ry, rw, rh);
+      if (filled) targetCtx.fill();
+      targetCtx.stroke();
     } else if (type === 'triangle') {
       const verts = getShapeVertices(shape);
       if (verts && verts.length >= 3) {
@@ -3910,6 +4048,17 @@
     );
   }
 
+  function getStrokeLineDash(lineStyle, size) {
+    const sz = Math.max(1, size || 5);
+    if (lineStyle === 'dashed') {
+      return [Math.max(7, sz * 2.4), Math.max(6, sz * 2.0)];
+    }
+    if (lineStyle === 'dotted') {
+      return [0.01, Math.max(5, sz * 2.15)];
+    }
+    return [];
+  }
+
   function drawSingleStroke(targetCtx, stroke, isPaperDark = false, isSelected = false, viewBounds = null) {
     if (!stroke.points || stroke.points.length === 0) return;
 
@@ -3943,13 +4092,7 @@
     const { path2d, renderMode } = cached;
     const lineStyle = stroke.lineStyle || 'solid';
     const sz = Math.max(1, stroke.size || 5);
-    if (lineStyle === 'dashed') {
-      targetCtx.setLineDash([Math.max(6, sz * 2.4), Math.max(5, sz * 1.7)]);
-    } else if (lineStyle === 'dotted') {
-      targetCtx.setLineDash([Math.max(1, sz * 0.25), Math.max(4, sz * 1.85)]);
-    } else {
-      targetCtx.setLineDash([]);
-    }
+    targetCtx.setLineDash(getStrokeLineDash(lineStyle, sz));
     if (path2d) {
       if (renderMode === 'stroke') {
         targetCtx.strokeStyle = color;
@@ -4426,6 +4569,49 @@
     const size = Math.max(1, stroke.size || 5);
     const thinning = getStrokeThinning(stroke);
     const color = stroke.color || '#1e293b';
+    const lineStyle = stroke.lineStyle || 'solid';
+
+    // Pour Tirets / Pointillés : dessiner le chemin continu complet sur #activeInkCanvas en direct
+    // afin que les tirets et pointillés apparaissent instantanément PENDANT le tracé (sans reset de phase moveTo)
+    if (!isHl && lineStyle !== 'solid') {
+      dom.activeInkCanvas.style.opacity = '1';
+      dom.activeInkCanvas.style.mixBlendMode = 'normal';
+      activeCtx.save();
+      activeCtx.setTransform(1, 0, 0, 1, 0, 0);
+      activeCtx.clearRect(0, 0, dom.activeInkCanvas.width, dom.activeInkCanvas.height);
+      activeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      activeCtx.translate(state.panX, state.panY);
+      activeCtx.scale(state.zoom, state.zoom);
+      const activePageForDashClip = getActivePage();
+      if (isBoundedPage(activePageForDashClip)) {
+        const pb = getPageBounds(activePageForDashClip);
+        activeCtx.beginPath();
+        activeCtx.rect(0, 0, pb.width, pb.height);
+        activeCtx.clip();
+      }
+      activeCtx.globalAlpha = 1.0;
+      activeCtx.globalCompositeOperation = 'source-over';
+      activeCtx.fillStyle = color;
+      activeCtx.strokeStyle = color;
+      if (pts.length === 1) {
+        activeCtx.beginPath();
+        activeCtx.arc(pts[0].x, pts[0].y, Math.max(0.8, size * 0.5), 0, Math.PI * 2);
+        activeCtx.fill();
+      } else {
+        activeCtx.lineWidth = size;
+        activeCtx.lineCap = 'round';
+        activeCtx.lineJoin = 'round';
+        activeCtx.setLineDash(getStrokeLineDash(lineStyle, size));
+        const livePath = buildCenterlinePath2D(pts);
+        if (livePath) activeCtx.stroke(livePath);
+        activeCtx.setLineDash([]);
+      }
+      activeCtx.restore();
+      stroke._incrementalStarted = true;
+      stroke._renderedUpToIndex = pts.length;
+      activeCanvasDirty = true;
+      return;
+    }
 
     if (!stroke._incrementalStarted) {
       if (activeCanvasDirty) {
@@ -4468,19 +4654,12 @@
     }
 
     const segStart = Math.max(1, startIdx);
-    const lineStyle = stroke.lineStyle || 'solid';
     if (segStart < pts.length) {
-      if (isHl || stroke.pressureMode === 'uniform' || lineStyle !== 'solid') {
+      if (isHl || stroke.pressureMode === 'uniform') {
         activeCtx.lineWidth = size;
         activeCtx.lineCap = 'round';
         activeCtx.lineJoin = 'round';
-        if (lineStyle === 'dashed') {
-          activeCtx.setLineDash([Math.max(6, size * 2.4), Math.max(5, size * 1.7)]);
-        } else if (lineStyle === 'dotted') {
-          activeCtx.setLineDash([Math.max(1, size * 0.25), Math.max(4, size * 1.85)]);
-        } else {
-          activeCtx.setLineDash([]);
-        }
+        activeCtx.setLineDash([]);
         activeCtx.beginPath();
         for (let i = segStart; i < pts.length; i++) {
           const p0 = pts[Math.max(0, i - 2)];
@@ -4494,7 +4673,6 @@
           activeCtx.quadraticCurveTo(p1.x, p1.y, m1x, m1y);
         }
         activeCtx.stroke();
-        activeCtx.setLineDash([]);
       } else {
         const segPath = new Path2D();
         let prevRadius = stroke._lastIncrementalRadius;
@@ -5612,24 +5790,26 @@
     state.currentShape = null;
     const hadLassoSelection = hasAnyLassoSelection();
 
-    if (state.tool === 'pen' || state.tool === 'highlighter') {
+    if (state.tool === 'pen' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) {
       clearLassoSelection();
       pushHistorySnapshot();
       const isHl = state.tool === 'highlighter';
+      const isAutoShapeTool = state.tool === 'shape' && state.shapeType === 'auto';
       const downTime = e.timeStamp || performance.now();
       state.predictedPoints = [];
       state.currentStroke = {
         id: createUid('st'),
-        tool: state.tool,
-        penStyle: isHl ? 'highlighter' : state.penStyle,
-        lineStyle: isHl ? 'solid' : (state.penLineStyle || 'solid'),
-        color: isHl ? state.highlighterColor : state.penColor,
-        size: isHl ? state.highlighterSize : state.penSize,
+        tool: isAutoShapeTool ? 'pen' : state.tool,
+        penStyle: isHl ? 'highlighter' : (isAutoShapeTool ? 'ballpoint' : state.penStyle),
+        lineStyle: isHl ? 'solid' : (isAutoShapeTool ? 'solid' : (state.penLineStyle || 'solid')),
+        color: isAutoShapeTool ? (state.shapeColor || state.penColor) : (isHl ? state.highlighterColor : state.penColor),
+        size: isAutoShapeTool ? Math.max(2, state.shapeSize || state.penSize) : (isHl ? state.highlighterSize : state.penSize),
         smoothing: state.smoothing,
         tipSharpness: state.tipSharpness ?? 0.5,
         pressureSensitivity: state.pressureSensitivity ?? 0.5,
-        pressureMode: isHl ? 'uniform' : state.pressureMode,
+        pressureMode: (isHl || isAutoShapeTool) ? 'uniform' : state.pressureMode,
         simulatePressure: false,
+        _isInstantShapeStroke: isAutoShapeTool || (state.tool === 'pen' && Boolean(state.instantShapeMode)),
         points: [],
         _renderedUpToIndex: 0
       };
@@ -5804,7 +5984,7 @@
     if (!coalesced || coalesced.length === 0) coalesced = [e];
 
     const activePageForMove = getActivePage();
-    if (state.tool === 'pen' || state.tool === 'highlighter') {
+    if (state.tool === 'pen' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) {
       if (!state.currentStroke && !state.drawingPausedOutsidePage) return;
 
       // Si la forme a déjà été détectée au maintien, ajuste en douceur l'extrémité pour Ligne / Flèche sur le canvas actif uniquement
@@ -5858,6 +6038,11 @@
               const finishedStroke = state.currentStroke;
               delete finishedStroke._liveEuroX;
               delete finishedStroke._liveEuroY;
+              delete finishedStroke._lastRawPt;
+              delete finishedStroke._stabLastRawX;
+              delete finishedStroke._stabLastRawY;
+              delete finishedStroke._stabPrevDirX;
+              delete finishedStroke._stabPrevDirY;
               invalidateStrokeCache(finishedStroke);
               activePageForMove.strokes.push(finishedStroke);
               state.currentStroke = null;
@@ -5927,6 +6112,14 @@
         const stabPt = applyLiveStabilization(state.currentStroke, rawPt.x, rawPt.y, ptTime);
         const finalPt = bounded ? clampPointToPage(activePageForMove, stabPt) : stabPt;
         const effP = computeLiveEffectivePressure(state.currentStroke, p, ce.tiltX || 0, ce.tiltY || 0, prevPt ? prevPt.pressure : null);
+        state.currentStroke._lastRawPt = {
+          x: bounded ? clampPointToPage(activePageForMove, rawPt).x : rawPt.x,
+          y: bounded ? clampPointToPage(activePageForMove, rawPt).y : rawPt.y,
+          pressure: effP,
+          tiltX: ce.tiltX || 0,
+          tiltY: ce.tiltY || 0,
+          t: ptTime
+        };
         if (prevPt && Math.hypot(finalPt.x - prevPt.x, finalPt.y - prevPt.y) < minMoveDist) {
           prevPt.pressure = prevPt.pressure * 0.5 + effP * 0.5;
           continue;
@@ -6088,7 +6281,7 @@
     let mergedDirectlyIntoStatic = false;
     const page = getActivePage();
     if (page) {
-      if ((state.tool === 'pen' || state.tool === 'highlighter') && state.currentStroke) {
+      if ((state.tool === 'pen' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) && state.currentStroke) {
         if (state.currentStrokeSnappedFromAutoShape && state.currentShape) {
           const snapped = state.currentShape;
           delete snapped.detectedName;
@@ -6106,8 +6299,32 @@
           }
           const finishedStroke = state.currentStroke;
 
+          // Mode Forme instantanée (bouton Formes dans la barre stylo OU mode Forme libre auto) : convertit directement au relâchement sans maintenir
+          if (finishedStroke._isInstantShapeStroke && finishedStroke.points.length >= 4) {
+            const instantDetected = detectShapeFromStroke(
+              finishedStroke.points,
+              finishedStroke.color,
+              finishedStroke.size,
+              finishedStroke.tool === 'highlighter'
+            );
+            if (instantDetected) {
+              const detName = instantDetected.detectedName;
+              delete instantDetected.detectedName;
+              page.shapes.push(instantDetected);
+              state.currentStroke = null;
+              state.currentShape = null;
+              mergeCompletedItemIntoStaticCanvas(instantDetected, 'shape');
+              mergedDirectlyIntoStatic = true;
+              scheduleSaveActivePage(page);
+              if (detName) showToast(`✨ ${detName}`);
+              clearActiveCanvas();
+              requestRender();
+              return;
+            }
+          }
+
           // Geste GoodNotes : Griffonner pour effacer
-          if (finishedStroke.tool === 'pen' && detectAndApplyScribbleToErase(finishedStroke, page)) {
+          if (finishedStroke.tool === 'pen' && !finishedStroke._isInstantShapeStroke && detectAndApplyScribbleToErase(finishedStroke, page)) {
             state.currentStroke = null;
             mergedDirectlyIntoStatic = false;
             requestRender();
@@ -6146,8 +6363,33 @@
             }
           }
 
+          // Rattrapage doux de la pointe au relâchement lorsque la stabilisation est élevée (évite les fins de traits coupées court)
+          if (finishedStroke._liveStabilized && finishedStroke._lastRawPt && finishedStroke.points.length >= 2) {
+            const tail = finishedStroke.points[finishedStroke.points.length - 1];
+            const rawEnd = finishedStroke._lastRawPt;
+            const lagDist = Math.hypot(rawEnd.x - tail.x, rawEnd.y - tail.y);
+            if (lagDist > 1.5 && lagDist < 36) {
+              const pull = Math.min(22, lagDist * 0.68);
+              const ratio = pull / lagDist;
+              const midX = tail.x + (rawEnd.x - tail.x) * (ratio * 0.5);
+              const midY = tail.y + (rawEnd.y - tail.y) * (ratio * 0.5);
+              const endX = tail.x + (rawEnd.x - tail.x) * ratio;
+              const endY = tail.y + (rawEnd.y - tail.y) * ratio;
+              finishedStroke.points.push(
+                { x: midX, y: midY, pressure: (tail.pressure + rawEnd.pressure) * 0.5, tiltX: rawEnd.tiltX, tiltY: rawEnd.tiltY, t: rawEnd.t },
+                { x: endX, y: endY, pressure: rawEnd.pressure, tiltX: rawEnd.tiltX, tiltY: rawEnd.tiltY, t: rawEnd.t }
+              );
+            }
+          }
+
           delete finishedStroke._liveEuroX;
           delete finishedStroke._liveEuroY;
+          delete finishedStroke._lastRawPt;
+          delete finishedStroke._stabLastRawX;
+          delete finishedStroke._stabLastRawY;
+          delete finishedStroke._stabPrevDirX;
+          delete finishedStroke._stabPrevDirY;
+          delete finishedStroke._isInstantShapeStroke;
           invalidateStrokeCache(finishedStroke);
           page.strokes.push(finishedStroke);
           state.currentStroke = null;
@@ -8657,8 +8899,8 @@
       syncCanonicalToToolMemory(state.tool);
       state.tool = t;
       applyToolMemoryToCanonical(t);
-      // N'affiche pas automatiquement la barre d'options quand on change d'outil pour garder l'espace épuré
-      state.toolOptionsOpen = false;
+      // Ouvre directement la sous-barre flottante GoodNotes au clic utilisateur sur le bouton Formes (mais reste fermé par défaut au démarrage / autres outils)
+      state.toolOptionsOpen = Boolean(t === 'shape' && toggleOptionsIfSame);
     }
     if (state.tool === 'pen' || state.tool === 'highlighter') {
       state.previousWritingTool = state.tool;
@@ -8701,12 +8943,16 @@
     const isShape = state.tool === 'shape', isText = state.tool === 'text', isEraser = state.tool === 'eraser', isLasso = state.tool === 'lasso';
     const isTape = state.tool === 'tape', isLaser = state.tool === 'laser';
 
-    const isGnSubBarTool = state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'tape' || state.tool === 'shape';
-    const showGnSubBar = Boolean(state.toolOptionsOpen && isGnSubBarTool);
-    const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan' && !isGnSubBarTool);
+    const isGnPenBarTool = state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'tape';
+    const isGnShapeBarTool = state.tool === 'shape';
+    const showGnSubBar = Boolean(state.toolOptionsOpen && isGnPenBarTool);
+    const showGnShapeBar = Boolean(state.toolOptionsOpen && isGnShapeBarTool);
+    const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan' && !isGnPenBarTool && !isGnShapeBarTool);
     dom.toolOptionsDock.classList.toggle('hidden', !showDock);
     const gnSubBarEl = document.getElementById('gnPenSubBar');
     if (gnSubBarEl) gnSubBarEl.classList.toggle('hidden', !showGnSubBar);
+    const gnShapeBarEl = document.getElementById('gnShapeSubBar');
+    if (gnShapeBarEl) gnShapeBarEl.classList.toggle('hidden', !showGnShapeBar);
     if (!showGnSubBar) {
       state.gnPenPopoverOpen = false;
       state.gnStrokePopoverOpen = false;
@@ -8725,8 +8971,8 @@
     }
     if (typeof syncGnPenSubBarUi === 'function') syncGnPenSubBarUi();
     if (dom.btnToggleToolOptions) {
-      dom.btnToggleToolOptions.classList.toggle('open', showDock || showGnSubBar);
-      dom.btnToggleToolOptions.setAttribute('aria-expanded', String(showDock || showGnSubBar));
+      dom.btnToggleToolOptions.classList.toggle('open', showDock || showGnSubBar || showGnShapeBar);
+      dom.btnToggleToolOptions.setAttribute('aria-expanded', String(showDock || showGnSubBar || showGnShapeBar));
       dom.btnToggleToolOptions.disabled = state.tool === 'pan';
     }
 
@@ -8933,10 +9179,26 @@
       let isActive = false;
       if (st === 'pen') isActive = state.tool === 'pen' && !isBallpointQuick;
       else if (st === 'ballpoint') isActive = isBallpointQuick;
+      else if (st === 'instant-shape') isActive = Boolean(state.instantShapeMode);
       else isActive = state.tool === st;
       btn.classList.toggle('active', isActive);
       if (st === 'pen') btn.classList.toggle('popover-open', Boolean(state.gnPenPopoverOpen));
     });
+
+    // Synchronisation de la sous-barre Formes GoodNotes (#gnShapeSubBar)
+    const shapeBar = document.getElementById('gnShapeSubBar');
+    if (shapeBar) {
+      shapeBar.querySelectorAll('.gn-shape-btn[data-gn-shapetype]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.gnShapetype === state.shapeType);
+      });
+      const shSize = Number(state.shapeSize || 4);
+      const barIdx = shSize <= 3 ? 0 : (shSize <= 6 ? 1 : 2);
+      shapeBar.querySelectorAll('#gnShapeThicknessBtn .gn-shape-bar').forEach((bar, i) => {
+        bar.classList.toggle('active', i === barIdx);
+      });
+      const shColBtn = document.getElementById('gnShapeColorBtn');
+      if (shColBtn) shColBtn.style.background = state.shapeColor || '#111827';
+    }
 
     const toolKey = DEFAULT_TOOL_SIZE_SLOTS[state.tool] ? state.tool : 'pen';
     const slots = getActiveToolSizeSlots(toolKey);
@@ -9114,7 +9376,24 @@
             state.gnPenPopoverOpen = false;
             updateToolbarActiveState();
           }
-        } else if (st === 'highlighter' || st === 'tape' || st === 'shape') {
+        } else if (st === 'instant-shape') {
+          state.instantShapeMode = !state.instantShapeMode;
+          if (state.tool !== 'pen') {
+            syncCanonicalToToolMemory(state.tool);
+            state.tool = 'pen';
+            applyToolMemoryToCanonical('pen');
+          }
+          state.toolOptionsOpen = true;
+          state.gnPenPopoverOpen = false;
+          updateToolbarActiveState();
+          showToast(
+            state.instantShapeMode
+              ? 'Formes instantanées activées — dessinez une forme au stylo sans maintenir'
+              : 'Formes instantanées désactivées',
+            'info',
+            1800
+          );
+        } else if (st === 'highlighter' || st === 'tape') {
           syncCanonicalToToolMemory(state.tool);
           state.tool = st;
           applyToolMemoryToCanonical(st);
@@ -9249,7 +9528,8 @@
     const stabSlider = document.getElementById('gnStabilizationSlider');
     if (stabSlider) {
       stabSlider.addEventListener('input', (e) => {
-        state.smoothing = Math.max(0, Math.min(0.95, parseInt(e.target.value, 10) / 100));
+        state.smoothing = Math.max(0, Math.min(1.0, parseInt(e.target.value, 10) / 100));
+        try { localStorage.setItem('inkflow_smoothing_v1', String(state.smoothing)); } catch (_) {}
         if (dom.smoothingSlider) dom.smoothingSlider.value = String(state.smoothing);
         if (dom.smoothingValue) dom.smoothingValue.textContent = `${Math.round(state.smoothing * 100)}%`;
         syncGnPenSubBarUi();
@@ -9286,6 +9566,51 @@
     if (scribShSw) scribShSw.addEventListener('change', (e) => { state.scribbleEraseShapesAndHl = e.target.checked; });
     const lassoSw = document.getElementById('gnCircleLassoSwitch');
     if (lassoSw) lassoSw.addEventListener('change', (e) => { state.circleToLasso = e.target.checked; });
+
+    // Événements de la sous-barre flottante Formes GoodNotes (#gnShapeSubBar)
+    const shapeBar = document.getElementById('gnShapeSubBar');
+    if (shapeBar) {
+      shapeBar.querySelectorAll('.gn-shape-btn[data-gn-shapetype]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const stype = btn.dataset.gnShapetype;
+          if (!stype) return;
+          if (state.tool !== 'shape') {
+            syncCanonicalToToolMemory(state.tool);
+            state.tool = 'shape';
+            applyToolMemoryToCanonical('shape');
+          }
+          state.shapeType = stype;
+          state.toolOptionsOpen = true;
+          updateToolbarActiveState();
+        });
+      });
+
+      const shapeThickBtn = document.getElementById('gnShapeThicknessBtn');
+      if (shapeThickBtn) {
+        shapeThickBtn.addEventListener('click', () => {
+          const presets = [2.5, 4.5, 8.5];
+          const cur = Number(state.shapeSize || 4.5);
+          const curIdx = cur <= 3 ? 0 : (cur <= 6 ? 1 : 2);
+          const nextSize = presets[(curIdx + 1) % presets.length];
+          setToolSize('shape', nextSize);
+          if (dom.strokeSizeSlider && state.tool === 'shape') dom.strokeSizeSlider.value = String(nextSize);
+          if (dom.strokeSizeValue && state.tool === 'shape') dom.strokeSizeValue.textContent = `${nextSize.toFixed(1)}px`;
+          updateToolbarActiveState();
+        });
+      }
+
+      const shapeColorBtn = document.getElementById('gnShapeColorBtn');
+      if (shapeColorBtn && dom.customColorPicker) {
+        shapeColorBtn.addEventListener('click', () => {
+          if (state.tool !== 'shape') {
+            syncCanonicalToToolMemory(state.tool);
+            state.tool = 'shape';
+            applyToolMemoryToCanonical('shape');
+          }
+          dom.customColorPicker.click();
+        });
+      }
+    }
   }
 
   function bindEvents() {
@@ -9524,8 +9849,10 @@
     dom.sizeDotBtns.forEach((b) => b.addEventListener('click', () => applySize(b.dataset.size)));
 
     dom.smoothingSlider.addEventListener('input', (e) => {
-      state.smoothing = parseFloat(e.target.value);
+      state.smoothing = Math.max(0, Math.min(1.0, parseFloat(e.target.value)));
+      try { localStorage.setItem('inkflow_smoothing_v1', String(state.smoothing)); } catch (_) {}
       dom.smoothingValue.textContent = `${Math.round(state.smoothing * 100)}%`;
+      syncGnPenSubBarUi();
     });
     dom.btnPressureDynamic.addEventListener('click', () => {
       state.pressureMode = 'dynamic';
