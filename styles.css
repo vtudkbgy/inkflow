@@ -745,22 +745,22 @@ html, body {
 .unified-top-bar {
   pointer-events: auto;
   width: 100%;
-  height: 50px;
+  height: 62px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(246, 246, 248, 0.88) 100%);
   backdrop-filter: blur(30px) saturate(185%);
   -webkit-backdrop-filter: blur(30px) saturate(185%);
-  border-top: 2.5px solid #3462a2;
+  border-top: 3px solid #3462a2;
   border-bottom: 1px solid rgba(30, 27, 27, 0.11);
   border-left: none;
   border-right: none;
   border-radius: 0;
   box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
-  padding: 0 14px;
+  padding: 0 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: nowrap;
-  gap: 10px;
+  gap: 12px;
   overflow-x: auto;
   scrollbar-width: none;
   transition: box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s ease, background 0.2s ease;
@@ -780,16 +780,16 @@ html, body {
 .gn-bar-group {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
 .gn-bar-center {
   background: rgba(15, 23, 42, 0.035);
   border: 1px solid rgba(15, 23, 42, 0.065);
-  border-radius: 14px;
-  padding: 3px 6px;
-  gap: 2px;
+  border-radius: 16px;
+  padding: 4px 8px;
+  gap: 4px;
 }
 
 [data-theme="dark"] .gn-bar-center {
@@ -804,18 +804,18 @@ html, body {
 /* Tool Buttons (GoodNotes 6 Iconic Toolbar) */
 .tool-btn {
   position: relative;
-  height: 36px;
-  min-width: 36px;
-  padding: 0 9px;
-  border-radius: 10px;
+  height: 44px;
+  min-width: 44px;
+  padding: 0 13px;
+  border-radius: 12px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  font-size: 12px;
+  gap: 7px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -830,16 +830,28 @@ html, body {
 .tool-btn.gn-icon-only,
 .tool-btn.gn-tool-icon {
   padding: 0;
-  width: 36px;
-  min-width: 36px;
+  width: 44px;
+  min-width: 44px;
+}
+
+#btnFullscreenToggle .icon-fs-exit {
+  display: none;
+}
+
+#btnFullscreenToggle.active .icon-fs-enter {
+  display: none;
+}
+
+#btnFullscreenToggle.active .icon-fs-exit {
+  display: block;
 }
 
 .tool-btn.gn-sidebar-btn {
   background: rgba(52, 98, 162, 0.10);
   color: #3462a2;
   border-color: rgba(52, 98, 162, 0.18);
-  padding: 0 11px;
-  border-radius: 10px;
+  padding: 0 15px;
+  border-radius: 12px;
 }
 
 .tool-btn.gn-sidebar-btn:hover:not(:disabled) {
@@ -904,10 +916,10 @@ html, body {
 .tool-btn.active::after {
   content: "";
   position: absolute;
-  bottom: 2px;
+  bottom: 3px;
   left: 50%;
-  width: 14px;
-  height: 2.5px;
+  width: 18px;
+  height: 3px;
   border-radius: 999px;
   background: #0072ce;
   box-shadow: 0 0 6px rgba(69, 191, 219, 0.65);
@@ -967,14 +979,14 @@ html, body {
 }
 
 .tool-btn .color-indicator {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.96);
+  border: 1.8px solid rgba(255, 255, 255, 0.96);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.28);
   position: absolute;
-  bottom: 4px;
-  right: 4px;
+  bottom: 5px;
+  right: 5px;
   transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.18s ease;
 }
 
@@ -1027,7 +1039,9 @@ html, body {
 }
 
 .tool-options-trigger.pulse-update,
-.trigger-color-dot.pulse-update {
+.trigger-color-dot.pulse-update,
+.tool-btn.pulse-update,
+.tool-btn .color-indicator.pulse-update {
   animation: gnSlotPulse 0.34s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -1055,9 +1069,9 @@ html, body {
 
 .dock-divider {
   width: 1px;
-  height: 20px;
+  height: 26px;
   background: linear-gradient(180deg, transparent, var(--border-strong), transparent);
-  margin: 0 3px;
+  margin: 0 4px;
   flex-shrink: 0;
 }
 
@@ -1731,10 +1745,19 @@ html, body {
   gap: 3px;
 }
 
+.zoom-pill .tool-btn {
+  height: 32px;
+  min-width: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  gap: 4px;
+}
+
 /* ==================== POPOVERS & MODALS ==================== */
 .popover-panel {
   position: absolute;
-  top: 58px;
+  top: 70px;
   right: 14px;
   width: 345px;
   max-height: calc(100vh - 130px);
@@ -2994,4 +3017,538 @@ html, body {
 
 .world-image-card:hover .world-image-resize-handle {
   opacity: 1;
+}
+
+
+/* ============================================================================
+   GOODNOTES FLOATING PEN SUB-BAR & PEN SETTINGS POPOVER (LIGHT & DARK)
+   ============================================================================ */
+.gn-pen-subbar {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 6px;
+  border-radius: 999px;
+  background: rgba(248, 248, 250, 0.96);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(30, 27, 27, 0.12);
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+  animation: gnSubBarFadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-theme="dark"] .gn-pen-subbar {
+  background: rgba(34, 37, 46, 0.95);
+  border-color: rgba(255, 255, 255, 0.13);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.48);
+}
+
+@keyframes gnSubBarFadeIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.gn-subbar-tools,
+.gn-subbar-thickness,
+.gn-subbar-colors {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gn-subtool-btn {
+  height: 40px;
+  min-width: 40px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: none;
+  background: transparent;
+  color: #18181b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: background 0.16s ease, transform 0.16s ease, color 0.16s ease;
+}
+
+[data-theme="dark"] .gn-subtool-btn {
+  color: #e4e4e7;
+}
+
+.gn-subtool-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="dark"] .gn-subtool-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.gn-subtool-btn.active {
+  background: #cfe7f5;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .gn-subtool-btn.active {
+  background: #294c7f;
+  color: #ffffff;
+}
+
+.gn-sub-chevron {
+  opacity: 0.72;
+  transition: transform 0.2s ease;
+}
+
+.gn-subtool-btn.popover-open .gn-sub-chevron {
+  transform: rotate(180deg);
+}
+
+.gn-subbar-divider {
+  width: 1px;
+  height: 26px;
+  background: rgba(30, 27, 27, 0.13);
+  margin: 0 4px;
+}
+
+[data-theme="dark"] .gn-subbar-divider {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.gn-thick-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.14s ease;
+}
+
+.gn-thick-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.gn-thick-btn.active {
+  background: #dfdfE4;
+}
+
+[data-theme="dark"] .gn-thick-btn.active {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.gn-thick-line {
+  width: 18px;
+  border-radius: 999px;
+  background: #27272a;
+  display: block;
+}
+
+[data-theme="dark"] .gn-thick-line {
+  background: #f4f4f5;
+}
+
+.gn-color-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(15, 23, 42, 0.14);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.gn-color-circle:hover {
+  transform: scale(1.08);
+}
+
+.gn-color-circle .gn-color-chevron {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.gn-color-circle.active {
+  box-shadow: 0 0 0 4px rgba(15, 23, 42, 0.11);
+  transform: scale(1.04);
+}
+
+[data-theme="dark"] .gn-color-circle.active {
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18);
+}
+
+.gn-color-circle.active .gn-color-chevron {
+  opacity: 1;
+}
+
+.gn-add-color-btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px dashed #3f3f46;
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  transition: transform 0.16s ease, border-color 0.15s ease;
+}
+
+[data-theme="dark"] .gn-add-color-btn {
+  border-color: #a1a1aa;
+}
+
+.gn-add-color-btn:hover {
+  transform: scale(1.08);
+  border-color: var(--accent-primary);
+}
+
+.gn-add-plus {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #18181b;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+
+[data-theme="dark"] .gn-add-plus {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+/* ==================== GOODNOTES PEN POPOVER CARD ==================== */
+.gn-pen-popover {
+  pointer-events: auto;
+  position: relative;
+  width: 316px;
+  border-radius: 18px;
+  background: #f5f5f7;
+  color: #18181b;
+  border: 1px solid rgba(30, 27, 27, 0.12);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.08);
+  overflow: visible;
+  animation: gnSubBarFadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-theme="dark"] .gn-pen-popover {
+  background: #23262f;
+  color: #f4f4f5;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.56);
+}
+
+.gn-pen-popover-caret {
+  position: absolute;
+  top: -7px;
+  left: 62px;
+  width: 14px;
+  height: 14px;
+  background: inherit;
+  border-left: 1px solid rgba(30, 27, 27, 0.12);
+  border-top: 1px solid rgba(30, 27, 27, 0.12);
+  transform: rotate(45deg);
+}
+
+[data-theme="dark"] .gn-pen-popover-caret {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.gn-pen-popover-header,
+.gn-gestures-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px 6px;
+}
+
+.gn-pen-popover-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.gn-back-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.gn-back-btn:hover {
+  background: rgba(15, 23, 42, 0.07);
+}
+
+[data-theme="dark"] .gn-back-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.gn-pen-preview-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 18px 12px;
+}
+
+.gn-pen-type-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 0 12px 14px;
+  border-bottom: 1px solid rgba(30, 27, 27, 0.09);
+}
+
+[data-theme="dark"] .gn-pen-type-grid {
+  border-bottom-color: rgba(255, 255, 255, 0.09);
+}
+
+.gn-pen-type-card {
+  border: none;
+  background: transparent;
+  border-radius: 12px;
+  padding: 10px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.gn-pen-type-card:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+[data-theme="dark"] .gn-pen-type-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gn-pen-type-card.active {
+  background: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="dark"] .gn-pen-type-card.active {
+  background: #323644;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.32);
+}
+
+.gn-pen-sliders-section {
+  padding: 14px 18px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-bottom: 1px solid rgba(30, 27, 27, 0.09);
+}
+
+[data-theme="dark"] .gn-pen-sliders-section {
+  border-bottom-color: rgba(255, 255, 255, 0.09);
+}
+
+.gn-slider-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.gn-slider-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #71717a;
+}
+
+.gn-slider-val {
+  font-size: 12px;
+  font-weight: 500;
+  color: #71717a;
+}
+
+[data-theme="dark"] .gn-slider-label,
+[data-theme="dark"] .gn-slider-val {
+  color: #a1a1aa;
+}
+
+.gn-slider-track-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 22px;
+}
+
+.gn-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3b76d8 var(--val, 50%), #c8c8cc var(--val, 50%));
+  outline: none;
+  cursor: pointer;
+}
+
+[data-theme="dark"] .gn-range {
+  background: linear-gradient(90deg, #3b82f6 var(--val, 50%), #4b5060 var(--val, 50%));
+}
+
+.gn-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #3b76d8;
+  border: 3px solid #ffffff;
+  box-shadow: 0 1px 5px rgba(15, 23, 42, 0.28);
+  cursor: pointer;
+  transition: transform 0.14s ease;
+}
+
+.gn-range::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+}
+
+.gn-pen-settings-section {
+  padding: 12px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gn-settings-caption {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #71717a;
+  margin-bottom: 2px;
+}
+
+.gn-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.gn-setting-nav-btn {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  border-radius: 8px;
+  padding: 8px 4px;
+}
+
+.gn-setting-nav-btn:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+[data-theme="dark"] .gn-setting-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gn-setting-title {
+  font-size: 14.5px;
+  font-weight: 500;
+}
+
+.gn-setting-desc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #71717a;
+}
+
+[data-theme="dark"] .gn-setting-desc {
+  color: #a1a1aa;
+}
+
+.gn-gestures-list {
+  padding: 8px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.gn-gesture-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* iOS / GoodNotes Blue Toggle Switch */
+.gn-ios-switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.gn-ios-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.gn-ios-slider {
+  position: absolute;
+  inset: 0;
+  background: #d1d5db;
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+
+[data-theme="dark"] .gn-ios-slider {
+  background: #4b5563;
+}
+
+.gn-ios-slider::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.gn-ios-switch input:checked + .gn-ios-slider {
+  background: #3b76d8;
+}
+
+.gn-ios-switch input:checked + .gn-ios-slider::before {
+  transform: translateX(18px);
 }

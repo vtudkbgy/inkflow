@@ -676,9 +676,13 @@
   function getStrokeThinning(stroke) {
     if (!stroke || stroke.tool === 'highlighter' || stroke.pressureMode === 'uniform') return 0;
     const style = stroke.penStyle || 'fountain';
+    const sens = typeof stroke.pressureSensitivity === 'number'
+      ? stroke.pressureSensitivity
+      : (typeof state !== 'undefined' && typeof state.pressureSensitivity === 'number' ? state.pressureSensitivity : 0.5);
+    const sensScale = 0.2 + 1.6 * Math.max(0, Math.min(1, sens));
     if (style === 'ballpoint') return 0.14;
-    if (style === 'brush') return 0.85;
-    return 0.62;
+    if (style === 'brush') return Math.min(0.96, 0.85 * sensScale);
+    return Math.min(0.92, 0.62 * sensScale);
   }
 
   function prepareSmoothedSamples(stroke) {
@@ -1962,6 +1966,8 @@
       text: { color: '#1e293b', size: 16, colorSlots: ['#1e293b', '#1d4ed8', '#dc2626'], sizeSlots: [14, 16, 22] }
     },
     smoothing: 0.65,
+    tipSharpness: 0.5,
+    pressureSensitivity: 0.5,
     pressureMode: 'dynamic',
     eraserMode: 'stroke',
     eraserHighlighterOnly: false,
@@ -1971,6 +1977,10 @@
     shapeType: 'line',
     shapeFilled: false,
     autoShapeEnabled: true,
+    scribbleToErase: true,
+    scribbleEraseShapesAndHl: true,
+    circleToLasso: true,
+    gnPenPopoverOpen: false,
     palmRejection: true,
     lastPenSeenTime: 0,
     laserTrail: [],
@@ -2258,6 +2268,7 @@
     btnPaperSettings: document.getElementById('btnPaperSettings'),
     btnExportMenu: document.getElementById('btnExportMenu'),
     btnThemeToggle: document.getElementById('btnThemeToggle'),
+    btnFullscreenToggle: document.getElementById('btnFullscreenToggle'),
     toolOptionsDock: document.getElementById('toolOptionsDock'),
     colorPaletteGroup: document.getElementById('colorPaletteGroup'),
     colorSwatches: document.querySelectorAll('#colorPaletteGroup .color-swatch'),
@@ -5206,9 +5217,145 @@
     }
   }
 
+  function detectAndApplyScribbleToErase(stroke, page) {
+    if (!state.scribbleToErase || !stroke || stroke.tool !== 'pen' || !page) return false;
+    const pts = stroke.points || [];
+    if (pts.length < 10) return false;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let pathLen = 0;
+    const dirSamples = [pts[0]];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+      if (i > 0) {
+        pathLen += Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y);
+        const lastSample = dirSamples[dirSamples.length - 1];
+        if (Math.hypot(p.x - lastSample.x, p.y - lastSample.y) >= 8) {
+          dirSamples.push(p);
+        }
+      }
+    }
+    const diag = Math.hypot(maxX - minX, maxY - minY);
+    if (diag < 16 || pathLen < 65 || pathLen / diag < 2.25) return false;
+
+    let reversals = 0;
+    for (let i = 2; i < dirSamples.length; i++) {
+      const ux = dirSamples[i - 1].x - dirSamples[i - 2].x;
+      const uy = dirSamples[i - 1].y - dirSamples[i - 2].y;
+      const vx = dirSamples[i].x - dirSamples[i - 1].x;
+      const vy = dirSamples[i].y - dirSamples[i - 1].y;
+      const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
+      if (lu > 4 && lv > 4) {
+        const dot = (ux * vx + uy * vy) / (lu * lv);
+        if (dot < -0.25) reversals++;
+      }
+    }
+    if (reversals < 3) return false;
+
+    const pad = Math.max(8, (stroke.size || 5) * 1.4);
+    const box = { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+    const boxesOverlap = (a, b) => a && b && a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY;
+
+    let erasedCount = 0;
+    const includeShapesAndHl = Boolean(state.scribbleEraseShapesAndHl);
+    const keptStrokes = [];
+    for (let i = 0; i < (page.strokes || []).length; i++) {
+      const s = page.strokes[i];
+      if (!includeShapesAndHl && s.tool === 'highlighter') {
+        keptStrokes.push(s);
+        continue;
+      }
+      const sb = getCachedStrokeBounds(s);
+      if (boxesOverlap(box, sb)) {
+        erasedCount++;
+      } else {
+        keptStrokes.push(s);
+      }
+    }
+
+    let keptShapes = page.shapes || [];
+    if (includeShapesAndHl && keptShapes.length > 0) {
+      keptShapes = keptShapes.filter((sh) => {
+        const sb = getShapeBoundingBox(sh);
+        if (boxesOverlap(box, sb)) {
+          erasedCount++;
+          return false;
+        }
+        return true;
+      });
+    }
+
+    if (erasedCount === 0) return false;
+    page.strokes = keptStrokes;
+    page.shapes = keptShapes;
+    invalidateStaticInkCache();
+    clearActiveCanvas();
+    scheduleSaveActivePage(page);
+    showToast(`✨ ${erasedCount} élément${erasedCount > 1 ? 's' : ''} effacé${erasedCount > 1 ? 's' : ''} par griffonnage`);
+    return true;
+  }
+
+  function tryCircleToLassoSelection(pts, page) {
+    if (!state.circleToLasso || !page || !pts || pts.length < 12) return false;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      if (pts[i].x < minX) minX = pts[i].x;
+      if (pts[i].y < minY) minY = pts[i].y;
+      if (pts[i].x > maxX) maxX = pts[i].x;
+      if (pts[i].y > maxY) maxY = pts[i].y;
+    }
+    const diag = Math.hypot(maxX - minX, maxY - minY);
+    if (diag < 32) return false;
+    const closeDist = Math.hypot(pts[pts.length - 1].x - pts[0].x, pts[pts.length - 1].y - pts[0].y);
+    if (closeDist > diag * 0.36) return false;
+
+    const poly = pts.map((p) => ({ x: p.x, y: p.y }));
+    const selStrokes = new Set();
+    const selShapes = new Set();
+    const selTexts = new Set();
+    (page.strokes || []).forEach((s) => {
+      const sb = getCachedStrokeBounds(s);
+      if (sb && isPointInPolygon({ x: (sb.minX + sb.maxX) * 0.5, y: (sb.minY + sb.maxY) * 0.5 }, poly)) {
+        selStrokes.add(s.id);
+      }
+    });
+    (page.shapes || []).forEach((sh) => {
+      const sb = getShapeBoundingBox(sh);
+      if (sb && isPointInPolygon({ x: (sb.minX + sb.maxX) * 0.5, y: (sb.minY + sb.maxY) * 0.5 }, poly)) {
+        selShapes.add(sh.id);
+      }
+    });
+    (page.texts || []).forEach((t) => {
+      const cx = (t.x || 0) + (t.width || 200) * 0.5;
+      const cy = (t.y || 0) + 28;
+      if (isPointInPolygon({ x: cx, y: cy }, poly)) selTexts.add(t.id);
+    });
+
+    const total = selStrokes.size + selShapes.size + selTexts.size;
+    if (total === 0) return false;
+
+    state.currentStroke = null;
+    state.isDrawing = false;
+    state.activePointerId = null;
+    state.lassoPolygon = [];
+    state.selectedIds = { strokes: selStrokes, shapes: selShapes, texts: selTexts };
+    recomputeLassoSelectionBounds();
+    state.tool = 'lasso';
+    updateToolbarActiveState();
+    clearActiveCanvas();
+    invalidateStaticInkCache();
+    requestRender();
+    showToast(`✨ ${total} élément${total > 1 ? 's' : ''} sélectionné${total > 1 ? 's' : ''} au lasso`);
+    return true;
+  }
+
   function scheduleHoldShapeCheck() {
     cancelHoldShapeTimer();
-    if (!state.autoShapeEnabled || state.currentStrokeSnappedFromAutoShape) return;
+    if ((!state.autoShapeEnabled && !state.circleToLasso) || state.currentStrokeSnappedFromAutoShape) return;
     if (state.tool !== 'pen' && state.tool !== 'highlighter') return;
     state.holdShapeTimer = setTimeout(() => {
       state.holdShapeTimer = null;
@@ -5217,11 +5364,17 @@
   }
 
   function trySnapStrokeToShape() {
-    if (!state.isDrawing || !state.autoShapeEnabled || !state.currentStroke || state.currentStrokeSnappedFromAutoShape || state.colorWheelOpen) return;
+    if (!state.isDrawing || !state.currentStroke || state.currentStrokeSnappedFromAutoShape || state.colorWheelOpen) return;
     if (state.tool !== 'pen' && state.tool !== 'highlighter') return;
     const pts = state.currentStroke.points || [];
     if (pts.length < 5) return;
 
+    // Geste GoodNotes : entourer des éléments et maintenir -> Sélection au lasso automatique
+    if (state.tool === 'pen' && state.circleToLasso && tryCircleToLassoSelection(pts, getActivePage())) {
+      return;
+    }
+
+    if (!state.autoShapeEnabled) return;
     const detected = detectShapeFromStroke(
       pts,
       state.currentStroke.color,
@@ -5913,6 +6066,14 @@
             state.currentStroke.points.push({ x: p0.x + 0.2, y: p0.y + 0.2, pressure: p0.pressure });
           }
           const finishedStroke = state.currentStroke;
+
+          // Geste GoodNotes : Griffonner pour effacer
+          if (finishedStroke.tool === 'pen' && detectAndApplyScribbleToErase(finishedStroke, page)) {
+            state.currentStroke = null;
+            mergedDirectlyIntoStatic = false;
+            requestRender();
+            return;
+          }
 
           // Redressement automatique GoodNotes pour le Surligneur (traits quasi-rectilignes)
           if (finishedStroke.tool === 'highlighter' && state.highlighterAutoStraighten && finishedStroke.points.length >= 2) {
@@ -8421,7 +8582,9 @@
 
   let toolOptionsPulseTimer = null;
   function triggerToolOptionsPulse() {
-    const targets = [dom.btnToggleToolOptions, dom.activeToolColorPreview];
+    const activeToolBtn = document.querySelector(`.tool-btn[data-tool="${state.tool}"]`);
+    const activeDot = state.tool === 'highlighter' ? dom.hlColorDot : (state.tool === 'pen' ? dom.penColorDot : null);
+    const targets = [dom.btnToggleToolOptions, dom.activeToolColorPreview, activeToolBtn, activeDot].filter(Boolean);
     targets.forEach((el) => {
       if (!el || !el.classList) return;
       el.classList.remove('pulse-update');
@@ -8493,11 +8656,19 @@
     const isShape = state.tool === 'shape', isText = state.tool === 'text', isEraser = state.tool === 'eraser', isLasso = state.tool === 'lasso';
     const isTape = state.tool === 'tape', isLaser = state.tool === 'laser';
 
-    const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan');
+    const isGnSubBarTool = state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'tape' || state.tool === 'shape';
+    const showGnSubBar = Boolean(state.toolOptionsOpen && isGnSubBarTool);
+    const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan' && !isGnSubBarTool);
     dom.toolOptionsDock.classList.toggle('hidden', !showDock);
+    const gnSubBarEl = document.getElementById('gnPenSubBar');
+    if (gnSubBarEl) gnSubBarEl.classList.toggle('hidden', !showGnSubBar);
+    if (!showGnSubBar) state.gnPenPopoverOpen = false;
+    const gnPopoverEl = document.getElementById('gnPenPopover');
+    if (gnPopoverEl) gnPopoverEl.classList.toggle('hidden', !(showGnSubBar && state.gnPenPopoverOpen));
+    if (typeof syncGnPenSubBarUi === 'function') syncGnPenSubBarUi();
     if (dom.btnToggleToolOptions) {
-      dom.btnToggleToolOptions.classList.toggle('open', showDock);
-      dom.btnToggleToolOptions.setAttribute('aria-expanded', String(showDock));
+      dom.btnToggleToolOptions.classList.toggle('open', showDock || showGnSubBar);
+      dom.btnToggleToolOptions.setAttribute('aria-expanded', String(showDock || showGnSubBar));
       dom.btnToggleToolOptions.disabled = state.tool === 'pan';
     }
 
@@ -8668,7 +8839,233 @@
   // 16. ÉCOUTEURS D'ÉVÉNEMENTS & NAVIGATION INFINIE
   // ============================================================================
 
+  function syncGnPenSubBarUi() {
+    const subBar = document.getElementById('gnPenSubBar');
+    if (!subBar) return;
+    const isBallpointQuick = state.tool === 'pen' && state.penStyle === 'ballpoint';
+    subBar.querySelectorAll('.gn-subtool-btn').forEach((btn) => {
+      const st = btn.dataset.subtool;
+      let isActive = false;
+      if (st === 'pen') isActive = state.tool === 'pen' && !isBallpointQuick;
+      else if (st === 'ballpoint') isActive = isBallpointQuick;
+      else isActive = state.tool === st;
+      btn.classList.toggle('active', isActive);
+      if (st === 'pen') btn.classList.toggle('popover-open', Boolean(state.gnPenPopoverOpen));
+    });
+
+    const curSize = getActiveToolSize();
+    const thickBtns = Array.from(subBar.querySelectorAll('.gn-thick-btn'));
+    let bestBtn = null, bestDiff = Infinity;
+    thickBtns.forEach((b) => {
+      const d = Math.abs(parseFloat(b.dataset.gnSize) - curSize);
+      if (d < bestDiff) { bestDiff = d; bestBtn = b; }
+    });
+    thickBtns.forEach((b) => b.classList.toggle('active', b === bestBtn));
+
+    const curColor = (getActiveToolColor() || '#111827').toLowerCase();
+    subBar.querySelectorAll('.gn-color-circle').forEach((c) => {
+      c.classList.toggle('active', (c.dataset.gnColor || '').toLowerCase() === curColor);
+    });
+
+    // Mise à jour du popover Réglages du stylo
+    const titleEl = document.getElementById('gnPenPopoverTitle');
+    const styleNames = { fountain: 'Stylo À Plume', ballpoint: 'Stylo À Bille', brush: 'Stylo Pinceau' };
+    if (titleEl) titleEl.textContent = styleNames[state.penStyle] || 'Stylo À Plume';
+
+    document.querySelectorAll('#gnPenTypeGrid .gn-pen-type-card').forEach((card) => {
+      card.classList.toggle('active', card.dataset.gnPenstyle === state.penStyle);
+    });
+
+    const isBall = state.penStyle === 'ballpoint';
+    const tipRow = document.getElementById('gnTipSharpnessRow');
+    const presRow = document.getElementById('gnPressureSensRow');
+    if (tipRow) tipRow.classList.toggle('hidden', isBall);
+    if (presRow) presRow.classList.toggle('hidden', isBall);
+
+    const tipPct = Math.round((state.tipSharpness ?? 0.5) * 100);
+    const presPct = Math.round((state.pressureSensitivity ?? 0.5) * 100);
+    const stabPct = Math.round((state.smoothing ?? 0.65) * 100);
+    const tipSlider = document.getElementById('gnTipSharpnessSlider');
+    const presSlider = document.getElementById('gnPressureSensSlider');
+    const stabSlider = document.getElementById('gnStabilizationSlider');
+    const setRangeVar = (el, pct) => {
+      if (!el) return;
+      el.value = String(pct);
+      if (el.style && typeof el.style.setProperty === 'function') el.style.setProperty('--val', `${pct}%`);
+    };
+    setRangeVar(tipSlider, tipPct);
+    setRangeVar(presSlider, presPct);
+    setRangeVar(stabSlider, stabPct);
+    const tipVal = document.getElementById('gnTipSharpnessVal');
+    const presVal = document.getElementById('gnPressureSensVal');
+    const stabVal = document.getElementById('gnStabilizationVal');
+    if (tipVal) tipVal.textContent = `${tipPct}%`;
+    if (presVal) presVal.textContent = `${presPct}%`;
+    if (stabVal) stabVal.textContent = `${stabPct}%`;
+
+    // Aperçu dynamique de la courbe S selon le type de stylo & la sensibilité
+    const previewPath = document.getElementById('gnPenPreviewPath');
+    if (previewPath) {
+      const baseW = isBall ? 4.4 : (state.penStyle === 'brush' ? 6.5 : 5.2);
+      previewPath.setAttribute('stroke', state.penColor || '#111827');
+      previewPath.setAttribute('stroke-width', String(baseW));
+      previewPath.setAttribute('stroke-linecap', isBall ? 'round' : 'butt');
+    }
+
+    const holdSw = document.getElementById('gnHoldToShapeSwitch');
+    if (holdSw) holdSw.checked = Boolean(state.autoShapeEnabled);
+    const scribSw = document.getElementById('gnScribbleEraseSwitch');
+    if (scribSw) scribSw.checked = Boolean(state.scribbleToErase);
+    const scribShSw = document.getElementById('gnScribbleEraseShapesHlSwitch');
+    if (scribShSw) scribShSw.checked = Boolean(state.scribbleEraseShapesAndHl);
+    const lassoSw = document.getElementById('gnCircleLassoSwitch');
+    if (lassoSw) lassoSw.checked = Boolean(state.circleToLasso);
+  }
+
+  function bindGoodNotesPenSubBarEvents() {
+    const subBar = document.getElementById('gnPenSubBar');
+    const popover = document.getElementById('gnPenPopover');
+    const mainView = document.getElementById('gnPenMainView');
+    const gesturesView = document.getElementById('gnPenGesturesView');
+    if (!subBar || !popover) return;
+
+    subBar.querySelectorAll('.gn-subtool-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const st = btn.dataset.subtool;
+        if (st === 'pen') {
+          if (state.tool === 'pen' && state.penStyle !== 'ballpoint') {
+            state.gnPenPopoverOpen = !state.gnPenPopoverOpen;
+            if (mainView) mainView.classList.remove('hidden');
+            if (gesturesView) gesturesView.classList.add('hidden');
+            updateToolbarActiveState();
+          } else {
+            state.penStyle = 'fountain';
+            state.tool = 'pen';
+            state.toolOptionsOpen = true;
+            state.gnPenPopoverOpen = true;
+            if (mainView) mainView.classList.remove('hidden');
+            if (gesturesView) gesturesView.classList.add('hidden');
+            updateToolbarActiveState();
+          }
+        } else if (st === 'ballpoint') {
+          if (state.tool === 'pen' && state.penStyle === 'ballpoint') {
+            state.gnPenPopoverOpen = !state.gnPenPopoverOpen;
+            if (mainView) mainView.classList.remove('hidden');
+            if (gesturesView) gesturesView.classList.add('hidden');
+            updateToolbarActiveState();
+          } else {
+            state.penStyle = 'ballpoint';
+            state.tool = 'pen';
+            state.toolOptionsOpen = true;
+            state.gnPenPopoverOpen = false;
+            updateToolbarActiveState();
+          }
+        } else if (st === 'highlighter' || st === 'tape' || st === 'shape') {
+          syncCanonicalToToolMemory(state.tool);
+          state.tool = st;
+          applyToolMemoryToCanonical(st);
+          state.toolOptionsOpen = true;
+          state.gnPenPopoverOpen = false;
+          updateToolbarActiveState();
+        }
+      });
+    });
+
+    subBar.querySelectorAll('.gn-thick-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sz = parseFloat(btn.dataset.gnSize);
+        if (!Number.isFinite(sz)) return;
+        setToolSize(state.tool, sz);
+        updateToolbarActiveState();
+      });
+    });
+
+    subBar.querySelectorAll('.gn-color-circle').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const col = btn.dataset.gnColor;
+        if (btn.classList.contains('active') && dom.customColorPicker) {
+          dom.customColorPicker.click();
+          return;
+        }
+        if (col) {
+          setToolColor(state.tool, col);
+          updateToolbarActiveState();
+        }
+      });
+    });
+
+    const addColorBtn = document.getElementById('gnSubAddColorBtn');
+    if (addColorBtn && dom.customColorPicker) {
+      addColorBtn.addEventListener('click', () => dom.customColorPicker.click());
+    }
+
+    document.querySelectorAll('#gnPenTypeGrid .gn-pen-type-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const ps = card.dataset.gnPenstyle;
+        if (!ps) return;
+        state.penStyle = ps;
+        state.tool = 'pen';
+        updateToolbarActiveState();
+      });
+    });
+
+    const tipSlider = document.getElementById('gnTipSharpnessSlider');
+    if (tipSlider) {
+      tipSlider.addEventListener('input', (e) => {
+        state.tipSharpness = Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 100));
+        syncGnPenSubBarUi();
+      });
+    }
+    const presSlider = document.getElementById('gnPressureSensSlider');
+    if (presSlider) {
+      presSlider.addEventListener('input', (e) => {
+        state.pressureSensitivity = Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 100));
+        syncGnPenSubBarUi();
+      });
+    }
+    const stabSlider = document.getElementById('gnStabilizationSlider');
+    if (stabSlider) {
+      stabSlider.addEventListener('input', (e) => {
+        state.smoothing = Math.max(0, Math.min(0.95, parseInt(e.target.value, 10) / 100));
+        if (dom.smoothingSlider) dom.smoothingSlider.value = String(state.smoothing);
+        if (dom.smoothingValue) dom.smoothingValue.textContent = `${Math.round(state.smoothing * 100)}%`;
+        syncGnPenSubBarUi();
+      });
+    }
+
+    const holdSw = document.getElementById('gnHoldToShapeSwitch');
+    if (holdSw) {
+      holdSw.addEventListener('change', (e) => {
+        state.autoShapeEnabled = e.target.checked;
+        if (dom.autoShapeToggle) dom.autoShapeToggle.checked = state.autoShapeEnabled;
+      });
+    }
+
+    const btnOpenGestures = document.getElementById('btnOpenStylusGestures');
+    const btnBackPen = document.getElementById('btnBackToPenSettings');
+    if (btnOpenGestures && mainView && gesturesView) {
+      btnOpenGestures.addEventListener('click', () => {
+        mainView.classList.add('hidden');
+        gesturesView.classList.remove('hidden');
+      });
+    }
+    if (btnBackPen && mainView && gesturesView) {
+      btnBackPen.addEventListener('click', () => {
+        gesturesView.classList.add('hidden');
+        mainView.classList.remove('hidden');
+      });
+    }
+
+    const scribSw = document.getElementById('gnScribbleEraseSwitch');
+    if (scribSw) scribSw.addEventListener('change', (e) => { state.scribbleToErase = e.target.checked; });
+    const scribShSw = document.getElementById('gnScribbleEraseShapesHlSwitch');
+    if (scribShSw) scribShSw.addEventListener('change', (e) => { state.scribbleEraseShapesAndHl = e.target.checked; });
+    const lassoSw = document.getElementById('gnCircleLassoSwitch');
+    if (lassoSw) lassoSw.addEventListener('change', (e) => { state.circleToLasso = e.target.checked; });
+  }
+
   function bindEvents() {
+    bindGoodNotesPenSubBarEvents();
     dom.inkCanvas.addEventListener('pointerdown', handlePointerDown, { passive: false });
     dom.inkCanvas.addEventListener('pointermove', handlePointerMove, { passive: false });
     dom.inkCanvas.addEventListener('pointerup', handlePointerUpOrCancel);
@@ -9266,6 +9663,19 @@
       requestRender();
     });
 
+    if (dom.btnFullscreenToggle) {
+      dom.btnFullscreenToggle.addEventListener('click', () => {
+        toggleFullscreenMode();
+      });
+    }
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('fullscreenchange', () => {
+        updateFullscreenUi(Boolean(document.fullscreenElement || document.webkitFullscreenElement));
+        requestRender();
+      });
+    }
+    syncFullscreenState();
+
     if (dom.palmRejectionToggle) {
       dom.palmRejectionToggle.addEventListener('change', (e) => { state.palmRejection = e.target.checked; });
     }
@@ -9371,6 +9781,11 @@
     });
 
     window.addEventListener('keydown', (e) => {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        toggleFullscreenMode();
+        return;
+      }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === 'Escape') {
         if (state.colorWheelOpen) { closeRadialColorWheel(true); requestRender(); }
@@ -9404,7 +9819,17 @@
       flushPendingPageSaves();
       cleanupAppResources();
     });
-    window.addEventListener('resize', requestRender);
+    let fullscreenSyncTimer = null;
+    window.addEventListener('resize', () => {
+      requestRender();
+      if (typeof window !== 'undefined' && window.__TAURI__) {
+        if (fullscreenSyncTimer) clearTimeout(fullscreenSyncTimer);
+        fullscreenSyncTimer = setTimeout(() => {
+          fullscreenSyncTimer = null;
+          syncFullscreenState();
+        }, 160);
+      }
+    });
 
     if (typeof ResizeObserver !== 'undefined') {
       let initialFitDone = false;
@@ -9422,6 +9847,104 @@
       });
       ro.observe(dom.canvasViewport);
     }
+  }
+
+  let isWindowFullscreen = false;
+
+  function updateFullscreenUi(isFs) {
+    isWindowFullscreen = Boolean(isFs);
+    if (typeof document !== 'undefined' && document.documentElement && typeof document.documentElement.setAttribute === 'function') {
+      document.documentElement.setAttribute('data-fullscreen', isWindowFullscreen ? 'true' : 'false');
+    }
+    if (dom.btnFullscreenToggle) {
+      dom.btnFullscreenToggle.classList.toggle('active', isWindowFullscreen);
+      const label = isWindowFullscreen ? 'Quitter le plein écran (F11)' : 'Plein écran (F11)';
+      if (typeof dom.btnFullscreenToggle.setAttribute === 'function') {
+        dom.btnFullscreenToggle.setAttribute('title', label);
+        dom.btnFullscreenToggle.setAttribute('aria-label', label);
+        dom.btnFullscreenToggle.setAttribute('aria-pressed', isWindowFullscreen ? 'true' : 'false');
+      } else {
+        dom.btnFullscreenToggle.title = label;
+      }
+    }
+    return isWindowFullscreen;
+  }
+
+  async function syncFullscreenState() {
+    try {
+      if (typeof window !== 'undefined' && window.__TAURI__) {
+        if (window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
+          const fsState = await window.__TAURI__.core.invoke('get_window_fullscreen');
+          return updateFullscreenUi(fsState);
+        }
+        if (window.__TAURI__.window && typeof window.__TAURI__.window.getCurrentWindow === 'function') {
+          const fsState = await window.__TAURI__.window.getCurrentWindow().isFullscreen();
+          return updateFullscreenUi(fsState);
+        }
+      }
+      if (typeof document !== 'undefined') {
+        return updateFullscreenUi(Boolean(document.fullscreenElement || document.webkitFullscreenElement));
+      }
+    } catch (_) {}
+    return isWindowFullscreen;
+  }
+
+  async function setFullscreenMode(enable) {
+    const next = Boolean(enable);
+    try {
+      if (typeof window !== 'undefined' && window.__TAURI__) {
+        let actual = next;
+        let handled = false;
+        if (window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
+          try {
+            actual = await window.__TAURI__.core.invoke('set_window_fullscreen', { fullscreen: next });
+            handled = true;
+          } catch (_) {}
+        }
+        if (!handled && window.__TAURI__.window && typeof window.__TAURI__.window.getCurrentWindow === 'function') {
+          const win = window.__TAURI__.window.getCurrentWindow();
+          await win.setFullscreen(next);
+          actual = typeof win.isFullscreen === 'function' ? await win.isFullscreen() : next;
+          handled = true;
+        }
+        if (handled) {
+          updateFullscreenUi(actual);
+          requestRender();
+          if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => requestRender());
+          }
+          return actual;
+        }
+      }
+
+      if (typeof document !== 'undefined') {
+        const root = document.documentElement;
+        if (next) {
+          if (root && typeof root.requestFullscreen === 'function') {
+            await root.requestFullscreen();
+          } else if (root && typeof root.webkitRequestFullscreen === 'function') {
+            await root.webkitRequestFullscreen();
+          }
+        } else if (document.fullscreenElement || document.webkitFullscreenElement) {
+          if (typeof document.exitFullscreen === 'function') {
+            await document.exitFullscreen();
+          } else if (typeof document.webkitExitFullscreen === 'function') {
+            await document.webkitExitFullscreen();
+          }
+        }
+        updateFullscreenUi(next);
+        requestRender();
+        return next;
+      }
+    } catch (_) {
+      showToast('Impossible de basculer le mode plein écran.', 'error');
+    }
+    return isWindowFullscreen;
+  }
+
+  async function toggleFullscreenMode() {
+    const current = await syncFullscreenState();
+    return setFullscreenMode(!current);
   }
 
   async function cleanupAppResources() {
@@ -10182,6 +10705,9 @@
       oneEuroFilterStep,
       animateViewportTo,
       stopViewportAnimations,
+      setFullscreenMode,
+      toggleFullscreenMode,
+      syncFullscreenState,
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,
