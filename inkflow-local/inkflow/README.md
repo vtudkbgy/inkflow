@@ -1,0 +1,114 @@
+# ✒️ InkFlow (Plume Studio Pro)
+
+Application de prise de notes manuscrites **100 % locale et hors-ligne** (Windows Ink / Stylet, Page Infinie, PDF Haute Résolution, LaTeX & Reconnaissance d'équations), compilable en exécutable Windows natif (`.exe` via Tauri v2 / WebView2) ou utilisable directement dans le navigateur.
+
+---
+
+## ✨ Fonctionnalités principales
+
+- **Rendu ultra-fluide 60/120 FPS** :
+  - Architecture triple canvas (`#pdfBgCanvas` fond verrouillé + `#inkCanvas` calque statique avec cache bitmap + `#activeInkCanvas` rendu incrémental $O(1)$ sans latence même sur les traits très longs).
+  - Support natif du stylet Windows Ink (`PointerEvent`, pression dynamique, `getCoalescedEvents`).
+  - **Boutons latéraux du stylet** : gomme temporaire (maintien = gomme, relâchement = retour au stylo) et **lasso temporaire** sur le 2e bouton.
+  - **Roue de couleurs radiale** : restez immobile en maintenant le bouton lasso pour changer de couleur sans quitter la zone d'écriture.
+  - **Formes géométriques automatiques (Hold-to-Shape)** : tracez un cercle, une flèche, une ligne, un rectangle ou un triangle et maintenez à la fin pour le redresser automatiquement (activable/désactivable).
+- **Page infinie & Navigation** :
+  - Zoom par pincement (Pinch-to-Zoom) ou `Ctrl + Molette`, déplacement libre (`Pan`), fonds personnalisables (quadrillé, Seyès, pointillé, ligné, ingénieur, sombre, blueprint).
+- **Texte clavier, LaTeX & Reconnaissance** :
+  - Emplacements de texte déplaçables et éditables au clavier directement sur la page.
+  - Éditeur **LaTeX** intégré avec aperçu en direct.
+  - **Reconnaissance d'écriture manuscrite et d'équations** vers texte ou LaTeX.
+- **Gestion complète des PDF (100 % hors-ligne)** :
+  - **Importation** via `pdfjs-dist` (worker local, sans lien externe), rendu HiDPI adapté à `window.devicePixelRatio` et chargement paresseux (*Lazy Loading* `{k-1, k, k+1}`).
+  - **Sauvegarde optimisée dans IndexedDB** : binaire PDF stocké séparément des annotations vectorielles, sauvegarde différée (*debounce* 500 ms).
+  - **Exportation PDF vectorielle** via `pdf-lib` aux coordonnées et proportions exactes.
+- **Reverse Engineer Anything (REA) inclus** :
+  - Skill d'agent dans [`.agents/skills/reverse-engineer-anything/SKILL.md`](.agents/skills/reverse-engineer-anything/SKILL.md), configuration MCP dans [`mcp.json`](mcp.json) et lanceur CLI dans [`scripts/rea-cli.js`](scripts/rea-cli.js).
+
+---
+
+## 🚀 Démarrage rapide en local
+
+### Prérequis
+- **Node.js 22+ ou 24 LTS** (`node -v`) et **npm**
+- *(Optionnel, uniquement pour compiler le `.exe` natif Windows)* : **Rust** (`rustup`) et **WebView2** (préinstallé sur Windows 10/11)
+
+### Installation et lancement
+
+```bash
+# 1. Cloner le dépôt
+git clone https://github.com/vtudkbgy/inkflow.git
+cd inkflow
+
+# 2. Installer les dépendances npm
+npm install
+
+# 3. Lancer les tests automatisés (8/8) + vérification WebView2
+npm test
+npm run verify:webview2
+
+# 4. Lancer l'application en local dans le navigateur (http://localhost:5173)
+npm start
+```
+
+### Compiler l'exécutable Windows natif (`.exe` via Tauri v2)
+
+```bash
+npm run tauri:build
+```
+L'exécutable natif léger (~4 Mo) est généré dans `src-tauri/target/.../release/PlumeStudioPro.exe` et copié à la racine du projet.
+
+---
+
+## 🔍 Utiliser Reverse Engineer Anything (REA)
+
+Le projet intègre **REA (`morluto/rea` / `rea-agents`)** pour l'analyse de binaires, d'applications JS/Electron ou de comportements runtime :
+
+```bash
+# Afficher l'aide de REA
+npm run rea -- --help
+
+# Configurer REA avec votre agent IA (Claude Code, Cursor, Codex, Gemini CLI...)
+npm run rea:setup
+
+# Analyser l'application JavaScript en local
+npm run rea:analyze
+```
+
+Le fichier [`mcp.json`](mcp.json) permet également de brancher directement le serveur MCP `rea` à votre IDE ou agent IA.
+
+---
+
+## 🤝 Collaboration & Accès restreint sur GitHub
+
+Pour partager l'avancement uniquement avec les personnes que vous autorisez :
+
+1. Créez le dépôt en mode **Privé (`Private`)** sur GitHub.
+2. Ajoutez vos collaborateurs dans **Settings → Collaborators → Add people**.
+3. Consultez [`CONTRIBUTING.md`](CONTRIBUTING.md) pour le workflow branches / Pull Requests et les vérifications CI automatiques.
+
+---
+
+## 📁 Structure du projet
+
+```text
+├── index.html                   # Interface principale Plume Studio Pro
+├── styles.css                   # Design responsive, thèmes clair/sombre, accélération GPU
+├── app.js                       # Moteur de dessin triple-canvas, IndexedDB, PDF, LaTeX, Lasso
+├── manifest.json / sw.js        # Support PWA hors-ligne
+├── vendor/                      # Bibliothèques locales hors-ligne (pdf.js, worker, pdf-lib)
+├── src-tauri/                   # Projet Rust / Tauri v2 (compilation Windows .exe)
+├── electron/                    # Support optionnel Electron
+├── scripts/
+│   ├── run-unit-tests.js        # Suite de 8 tests unitaires & benchmarks 60/120 FPS
+│   ├── verify-webview2-pdf-stylus.js
+│   ├── tauri-runner.js          # Build Tauri v2
+│   └── rea-cli.js               # Lanceur Reverse Engineer Anything (REA)
+├── .agents/skills/reverse-engineer-anything/  # Skill REA pour agents IA
+├── .github/workflows/ci.yml     # Intégration Continue (tests automatiques sur chaque PR)
+└── mcp.json                     # Configuration MCP pour REA
+```
+
+## 📄 Licence
+
+Distribué sous licence [MIT](LICENSE).

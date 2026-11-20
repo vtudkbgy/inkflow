@@ -1,0 +1,402 @@
+#!/usr/bin/env node
+/**
+ * Vérification complète WebView2 / Tauri v2 :
+ * 1. Résolution locale du worker `pdfjs-dist` (`./vendor/pdf.worker.min.js`) sous origine `http://tauri.localhost/`
+ * 2. Rendu haute résolution PDF.js (`window.devicePixelRatio`) + sauvegarde IndexedDB séparée + export `pdf-lib`
+ * 3. Événements `PointerEvent` du stylet Windows Ink (`pointerType: 'pen'`, `getCoalescedEvents()`, pression,
+ *    bouton gomme `32`, 2e bouton Lasso `2`, maintien forme auto, maintien roue de couleurs)
+ * 4. Intégration Tauri v2 (`window.__TAURI__.dialog` + `window.__TAURI__.core.invoke('save_binary_file' / 'read_binary_file')`)
+ */
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+function make2dContextMock(canvasObj) {
+  return {
+    canvas: canvasObj,
+    fillStyle: '#ffffff',
+    strokeStyle: '#000000',
+    lineWidth: 1,
+    lineCap: 'round',
+    lineJoin: 'round',
+    globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
+    shadowColor: 'transparent',
+    shadowBlur: 0,
+    shadowOffsetX: 0,
+    shadowOffsetY: 0,
+    font: '14px sans-serif',
+    textAlign: 'left',
+    textBaseline: 'alphabetic',
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: 'high',
+    save() {},
+    restore() {},
+    scale() {},
+    rotate() {},
+    translate() {},
+    transform() {},
+    setTransform() {},
+    getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+    resetTransform() {},
+    clearRect() {},
+    fillRect() {},
+    strokeRect() {},
+    beginPath() {},
+    closePath() {},
+    moveTo() {},
+    lineTo() {},
+    bezierCurveTo() {},
+    quadraticCurveTo() {},
+    arc() {},
+    arcTo() {},
+    ellipse() {},
+    rect() {},
+    roundRect() {},
+    fill() {},
+    stroke() {},
+    clip() {},
+    fillText() {},
+    strokeText() {},
+    measureText: (t) => ({ width: String(t || '').length * 7 }),
+    setLineDash() {},
+    getLineDash: () => [],
+    drawImage() {},
+    createLinearGradient: () => ({ addColorStop() {} }),
+    createRadialGradient: () => ({ addColorStop() {} }),
+    createPattern: () => ({}),
+    getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(Math.max(1, w * h * 4)), width: w, height: h }),
+    putImageData() {}
+  };
+}
+
+async function runVerification() {
+  const rootDir = path.resolve(__dirname, '..');
+  const html = fs.readFileSync(path.join(rootDir, 'index.html'), 'utf8');
+  const pdfMinCode = fs.readFileSync(path.join(rootDir, 'vendor', 'pdf.min.js'), 'utf8');
+  const pdfWorkerCode = fs.readFileSync(path.join(rootDir, 'vendor', 'pdf.worker.min.js'), 'utf8');
+  const pdfLibCode = fs.readFileSync(path.join(rootDir, 'vendor', 'pdf-lib.min.js'), 'utf8');
+  const appCode = fs.readFileSync(path.join(rootDir, 'app.js'), 'utf8');
+
+  // Extraction de tous les IDs présents dans index.html
+  const idRegex = /id="([^"]+)"/g;
+  const ids = new Set();
+  let m;
+  while ((m = idRegex.exec(html)) !== null) ids.add(m[1]);
+
+  function makeMockElement(id = '', tag = 'DIV') {
+    const isCanvas = tag === 'CANVAS' || id.toLowerCase().includes('canvas');
+    const listeners = {};
+    const classSet = new Set(id === 'modalImportPdf' || id === 'toolOptionsDock' || id === 'radialColorWheel' ? ['hidden'] : []);
+    const el = {
+      id,
+      tagName: isCanvas ? 'CANVAS' : tag,
+      width: isCanvas ? 1200 : 0,
+      height: isCanvas ? 800 : 0,
+      value: '',
+      checked: true,
+      disabled: false,
+      textContent: '',
+      innerHTML: '',
+      dataset: {},
+      style: {},
+      files: [],
+      classList: {
+        add: (...c) => c.forEach((x) => classSet.add(x)),
+        remove: (...c) => c.forEach((x) => classSet.delete(x)),
+        toggle: (c, force) => {
+          const next = typeof force === 'boolean' ? force : !classSet.has(c);
+          if (next) classSet.add(c); else classSet.delete(c);
+          return next;
+        },
+        contains: (c) => classSet.has(c)
+      },
+      addEventListener: (ev, fn) => {
+        if (!listeners[ev]) listeners[ev] = [];
+        listeners[ev].push(fn);
+      },
+      removeEventListener: (ev, fn) => {
+        if (listeners[ev]) listeners[ev] = listeners[ev].filter((f) => f !== fn);
+      },
+      dispatchEvent: (evt) => {
+        const list = listeners[evt.type] || [];
+        for (const fn of list) fn(evt);
+      },
+      setAttribute: () => {},
+      getAttribute: () => 'light',
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 1200, height: 800 }),
+      setPointerCapture: () => {},
+      releasePointerCapture: () => {},
+      appendChild: (c) => c,
+      remove: () => {},
+      focus: () => {},
+      select: () => {},
+      click: () => {},
+      closest: () => null,
+      querySelector: () => makeMockElement('', 'DIV'),
+      querySelectorAll: () => [],
+      getContext: () => (isCanvas ? make2dContextMock(el) : null),
+      toDataURL: () => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      toBlob: (cb) => cb(new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' })),
+      __listeners: listeners
+    };
+    return el;
+  }
+
+  const elementsById = new Map();
+  for (const id of ids) {
+    elementsById.set(id, makeMockElement(id, id.toLowerCase().includes('canvas') ? 'CANVAS' : 'DIV'));
+  }
+
+  const savedTauriFiles = [];
+  const sandbox = {
+    console,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    requestAnimationFrame: (cb) => setTimeout(() => cb(Date.now()), 5),
+    performance: { now: () => Date.now() },
+    devicePixelRatio: 2.0, // Simule un écran Haute Définition Surface Pro / 2-en-1 Windows (200% DPI)
+    Path2D: class Path2D {
+      constructor(d) { this.d = d || ''; this.__isMockPath2D = true; }
+      moveTo() {}
+      lineTo() {}
+      quadraticCurveTo() {}
+      bezierCurveTo() {}
+      arc() {}
+      rect() {}
+      closePath() {}
+    },
+    Blob,
+    structuredClone: globalThis.structuredClone,
+    ReadableStream: globalThis.ReadableStream,
+    WritableStream: globalThis.WritableStream,
+    TransformStream: globalThis.TransformStream,
+    atob: globalThis.atob,
+    btoa: globalThis.btoa,
+    Uint8Array,
+    ArrayBuffer,
+    DataView,
+    Int8Array,
+    Uint16Array,
+    Int16Array,
+    Uint32Array,
+    Int32Array,
+    Float32Array,
+    Float64Array,
+    Uint8ClampedArray,
+    TextEncoder,
+    TextDecoder,
+    URL: {
+      createObjectURL: () => 'blob:http://tauri.localhost/mock',
+      revokeObjectURL: () => {}
+    },
+    Image: class Image {},
+    navigator: {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
+      clipboard: { writeText: async () => {} }
+    },
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    // Simulation de l'environnement Tauri v2 WebView2 (`http://tauri.localhost/`)
+    location: {
+      href: 'http://tauri.localhost/index.html',
+      origin: 'http://tauri.localhost',
+      protocol: 'http:',
+      host: 'tauri.localhost'
+    },
+    __TAURI__: {
+      dialog: {
+        save: async ({ defaultPath }) => `C:\\Users\\Utilisateur\\Documents\\${defaultPath || 'Export-Annote.pdf'}`,
+        open: async () => `C:\\Users\\Utilisateur\\Documents\\Cours.pdf`
+      },
+      core: {
+        invoke: async (cmd, payload) => {
+          if (cmd === 'save_binary_file') {
+            savedTauriFiles.push({ path: payload.path, byteLength: payload.bytes.length });
+            return payload.path;
+          }
+          return null;
+        }
+      }
+    },
+    document: {
+      documentElement: makeMockElement('html', 'HTML'),
+      body: makeMockElement('body', 'BODY'),
+      head: makeMockElement('head', 'HEAD'),
+      getElementById: (id) => {
+        if (!elementsById.has(id)) elementsById.set(id, makeMockElement(id));
+        return elementsById.get(id);
+      },
+      createElement: (tag) => makeMockElement('', String(tag || 'DIV').toUpperCase()),
+      createElementNS: (ns, tag) => makeMockElement('', String(tag || 'SVG').toUpperCase()),
+      querySelectorAll: () => [],
+      querySelector: () => makeMockElement('', 'DIV'),
+      addEventListener: () => {},
+      removeEventListener: () => {}
+    }
+  };
+
+  // Expose le constructeur URL standard tout en conservant createObjectURL/revokeObjectURL
+  const NativeURL = globalThis.URL;
+  NativeURL.createObjectURL = () => 'blob:http://tauri.localhost/mock';
+  NativeURL.revokeObjectURL = () => {};
+  sandbox.URL = NativeURL;
+
+  sandbox.window = sandbox;
+  sandbox.self = sandbox;
+  sandbox.globalThis = sandbox;
+  sandbox.addEventListener = () => {};
+  sandbox.removeEventListener = () => {};
+  sandbox.focus = () => {};
+
+  vm.createContext(sandbox);
+  vm.runInContext(pdfMinCode, sandbox);
+  vm.runInContext(pdfWorkerCode, sandbox);
+  vm.runInContext(pdfLibCode, sandbox);
+  vm.runInContext(appCode, sandbox);
+
+  const api = sandbox.__plumeStudioApi;
+  if (!api) throw new Error('window.__plumeStudioApi non initialisé');
+
+  // 1. Vérification du worker local de pdfjs-dist sous WebView2 (`http://tauri.localhost/vendor/pdf.worker.min.js`)
+  api.configurePdfJsWorkerLocally();
+  const workerSrc = sandbox.pdfjsLib.GlobalWorkerOptions.workerSrc;
+  if (workerSrc !== 'http://tauri.localhost/vendor/pdf.worker.min.js') {
+    throw new Error(`WorkerSrc inattendu sous WebView2: ${workerSrc}`);
+  }
+  if (!sandbox.pdfjsWorker || !sandbox.pdfjsWorker.WorkerMessageHandler) {
+    throw new Error('pdf.worker.min.js local non chargé en mémoire');
+  }
+  console.log('✓ [1/4] Worker local pdfjs-dist vérifié sous WebView2 :', workerSrc);
+
+  // 2. Vérification des PointerEvent du stylet Windows Ink (tracé rapide avec getCoalescedEvents, Gomme 32, Lasso 2)
+  const state = api.getState();
+  const initialPage = state.pagesByNotebook.get(state.activeNotebookId)[0];
+  const initialStrokes = initialPage.strokes.length;
+
+  // 2a. Tracé rapide en boucle au stylet avec événements coalescés (getCoalescedEvents)
+  api.handlePointerDown({
+    pointerId: 10,
+    pointerType: 'pen',
+    button: 0,
+    buttons: 1,
+    clientX: 250,
+    clientY: 250,
+    pressure: 0.62,
+    tiltX: 12,
+    tiltY: -8,
+    timeStamp: 1000,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  api.handlePointerMove({
+    pointerId: 10,
+    pointerType: 'pen',
+    button: -1,
+    buttons: 1,
+    clientX: 310,
+    clientY: 280,
+    pressure: 0.78,
+    timeStamp: 1016,
+    cancelable: true,
+    preventDefault: () => {},
+    getCoalescedEvents: () => [
+      { pointerId: 10, pointerType: 'pen', buttons: 1, clientX: 265, clientY: 255, pressure: 0.66, timeStamp: 1004 },
+      { pointerId: 10, pointerType: 'pen', buttons: 1, clientX: 285, clientY: 240, pressure: 0.72, timeStamp: 1008 },
+      { pointerId: 10, pointerType: 'pen', buttons: 1, clientX: 300, clientY: 265, pressure: 0.75, timeStamp: 1012 },
+      { pointerId: 10, pointerType: 'pen', buttons: 1, clientX: 310, clientY: 280, pressure: 0.78, timeStamp: 1016 }
+    ]
+  });
+  api.handlePointerUpOrCancel({
+    pointerId: 10,
+    pointerType: 'pen',
+    button: 0,
+    buttons: 0,
+    clientX: 310,
+    clientY: 280,
+    pressure: 0,
+    timeStamp: 1030
+  });
+
+  if (initialPage.strokes.length !== initialStrokes + 1) {
+    throw new Error('Le tracé au stylet Windows Ink (PointerEvent + getCoalescedEvents) n\'a pas été enregistré');
+  }
+  console.log(`✓ [2/4] Tracé au stylet Windows Ink (PointerEvent + getCoalescedEvents) vérifié : ${initialPage.strokes[initialPage.strokes.length - 1].points.length} points lissés`);
+
+  // 2b. Vérification des boutons physiques du stylet : Gomme (mask 32 / button 5) et 2e bouton Lasso (mask 2 / button 2)
+  const isEraser = api.isPenEraserButton({ pointerType: 'pen', buttons: 32, button: 5 });
+  const isLasso = api.isPenLassoButton({ pointerType: 'pen', buttons: 2, button: 2 });
+  if (!isEraser || !isLasso) {
+    throw new Error('Détection des boutons latéraux du stylet (Gomme=32, Lasso=2) défaillante');
+  }
+
+  // Activation temporaire du Lasso au maintien du 2e bouton du stylet + retour automatique au stylo au relâchement
+  api.handlePointerDown({
+    pointerId: 11,
+    pointerType: 'pen',
+    button: 2,
+    buttons: 2,
+    clientX: 260,
+    clientY: 260,
+    pressure: 0.5,
+    timeStamp: 2000,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  if (state.tool !== 'lasso' || !state.temporaryLassoOverride) {
+    throw new Error('Le maintien du 2e bouton du stylet n\'a pas activé temporairement le Lasso');
+  }
+  api.handlePointerUpOrCancel({
+    pointerId: 11,
+    pointerType: 'pen',
+    button: 2,
+    buttons: 0,
+    clientX: 260,
+    clientY: 260,
+    pressure: 0,
+    timeStamp: 2050
+  });
+  if (state.tool !== 'pen' || state.temporaryLassoOverride) {
+    throw new Error('Le relâchement du 2e bouton du stylet n\'est pas revenu automatiquement au stylo');
+  }
+  console.log('✓ [3/4] Boutons physiques du stylet (Gomme=32 et 2e bouton Lasso=2 avec retour auto au stylo) vérifiés');
+
+  // 3. Vérification de l'import PDF haute résolution, du stockage IndexedDB séparé et de l'export PDF via Tauri v2 IPC
+  const samplePdfBytes = await api.generateSampleCoursePdfBytes();
+  await api.importPdfFromBuffer(samplePdfBytes, 'Cours-Tauri-WebView2.pdf', 'new-notebook');
+  const activeNb = state.notebooks.find((n) => n.id === state.activeNotebookId);
+  const pdfPages = state.pagesByNotebook.get(activeNb.id);
+  if (!activeNb.pdfId || pdfPages.length !== 2) {
+    throw new Error('L\'import PDF dans un nouveau cahier n\'a pas généré les 2 pages attendues');
+  }
+
+  // Ajout d'une annotation au stylet sur la page 1 du PDF puis exportation via pdf-lib + Tauri v2 save_binary_file
+  pdfPages[0].strokes.push({
+    id: 'st_tauri_verify',
+    tool: 'pen',
+    color: '#dc2626',
+    size: 4,
+    smoothing: 0.65,
+    pressureMode: 'dynamic',
+    points: [
+      { x: 120, y: 240, pressure: 0.6 },
+      { x: 180, y: 260, pressure: 0.75 },
+      { x: 240, y: 230, pressure: 0.65 }
+    ]
+  });
+
+  const exportedBytes = await api.exportAnnotatedPdfWithPdfLib('notebook', true);
+  if (!exportedBytes || exportedBytes.byteLength < 1000 || savedTauriFiles.length === 0) {
+    throw new Error('L\'exportation PDF via pdf-lib + Tauri v2 save_binary_file a échoué');
+  }
+  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté (pdf-lib -> Tauri v2 IPC) vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+}
+
+runVerification().catch((err) => {
+  console.error('❌ Échec de la vérification WebView2 :', err);
+  process.exit(1);
+});

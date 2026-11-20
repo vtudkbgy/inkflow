@@ -1,0 +1,11 @@
+{
+  "name": "Plume Studio — Notes Manuscrites",
+  "short_name": "Plume Studio",
+  "description": "Application de prise de notes manuscrites vectorielles avec support stylet Windows Ink, pression dynamique et sauvegarde IndexedDB.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f3f2ee",
+  "theme_color": "#1e293b",
+  "orientation": "any",
+  "categories": ["productivity", "education", "utilities"]
+}

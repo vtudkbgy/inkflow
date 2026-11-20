@@ -1,0 +1,55 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions Tauri v2 pour Plume Studio Pro : import/export de fichiers PDF (dialog, fs), stockage local (IndexedDB + AppData/LocalData) et gestion de la fenêtre WebView2.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-set-title",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-maximize",
+    "core:window:allow-minimize",
+    "core:app:default",
+    "core:path:default",
+    "core:event:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
+    "fs:default",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-read-dir",
+    "fs:allow-stat",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive",
+    "fs:allow-localdata-read-recursive",
+    "fs:allow-localdata-write-recursive",
+    "fs:allow-document-read-recursive",
+    "fs:allow-document-write-recursive",
+    "fs:allow-download-read-recursive",
+    "fs:allow-download-write-recursive",
+    "fs:allow-desktop-read-recursive",
+    "fs:allow-desktop-write-recursive",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPDATA/**" },
+        { "path": "$LOCALDATA/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$HOME/**" }
+      ]
+    }
+  ]
+}

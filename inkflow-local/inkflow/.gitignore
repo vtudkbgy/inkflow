@@ -1,0 +1,36 @@
+# Système & environnement utilisateur (si initialisé à la racine du workspace)
+/.bashrc
+/.bash_logout
+/.bash_history
+/.profile
+/.cache/
+/.cargo/
+/.rustup/
+/.npm/
+/.gemini
+/.local/
+/.config/
+/.viminfo
+/.wget-hsts
+/upload/
+/image.png
+
+# Dépendances Node & téléchargement local lourd de REA (réinstallable via `npm run rea`)
+node_modules/
+tools/
+
+# Artefacts de compilation & archives générées
+src-tauri/target/
+dist/
+build/
+out/
+*.exe
+*.zip
+
+# Journaux & fichiers temporaires
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db

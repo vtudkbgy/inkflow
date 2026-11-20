@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Plume Studio Pro — Page Infinie, Notes Manuscrites, LaTeX &amp; Reconnaissance IA</title>
+  <meta name="description" content="Application web et desktop de prise de notes manuscrites inspirée de GoodNotes et Nebo. Page infinie, zoom pincement, reconnaissance d'écriture et d'équations LaTeX, zones de texte clavier et IndexedDB." />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <!-- ==================== BARRE LATÉRALE RÉTRACTABLE (CAHIERS & PAGES) ==================== -->
+    <aside class="sidebar collapsed" id="leftSidebar" aria-label="Gestion des cahiers et des pages">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-logo" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+              <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+              <path d="M2 2l7.586 7.586"></path>
+              <circle cx="11" cy="11" r="2"></circle>
+            </svg>
+          </div>
+          <div>
+            <h1 class="brand-title">Plume Studio Pro</h1>
+            <span class="brand-subtitle">Canevas Infini • LaTeX • ICR</span>
+          </div>
+        </div>
+        <button class="icon-btn-tiny" id="btnCloseSidebar" title="Réduire la barre latérale (Ctrl+B)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+            <path d="M9 3v18"></path>
+            <path d="M15 9l-3 3 3 3"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sidebar-tabs" role="tablist">
+        <button class="sidebar-tab active" id="tabNotebooksBtn" role="tab" aria-selected="true">Cahiers</button>
+        <button class="sidebar-tab" id="tabPagesBtn" role="tab" aria-selected="false">Pages (<span id="sidebarPageCount">2</span>)</button>
+      </div>
+
+      <div class="sidebar-section" id="sectionNotebooks">
+        <div class="section-header-row">
+          <span class="section-label">Mes Cahiers</span>
+          <button class="btn-small-action" id="btnNewNotebook" title="Créer un nouveau cahier">+ Nouveau</button>
+        </div>
+        <div class="pdf-sidebar-bar">
+          <button class="btn-small-action btn-pdf-import" id="btnImportPdfSidebar" title="Importer un fichier PDF local (nouveau cahier ou cahier actuel)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <path d="M12 18v-6"></path>
+              <path d="m9 15 3-3 3 3"></path>
+            </svg>
+            <span>Importer un PDF</span>
+          </button>
+          <button class="btn-small-action btn-pdf-export" id="btnExportPdfSidebar" title="Exporter le cahier annoté en fichier .pdf (pdf-lib)">
+            <span>⬇ Exporter en PDF</span>
+          </button>
+        </div>
+        <div class="notebook-list" id="notebookList"></div>
+      </div>
+
+      <div class="sidebar-section hidden" id="sectionPages">
+        <div class="section-header-row">
+          <span class="section-label" id="activeNotebookPagesLabel">Pages du cahier</span>
+          <div style="display:flex;gap:4px;">
+            <button class="btn-small-action btn-pdf-import" id="btnImportPdfPages" title="Importer des pages PDF dans ce cahier ou un nouveau cahier">+ PDF</button>
+            <button class="btn-small-action" id="btnNewPageSidebar" title="Ajouter une nouvelle page">+ Page</button>
+          </div>
+        </div>
+        <div class="pages-grid" id="pagesGrid"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="storage-status">
+          <div class="status-dot-wrap">
+            <span class="status-dot" id="dbStatusDot"></span>
+            <span id="dbStatusText">IndexedDB synchronisé</span>
+          </div>
+          <span id="strokeCountBadge" class="value-badge">0 éléments</span>
+        </div>
+        <div class="footer-actions">
+          <button class="btn-small-action" id="btnBackupJson" title="Exporter tous les cahiers en fichier .plume.json">Sauvegarder</button>
+          <button class="btn-small-action" id="btnImportJson" title="Importer un fichier .plume.json">Importer</button>
+          <input type="file" id="inputImportJson" accept=".json" style="display:none" />
+          <input type="file" id="inputImportPdf" accept=".pdf,application/pdf" style="display:none" />
+        </div>
+        <button class="btn-small-action" id="btnDesktopInfo" style="width:100%; justify-content:center;">
+          Application Desktop (Electron / PWA)
+        </button>
+      </div>
+    </aside>
+
+    <!-- ==================== ZONE DE TRAVAIL CENTRALE ==================== -->
+    <main class="workspace-area" id="workspaceArea">
+      <!-- BARRE D'OUTILS UNIQUE ET ÉPURÉE EN HAUT -->
+      <header class="floating-header">
+        <div class="unified-top-bar" role="toolbar" aria-label="Barre d'outils principale">
+          <!-- Bouton Cahiers (barre latérale) -->
+          <button class="tool-btn" id="btnToggleSidebar" title="Afficher/Masquer les cahiers et pages (Ctrl+B)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+            <span>Cahiers</span>
+          </button>
+
+          <div class="dock-divider"></div>
+
+          <!-- Outils principaux -->
+          <button class="tool-btn active" data-tool="pen" id="toolPen" title="Stylo (P) — Re-cliquer ou utiliser Réglages pour les options">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+              <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+            </svg>
+            <span>Stylo</span>
+            <span class="color-indicator" id="penColorDot" style="background:#1e293b"></span>
+          </button>
+
+          <button class="tool-btn" data-tool="highlighter" id="toolHighlighter" title="Surligneur translucide (H)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m9 11-6 6v3h9l3-3"></path>
+              <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"></path>
+            </svg>
+            <span>Surligneur</span>
+            <span class="color-indicator" id="hlColorDot" style="background:#facc15"></span>
+          </button>
+
+          <button class="tool-btn" data-tool="eraser" id="toolEraser" title="Gomme vectorielle (E)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path>
+              <path d="M22 21H7"></path>
+            </svg>
+            <span>Gomme</span>
+          </button>
+
+          <button class="tool-btn" data-tool="lasso" id="toolLasso" title="Lasso de sélection (L)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 2">
+              <path d="M7 22a5 5 0 0 1-2-4"></path>
+              <path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8a12 12 0 0 1-5-1"></path>
+            </svg>
+            <span>Lasso</span>
+          </button>
+
+          <button class="tool-btn" data-tool="text" id="toolText" title="Ajouter un emplacement de texte clavier sur la page (T)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="4 7 4 4 20 4 20 7"></polyline>
+              <line x1="9" y1="20" x2="15" y2="20"></line>
+              <line x1="12" y1="4" x2="12" y2="20"></line>
+            </svg>
+            <span>Texte</span>
+          </button>
+
+          <button class="tool-btn" id="btnOpenLatexModal" title="Insérer ou éditer une équation mathématique LaTeX (M)">
+            <span style="font-family:var(--font-math);font-weight:700;font-size:15px;">∑</span>
+            <span>LaTeX</span>
+          </button>
+
+          <button class="tool-btn" data-tool="shape" id="toolShape" title="Formes géométriques (S)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="11" height="11" rx="1"></rect>
+              <circle cx="16" cy="16" r="5"></circle>
+            </svg>
+            <span>Formes</span>
+          </button>
+
+          <button class="tool-btn" data-tool="pan" id="toolPan" title="Main / Bouger dans la page infinie (Espace ou 2 doigts)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
+              <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
+              <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
+              <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
+            </svg>
+            <span>Bouger</span>
+          </button>
+
+          <div class="dock-divider"></div>
+
+          <!-- Bouton dédié pour afficher/masquer les options de l'outil actif sans encombrer l'écran -->
+          <button class="tool-btn tool-options-trigger" id="btnToggleToolOptions" title="Afficher / Masquer les options de l'outil (Couleur, Taille, Lissage, Gomme...)" aria-expanded="false">
+            <span class="trigger-color-dot" id="activeToolColorPreview" style="background:#1e293b"></span>
+            <span id="activeToolSummaryText">5.0px</span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <line x1="4" y1="21" x2="4" y2="14"></line>
+              <line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line>
+              <line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line>
+              <line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
+            </svg>
+            <span class="trigger-chevron" id="toolOptionsChevron">▾</span>
+          </button>
+
+          <div class="dock-divider"></div>
+
+          <!-- Reconnaissance d'écriture & d'équations + Annuler / Rétablir -->
+          <button class="tool-btn ai-btn" id="btnOpenRecognition" title="Reconnaître l'écriture manuscrite et les équations en Texte / LaTeX">
+            <span>✨ Reconnaître</span>
+          </button>
+
+          <button class="tool-btn" id="btnUndo" title="Annuler (Ctrl+Z)" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 7v6h6"></path>
+              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+            </svg>
+          </button>
+          <button class="tool-btn" id="btnRedo" title="Rétablir (Ctrl+Y)" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 7v6h-6"></path>
+              <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
+            </svg>
+          </button>
+
+          <div class="dock-divider"></div>
+
+          <!-- Fonds, PDF, Export, Thème -->
+          <button class="tool-btn" id="btnPaperSettings" title="Changer le fond de page (Seyès, Millimétré, Isométrique, Cornell, Pointillé, Portée...)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <line x1="3" y1="9" x2="21" y2="9"></line>
+              <line x1="3" y1="15" x2="21" y2="15"></line>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+            <span>Fonds</span>
+          </button>
+
+          <button class="tool-btn" id="btnQuickImportPdf" title="Importer un fichier PDF local (PDF.js) pour l'annoter au stylet">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <path d="M12 18v-6"></path>
+              <path d="m9 15 3-3 3 3"></path>
+            </svg>
+            <span>Importer PDF</span>
+          </button>
+
+          <button class="tool-btn" id="btnExportMenu" title="Exporter en PDF annoté (pdf-lib), SVG, PNG ou App PC">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Export</span>
+          </button>
+
+          <button class="tool-btn" id="btnThemeToggle" title="Basculer le thème Clair / Sombre">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
+        </div>
+
+        <!-- POPOVER D'OPTIONS D'OUTIL (MASQUÉ PAR DÉFAUT, S'OUVRE UNIQUEMENT AU CLIC) -->
+        <div class="sub-dock hidden" id="toolOptionsDock">
+          <div class="swatch-group" id="colorPaletteGroup">
+            <button class="color-swatch active" data-color="#1e293b" style="background:#1e293b" title="Noir encre"></button>
+            <button class="color-swatch" data-color="#1d4ed8" style="background:#1d4ed8" title="Bleu royal"></button>
+            <button class="color-swatch" data-color="#0284c7" style="background:#0284c7" title="Bleu azur"></button>
+            <button class="color-swatch" data-color="#dc2626" style="background:#dc2626" title="Rouge carmin"></button>
+            <button class="color-swatch" data-color="#15803d" style="background:#15803d" title="Vert forêt"></button>
+            <button class="color-swatch" data-color="#d97706" style="background:#d97706" title="Ambre"></button>
+            <button class="color-swatch" data-color="#7c3aed" style="background:#7c3aed" title="Violet"></button>
+            <button class="color-swatch" data-color="#facc15" style="background:#facc15" title="Jaune fluo"></button>
+            <div class="color-picker-wrap" title="Couleur personnalisée">
+              <input type="color" id="customColorPicker" value="#1e293b" />
+            </div>
+          </div>
+
+          <div class="dock-divider" id="dividerAfterColor"></div>
+
+          <div class="control-group" id="sizeControlGroup">
+            <span>Taille</span>
+            <div class="size-presets">
+              <button class="size-dot-btn" data-size="2.5" title="Fin"><span style="width:4px;height:4px;"></span></button>
+              <button class="size-dot-btn active" data-size="5" title="Moyen"><span style="width:8px;height:8px;"></span></button>
+              <button class="size-dot-btn" data-size="12" title="Épais"><span style="width:12px;height:12px;"></span></button>
+            </div>
+            <input type="range" class="range-slider" id="strokeSizeSlider" min="1" max="42" step="0.5" value="5" />
+            <span class="value-badge" id="strokeSizeValue">5.0px</span>
+          </div>
+
+          <div class="control-group" id="smoothingControlGroup">
+            <div class="dock-divider"></div>
+            <span>Lissage</span>
+            <input type="range" class="range-slider" id="smoothingSlider" min="0" max="0.95" step="0.05" value="0.65" />
+            <span class="value-badge" id="smoothingValue">65%</span>
+            <div class="dock-divider"></div>
+            <div class="segmented-pills">
+              <button class="seg-pill active" id="btnPressureDynamic">Pression active</button>
+              <button class="seg-pill" id="btnPressureUniform">Uniforme</button>
+            </div>
+            <div class="dock-divider"></div>
+            <label class="option-toggle-pill" title="Maintenir le stylet immobile à la fin d'un tracé (cercle, ellipse, flèche, ligne, rectangle, triangle) pour le transformer en forme géométrique parfaite">
+              <input type="checkbox" id="autoShapeToggle" checked />
+              <span>✨ Forme auto (maintenir)</span>
+            </label>
+          </div>
+
+          <!-- Options Zone de Texte & LaTeX -->
+          <div class="control-group hidden" id="textControlGroup">
+            <span style="color:var(--accent-primary);font-weight:700;">Cliquez sur la page pour placer une zone clavier (supporte <code>$LaTeX$</code>)</span>
+            <button class="btn-small-action" id="btnAddTextCardNow">+ Nouvelle Zone Texte</button>
+            <button class="btn-small-action btn-ai-magic" id="btnAddLatexCardNow">∑ Nouveau Bloc LaTeX</button>
+          </div>
+
+          <div class="control-group hidden" id="shapeControlGroup">
+            <div class="dock-divider"></div>
+            <div class="segmented-pills">
+              <button class="seg-pill active" data-shape="line">Ligne</button>
+              <button class="seg-pill" data-shape="arrow">Flèche</button>
+              <button class="seg-pill" data-shape="rect">Rectangle</button>
+              <button class="seg-pill" data-shape="ellipse">Ellipse</button>
+              <button class="seg-pill" data-shape="triangle">Triangle</button>
+            </div>
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+              <input type="checkbox" id="shapeFillCheckbox" /> Remplir
+            </label>
+          </div>
+
+          <div class="control-group hidden" id="eraserControlGroup">
+            <div class="segmented-pills">
+              <button class="seg-pill active" data-eraser-mode="stroke">Trait entier</button>
+              <button class="seg-pill" data-eraser-mode="partial">Précision (découpe)</button>
+            </div>
+            <button class="btn-small-action" id="btnClearPage" style="color:var(--danger);">Tout effacer</button>
+          </div>
+
+          <div class="control-group hidden" id="lassoControlGroup">
+            <span id="lassoSelectionBadge" style="color:var(--accent-primary);font-weight:700;">Entourez des traits</span>
+            <button class="btn-small-action btn-ai-magic" id="btnRecognizeSelection">✨ Convertir en Texte / LaTeX</button>
+            <button class="btn-small-action" id="btnDuplicateSelection" disabled>Dupliquer</button>
+            <button class="btn-small-action" id="btnScaleUpSelection" disabled>Agrandir +</button>
+            <button class="btn-small-action" id="btnScaleDownSelection" disabled>Réduire −</button>
+            <button class="btn-small-action" id="btnDeleteSelection" disabled style="color:var(--danger);">Supprimer</button>
+          </div>
+
+          <button class="icon-btn-tiny" id="btnCloseToolOptions" title="Fermer les options" style="margin-left:4px;">✕</button>
+        </div>
+      </header>
+
+      <!-- POPOVER : 8 FONDS DE PAGE & CANEVAS INFINI -->
+      <div class="popover-panel hidden" id="paperPopover">
+        <div class="popover-title">
+          <span>Fonds de Page &amp; Canevas Infini</span>
+          <button class="icon-btn-tiny" id="btnClosePaperPopover">✕</button>
+        </div>
+
+        <div class="form-field">
+          <label>Modèle de papier (8 réglures)</label>
+          <div class="paper-grid-options">
+            <button class="paper-option-btn active" data-paper="grid">⊞ Quadrillé 5×5</button>
+            <button class="paper-option-btn" data-paper="seyes">▤ Grands Carreaux Seyès</button>
+            <button class="paper-option-btn" data-paper="engineering">⌗ Papier Millimétré</button>
+            <button class="paper-option-btn" data-paper="isometric">△ Grille Isométrique 3D</button>
+            <button class="paper-option-btn" data-paper="lined">☰ Ligné Cornell</button>
+            <button class="paper-option-btn" data-paper="dotted">∷ Pointillé (Bullet)</button>
+            <button class="paper-option-btn" data-paper="music">𝄞 Portée Musicale</button>
+            <button class="paper-option-btn" data-paper="blank">☐ Blanc (Uni)</button>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label>Teinte du papier</label>
+          <div class="paper-tone-swatches">
+            <button class="tone-btn active" data-tone="ivory" style="background:#fbfaf5;color:#1e293b;">Ivoire</button>
+            <button class="tone-btn" data-tone="white" style="background:#ffffff;color:#1e293b;">Blanc</button>
+            <button class="tone-btn" data-tone="sepia" style="background:#f5eedc;color:#451a03;">Parchemin</button>
+            <button class="tone-btn" data-tone="blueprint" style="background:#0d2847;color:#e0f2fe;">Blueprint</button>
+            <button class="tone-btn" data-tone="dark" style="background:#14171f;color:#f1f5f9;">Ardoise</button>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label style="display:flex;justify-content:space-between;">
+            <span>Espacement de la réglure</span>
+            <span id="gridSpacingVal" class="value-badge">28px</span>
+          </label>
+          <input type="range" class="range-slider" id="gridSpacingSlider" min="16" max="56" step="2" value="28" style="width:100%" />
+        </div>
+
+        <div class="form-field">
+          <label>Mode d'extension de la page</label>
+          <div class="segmented-pills" style="display:grid;grid-template-columns:1fr 1fr;">
+            <button class="seg-pill active" data-viewmode="infinite" id="viewModeInfinite">∞ Page Infinie</button>
+            <button class="seg-pill" data-viewmode="page" id="viewModePage">Page A4 fixe</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- POPOVER : EXPORTATION -->
+      <div class="popover-panel hidden" id="exportPopover" style="width:295px;">
+        <div class="popover-title">
+          <span>Exporter &amp; Gestion PDF</span>
+          <button class="icon-btn-tiny" id="btnCloseExportPopover">✕</button>
+        </div>
+        <button class="paper-option-btn" id="btnExportPdf" style="width:100%;border-color:var(--accent-primary);color:var(--accent-primary);font-weight:700;">
+          📄 Exporter en PDF annoté (Cahier complet)
+        </button>
+        <button class="paper-option-btn" id="btnExportCurrentPagePdf" style="width:100%">
+          📄 Exporter la page active en PDF (.pdf)
+        </button>
+        <button class="paper-option-btn" id="btnImportPdfFromExportMenu" style="width:100%">
+          📥 Importer un fichier PDF...
+        </button>
+        <button class="paper-option-btn" id="btnExportSvg" style="width:100%">SVG Vectoriel</button>
+        <button class="paper-option-btn" id="btnExportPng" style="width:100%">PNG Haute Définition</button>
+        <button class="paper-option-btn" id="btnDownloadStandaloneApp" style="width:100%">
+          ⬇ Télécharger l'App (.html autonome PC)
+        </button>
+      </div>
+
+      <!-- CANEVAS INTERACTIF INFINI : CALQUE DE FOND PDF VERROUILLÉ + DOUBLE CANVAS (STATIQUE + ACTIF 120 FPS) -->
+      <div class="canvas-viewport drawing-mode-active" id="canvasViewport">
+        <canvas id="pdfBgCanvas" aria-hidden="true"></canvas>
+        <canvas id="inkCanvas"></canvas>
+        <canvas id="activeInkCanvas" aria-hidden="true"></canvas>
+        <div class="world-objects-layer" id="worldObjectsLayer"></div>
+        <div class="custom-cursor" id="eraserCursor"></div>
+
+        <!-- Mini barre flottante de sélection lasso (apparaît brièvement quand des éléments sont entourés) -->
+        <div class="lasso-floating-actions hidden" id="lassoFloatingActions">
+          <button class="lasso-fab-btn" id="btnQuickDupLasso" title="Dupliquer">⧉</button>
+          <button class="lasso-fab-btn ai" id="btnQuickRecogLasso" title="Convertir en Texte / LaTeX">✨</button>
+          <button class="lasso-fab-btn danger" id="btnQuickDelLasso" title="Supprimer">✕</button>
+        </div>
+
+        <!-- ROUE DE COULEURS RADIALE (Maintenir le bouton du lasso sans bouger) -->
+        <div class="radial-color-wheel hidden" id="radialColorWheel" role="menu" aria-label="Roue de sélection rapide de couleur">
+          <svg class="radial-wheel-svg" id="radialWheelSvg" viewBox="0 0 184 184" width="184" height="184"></svg>
+          <div class="radial-wheel-center" id="radialWheelCenter">
+            <span class="radial-center-dot" id="radialCenterDot"></span>
+            <span class="radial-center-label" id="radialCenterLabel">Couleur</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- BARRE INFÉRIEURE : TÉLÉMÉTRIE STYLET & CONTRÔLES DE ZOOM / EXTENSION -->
+      <footer class="bottom-hud">
+        <div class="telemetry-pill">
+          <div class="telemetry-item">
+            <span class="pointer-badge" id="pointerTypeBadge">Prêt (Stylet / Pincement 2 doigts)</span>
+          </div>
+          <div class="telemetry-item">
+            <span>Pression:</span>
+            <div class="pressure-bar-track">
+              <div class="pressure-bar-fill" id="pressureBarFill"></div>
+            </div>
+            <span class="mono-readout" id="pressureReadout">0.50</span>
+          </div>
+          <div class="telemetry-item telemetry-extra">
+            <span>Coalescés:</span>
+            <span class="mono-readout" id="coalescedReadout">1 pt</span>
+          </div>
+          <div class="telemetry-item telemetry-extra">
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="Si activé, 1 doigt déplace la feuille et seul le stylet dessine. À 2 doigts, le pincement zoome et déplace toujours la feuille.">
+              <input type="checkbox" id="palmRejectionToggle" />
+              <span>1 Doigt = Bouger</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="zoom-pill">
+          <button class="tool-btn" id="btnPrevPage" title="Page précédente">‹</button>
+          <span class="mono-readout" id="hudPageIndicator" style="padding:0 5px;">1 / 2</span>
+          <button class="tool-btn" id="btnNextPage" title="Page suivante">›</button>
+          <button class="tool-btn" id="btnQuickAddPage" title="Nouvelle page">+</button>
+          <div class="dock-divider"></div>
+          <button class="tool-btn" id="btnZoomOut" title="Dézoomer pour étendre la page infinie">−</button>
+          <button class="tool-btn mono-readout" id="btnZoomReset" title="Réinitialiser le zoom à 100%">100%</button>
+          <button class="tool-btn" id="btnZoomIn" title="Zoomer">+</button>
+          <button class="tool-btn" id="btnExtendCanvas" title="Dézoomer large (45%) pour voir et étendre la page infinie">∞ Étendre</button>
+          <button class="tool-btn" id="btnFitPage" title="Recadrer sur l'origine de la page">⊡</button>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- ==================== MODAL : ÉDITEUR D'ÉQUATION LATEX ==================== -->
+  <div class="modal-backdrop hidden" id="modalLatexEditor">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><span style="font-family:var(--font-math);color:var(--accent-ai);font-size:18px;">∑</span> Insérer / Éditer une Équation LaTeX</h3>
+        <button class="icon-btn-tiny" id="btnCloseLatexModal">✕</button>
+      </div>
+
+      <div class="form-field">
+        <label>Symboles &amp; Structures Mathématiques rapides (cliquer pour insérer)</label>
+        <div class="latex-symbols-grid" id="latexQuickSymbols">
+          <button class="sym-chip" data-insert="\frac{a}{b}" title="Fraction">a/b</button>
+          <button class="sym-chip" data-insert="\sqrt{x}" title="Racine carrée">√x</button>
+          <button class="sym-chip" data-insert="x^{2}" title="Exposant">x²</button>
+          <button class="sym-chip" data-insert="x_{n}" title="Indice">xₙ</button>
+          <button class="sym-chip" data-insert="\int_{0}^{+\infty} " title="Intégrale">∫₀^∞</button>
+          <button class="sym-chip" data-insert="\sum_{n=1}^{\infty} " title="Somme">∑₁^∞</button>
+          <button class="sym-chip" data-insert="\lim_{x \to 0} " title="Limite">lim</button>
+          <button class="sym-chip" data-insert="\vec{u}" title="Vecteur">u⃗</button>
+          <button class="sym-chip" data-insert="\begin{pmatrix} a &amp; b \\ c &amp; d \end{pmatrix}" title="Matrice 2x2">(a b; c d)</button>
+          <button class="sym-chip" data-insert="\alpha">\alpha</button>
+          <button class="sym-chip" data-insert="\beta">\beta</button>
+          <button class="sym-chip" data-insert="\pi">\pi</button>
+          <button class="sym-chip" data-insert="\theta">\theta</button>
+          <button class="sym-chip" data-insert="\Delta">\Delta</button>
+          <button class="sym-chip" data-insert="\Omega">\Omega</button>
+          <button class="sym-chip" data-insert="\pm">±</button>
+          <button class="sym-chip" data-insert="\leq">≤</button>
+          <button class="sym-chip" data-insert="\geq">≥</button>
+          <button class="sym-chip" data-insert="\neq">≠</button>
+          <button class="sym-chip" data-insert="\approx">≈</button>
+          <button class="sym-chip" data-insert="\infty">∞</button>
+          <button class="sym-chip" data-insert="\Rightarrow">⇒</button>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label>Formules classiques prêtes à l'emploi</label>
+        <div class="latex-symbols-grid" id="latexPresetTemplates">
+          <button class="sym-chip" data-template="x = \frac{-b \pm \sqrt{b^{2} - 4ac}}{2a}">Quadratique</button>
+          <button class="sym-chip" data-template="\int_{-\infty}^{+\infty} e^{-x^{2}} dx = \sqrt{\pi}">Intégrale de Gauss</button>
+          <button class="sym-chip" data-template="\sum_{n=1}^{\infty} \frac{1}{n^{2}} = \frac{\pi^{2}}{6}">Série de Bâle</button>
+          <button class="sym-chip" data-template="f(x) = \frac{1}{\sigma\sqrt{2\pi}} e^{-\frac{(x-\mu)^{2}}{2\sigma^{2}}}">Loi Normale</button>
+          <button class="sym-chip" data-template="A = \begin{pmatrix} \cos\theta &amp; -\sin\theta \\ \sin\theta &amp; \cos\theta \end{pmatrix}">Matrice Rotation</button>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label for="inputLatexCode">Code LaTeX</label>
+        <textarea id="inputLatexCode" class="form-input" rows="3" style="font-family:var(--font-mono);" placeholder="Ex: \int_{0}^{+\infty} e^{-x^2} dx = \frac{\sqrt{\pi}}{2}"></textarea>
+      </div>
+
+      <div class="form-field">
+        <label>Aperçu mathématique en direct</label>
+        <div class="latex-preview-box" id="latexLivePreview"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnCancelLatexModal">Annuler</button>
+        <button class="btn-primary" id="btnConfirmLatexModal">Placer l'équation sur la page</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL : RECONNAISSANCE MANUSCRITE (TEXTE & ÉQUATIONS) ==================== -->
+  <div class="modal-backdrop hidden" id="modalRecognition">
+    <div class="modal-card" style="max-width:600px;">
+      <div class="modal-header">
+        <h3><span>✨</span> Reconnaissance Manuscrite — Texte &amp; Équations LaTeX</h3>
+        <button class="icon-btn-tiny" id="btnCloseRecognitionModal">✕</button>
+      </div>
+
+      <p style="font-size:12px;color:var(--text-secondary);line-height:1.45;" id="recogSourceInfo">
+        Analyse géométrique vectorielle des traits sélectionnés (ou de la page). Vous pouvez ajuster le texte ou le LaTeX reconnu avant de remplacer les traits ou d'insérer le bloc sur la page.
+      </p>
+
+      <div class="recog-preview-row">
+        <div class="recog-snapshot-box">
+          <canvas id="recogSnapshotCanvas" width="148" height="96"></canvas>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;justify-content:center;">
+          <div class="form-field">
+            <label for="inputRecognizedText">Texte manuscrit reconnu</label>
+            <input type="text" id="inputRecognizedText" class="form-input" placeholder="Texte reconnu..." />
+          </div>
+          <div class="form-field">
+            <label for="inputRecognizedLatex">Équation mathématique (LaTeX) reconnue</label>
+            <input type="text" id="inputRecognizedLatex" class="form-input" style="font-family:var(--font-mono);" placeholder="Code LaTeX reconnu..." />
+          </div>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label>Rendu mathématique de l'équation détectée</label>
+        <div class="latex-preview-box" id="recogLatexPreview"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnCopyRecognizedLatex">Copier LaTeX</button>
+        <button class="btn-secondary" id="btnInsertRecognizedText">Insérer comme Zone Texte</button>
+        <button class="btn-secondary" id="btnReplaceWithText">Remplacer traits par Texte</button>
+        <button class="btn-primary" id="btnReplaceWithLatex">∑ Convertir en Bloc LaTeX sur la page</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : NOUVEAU CAHIER -->
+  <div class="modal-backdrop hidden" id="modalNewNotebook">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Nouveau Cahier de Notes</h3>
+        <button class="icon-btn-tiny" id="btnCloseNotebookModal">✕</button>
+      </div>
+      <div class="form-field">
+        <label for="inputNotebookName">Titre du cahier</label>
+        <input type="text" id="inputNotebookName" class="form-input" placeholder="Ex : Mathématiques &amp; Algèbre..." />
+      </div>
+      <div class="form-field">
+        <label>Couleur de couverture</label>
+        <div class="swatch-group" id="notebookCoverSwatches">
+          <button class="color-swatch active" data-cover="#1d4ed8" style="background:#1d4ed8"></button>
+          <button class="color-swatch" data-cover="#0f766e" style="background:#0f766e"></button>
+          <button class="color-swatch" data-cover="#b45309" style="background:#b45309"></button>
+          <button class="color-swatch" data-cover="#be123c" style="background:#be123c"></button>
+          <button class="color-swatch" data-cover="#6d28d9" style="background:#6d28d9"></button>
+          <button class="color-swatch" data-cover="#334155" style="background:#334155"></button>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="selectDefaultPaper">Fond de papier par défaut</label>
+        <select id="selectDefaultPaper" class="form-input">
+          <option value="grid">Quadrillé (5×5)</option>
+          <option value="seyes">Grands Carreaux Seyès (Français)</option>
+          <option value="engineering">Papier Millimétré Ingénieur</option>
+          <option value="isometric">Grille Isométrique 3D</option>
+          <option value="lined">Ligné (Cornell)</option>
+          <option value="dotted">Pointillé (Bullet)</option>
+          <option value="music">Portée Musicale</option>
+          <option value="blank">Blanc uni</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnCancelNotebookModal">Annuler</button>
+        <button class="btn-primary" id="btnCreateNotebookConfirm">Créer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : APPLICATION DESKTOP -->
+  <div class="modal-backdrop hidden" id="modalDesktopInfo">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Application Desktop (Electron &amp; PWA)</h3>
+        <button class="icon-btn-tiny" id="btnCloseDesktopModal">✕</button>
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);line-height:1.5;">
+        Le projet complet est disponible dans <code>/home/antigravity</code> avec configuration <strong>Electron</strong> et <strong>PWA</strong> :
+      </p>
+      <pre class="code-snippet">npm install
+npm run desktop      # Lancer en fenêtre native
+npm run build:win    # Exporter en .exe Windows
+npm run build:linux  # Exporter en .AppImage / .deb</pre>
+      <div class="modal-actions">
+        <button class="btn-primary" id="btnOkDesktopModal">Compris</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : IMPORTATION DE FICHIER PDF (PDF.JS) -->
+  <div class="modal-backdrop hidden" id="modalImportPdf">
+    <div class="modal-card" style="max-width:480px;">
+      <div class="modal-header">
+        <h3>📄 Importer un document PDF (100 % Local &amp; Hors-Ligne)</h3>
+        <button class="icon-btn-tiny" id="btnCloseImportPdfModal">✕</button>
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);line-height:1.5;">
+        Chaque page du PDF est rendue en <strong>haute résolution (HiDPI)</strong> sur un calque de fond verrouillé et stockée séparément dans <strong>IndexedDB</strong> pour une écriture au stylet instantanée.
+      </p>
+
+      <div class="pdf-file-dropzone" id="pdfModalDropzone">
+        <div class="pdf-dropzone-icon">📄</div>
+        <div class="pdf-dropzone-title" id="importPdfFileName">Aucun fichier PDF sélectionné</div>
+        <div class="pdf-dropzone-meta" id="importPdfPageCount">Sélectionnez un fichier .pdf depuis votre PC ou glissez-le ici</div>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center;">
+          <button class="btn-secondary" id="btnSelectPdfFileModal" type="button">📂 Choisir un fichier .pdf...</button>
+          <button class="btn-small-action btn-ai-magic" id="btnGenerateSamplePdf" type="button" title="Génère localement un PDF de cours de 2 pages avec pdf-lib et l'importe immédiatement">
+            ✨ Tester avec un PDF de cours exemple (2 pages)
+          </button>
+        </div>
+      </div>
+
+      <div class="pdf-import-error hidden" id="pdfImportErrorBanner" role="alert"></div>
+
+      <div class="pdf-import-progress hidden" id="pdfImportProgressWrap">
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:600;margin-bottom:4px;">
+          <span id="pdfImportProgressText">Importation et rendu des pages PDF...</span>
+          <span id="pdfImportProgressPercent" class="mono-readout">0%</span>
+        </div>
+        <div class="pressure-bar-track" style="width:100%;height:8px;">
+          <div class="pressure-bar-fill" id="pdfImportProgressFill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="justify-content:space-between;">
+        <button class="btn-secondary" id="btnCancelImportPdfModal" type="button">Annuler</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-secondary" id="btnConfirmPdfAppendNotebook" type="button" disabled title="Insérer toutes les pages du PDF à la suite du cahier actuel">
+            + Insérer dans le cahier actuel
+          </button>
+          <button class="btn-primary" id="btnConfirmPdfNewNotebook" type="button" disabled title="Créer automatiquement un nouveau cahier avec une page par page du PDF">
+            Créer un nouveau cahier PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : RENOMMER -->
+  <div class="modal-backdrop hidden" id="modalRenameItem">
+    <div class="modal-card" style="max-width:360px;">
+      <div class="modal-header">
+        <h3 id="modalRenameTitle">Renommer</h3>
+        <button class="icon-btn-tiny" id="btnCloseRenameModal">✕</button>
+      </div>
+      <div class="form-field">
+        <label for="inputRenameValue">Nouveau titre</label>
+        <input type="text" id="inputRenameValue" class="form-input" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnCancelRenameModal">Annuler</button>
+        <button class="btn-primary" id="btnConfirmRenameModal">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="./vendor/pdf.min.js"></script>
+  <script src="./vendor/pdf.worker.min.js"></script>
+  <script src="./vendor/pdf-lib.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

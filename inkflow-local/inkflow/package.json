@@ -1,0 +1,78 @@
+{
+  "name": "inkflow",
+  "version": "1.0.0",
+  "description": "Application de prise de notes manuscrites sur PC (Windows Ink, PointerEvents, Perfect-Freehand, IndexedDB) inspirée de GoodNotes et Nebo",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "npx serve . -l 5173",
+    "test": "node scripts/run-unit-tests.js",
+    "verify:webview2": "node scripts/verify-webview2-pdf-stylus.js",
+    "rea": "node scripts/rea-cli.js",
+    "rea:setup": "node scripts/rea-cli.js setup",
+    "rea:analyze": "node scripts/rea-cli.js analyze-javascript-application . --json",
+    "tauri": "node scripts/tauri-runner.js",
+    "tauri:dev": "node scripts/tauri-runner.js dev",
+    "tauri:build": "node scripts/tauri-runner.js build",
+    "desktop": "electron .",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "keywords": [
+    "handwriting",
+    "notes",
+    "stylus",
+    "windows-ink",
+    "pointer-events",
+    "perfect-freehand",
+    "indexeddb",
+    "goodnotes",
+    "nebo"
+  ],
+  "author": "Plume Studio",
+  "license": "MIT",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.plumestudio.notes",
+    "productName": "Plume Studio",
+    "files": [
+      "index.html",
+      "styles.css",
+      "app.js",
+      "manifest.json",
+      "sw.js",
+      "vendor/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity"
+    }
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-fs": "^2.7.1",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^3.11.174"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Plume Studio Pro",
+  "mainBinaryName": "PlumeStudioPro",
+  "version": "1.0.0",
+  "identifier": "com.plumestudio.pro",
+  "build": {
+    "beforeDevCommand": "",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "node scripts/prepare-dist.js",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Plume Studio Pro — Notes Manuscrites, Stylet Windows Ink & PDF",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640,
+        "center": true,
+        "resizable": true,
+        "maximizable": true,
+        "minimizable": true,
+        "closable": true,
+        "fullscreen": false,
+        "dragDropEnabled": false,
+        "zoomHotkeysEnabled": false,
+        "additionalBrowserArgs": "--disable-features=msWebView2EnableDraggableRegions,OverscrollHistoryNavigation --disable-pinch --touch-events=enabled"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' blob: data: asset: http://asset.localhost http://tauri.localhost https://tauri.localhost; script-src 'self' 'unsafe-inline' blob: data: http://tauri.localhost https://tauri.localhost; worker-src 'self' blob: http://tauri.localhost https://tauri.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost blob: data: asset: http://asset.localhost http://tauri.localhost https://tauri.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/**",
+          "$LOCALDATA/**",
+          "$DOCUMENT/**",
+          "$DOWNLOAD/**",
+          "$DESKTOP/**",
+          "$HOME/**"
+        ]
+      },
+      "capabilities": [
+        "default"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "msi"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
+  }
+}
