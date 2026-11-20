@@ -494,7 +494,43 @@ async function runTests() {
     assert.equal(dbPagesAfterNbDelete.length, 0, 'Les pages du cahier supprimé ne doivent plus exister dans IndexedDB');
     assert.equal(st.notebooks.length, initialNbCount, 'Le nombre de cahiers doit revenir à l’état initial');
 
-    return `Cahier créé (3 pages), suppression de page + protection dernière page + suppression cahier : 0 orphelin IndexedDB/RAM.`;
+    // Vérification GoodNotes : Corbeille (soft-delete + restauration + vidage), Rotation 90°, Réorganisation de pages, Plan (Outline) & Modèles de papier
+    const { notebook: nbGn, firstPage: gnP1 } = await api.createNotebookProgrammatically('Cahier GoodNotes FS', 'cornell', '#0072ce');
+    const gnP2 = await api.addNewPageToActiveNotebook();
+    gnP2.paperType = 'twocolumn';
+    api.renderScene();
+    gnP2.paperType = 'planner';
+    api.renderScene();
+
+    // Rotation 90° de la page
+    const rotated = await api.rotatePageById(gnP1.id, 90);
+    assert.equal(rotated.rotation, 90, 'rotatePageById doit pivoter la page de 90°');
+
+    // Réorganisation des pages (glisser-déposer page 0 -> index 1)
+    const reordered = await api.reorderPagesInActiveNotebook(0, 1);
+    assert.equal(reordered, true, 'reorderPagesInActiveNotebook(0, 1) doit réussir');
+    assert.equal(api.getActiveNotebookPages()[1].id, gnP1.id, 'La page 1 doit maintenant être en position 1');
+
+    // Ajout d'une entrée au Plan (Outline)
+    const outlineEntry = await api.addOutlineEntryForPage(gnP1.id, 'Chapitre 1 : Introduction', 1);
+    assert.ok(outlineEntry && outlineEntry.title === 'Chapitre 1 : Introduction', 'addOutlineEntryForPage doit créer une entrée dans nb.outline');
+    assert.equal(nbGn.outline.length, 1, 'Le cahier doit contenir 1 entrée de plan');
+
+    // Mise à la corbeille (soft-delete) puis restauration
+    const trashedOk = await api.moveNotebookToTrash(nbGn.id);
+    assert.equal(trashedOk, true, 'moveNotebookToTrash doit déplacer le cahier dans la corbeille');
+    assert.ok(Number.isFinite(nbGn.trashedAt) && nbGn.trashedAt > 0, 'nb.trashedAt doit être défini');
+    const restoredOk = await api.restoreNotebookFromTrash(nbGn.id);
+    assert.equal(restoredOk, true, 'restoreNotebookFromTrash doit restaurer le cahier');
+    assert.equal(nbGn.trashedAt, null, 'nb.trashedAt doit être remis à null après restauration');
+
+    // Mise à la corbeille puis vidage définitif de la corbeille
+    await api.moveNotebookToTrash(nbGn.id);
+    const purgedCount = await api.emptyTrash();
+    assert.equal(purgedCount, 1, 'emptyTrash doit supprimer définitivement le cahier mis à la corbeille');
+    assert.equal(st.notebooks.length, initialNbCount, 'Le nombre de cahiers doit revenir à l’état initial après emptyTrash');
+
+    return `Cahier créé (3 pages), Corbeille/Restauration, Rotation 90°, Réorganisation, Plan & Modèles GoodNotes : 0 orphelin IndexedDB/RAM.`;
   });
 
   // ------------------------------------------------------------------------
@@ -710,9 +746,123 @@ async function runTests() {
     assert.equal(pg.strokes.length, 3, 'Un Ctrl+Z en plein 4e tracé doit finaliser puis annuler proprement ce 4e tracé');
     assert.equal(st.isDrawing, false, 'isDrawing doit être false après un Ctrl+Z en plein tracé');
 
+    // Vérification du cache Path2D/bounds/renderMode, de cloneStrokeFast, de la gomme et de Undo/Redo sur tapes & images
+    const firstStroke = pg.strokes[0];
+    firstStroke.penStyle = 'brush';
+    firstStroke.recognizedSymbol = 'x';
+    firstStroke.recognizedGroup = 'g_test';
+    const rawBounds = api.computeStrokeBounds(firstStroke);
+    assert.ok(Number.isFinite(rawBounds.width) && Number.isFinite(rawBounds.height) && Number.isFinite(rawBounds.cx) && Number.isFinite(rawBounds.cy), 'computeStrokeBounds doit retourner width, height, cx, cy');
+    const cachedPen = api.getCachedStrokePath(firstStroke);
+    assert.equal(cachedPen.renderMode, 'fill', 'Un trait de stylo dynamique doit avoir renderMode="fill" dans strokePathCache');
+    assert.ok(cachedPen.bounds && Number.isFinite(cachedPen.bounds.minX), 'getCachedStrokePath doit inclure bounds');
+    assert.deepEqual(api.getCachedStrokeBounds(firstStroke), cachedPen.bounds, 'getCachedStrokeBounds doit retourner les bounds en cache');
+
+    const clonedStroke = api.cloneStrokeFast(firstStroke);
+    assert.equal(clonedStroke.penStyle, 'brush', 'cloneStrokeFast doit préserver penStyle');
+    assert.equal(clonedStroke.recognizedSymbol, 'x', 'cloneStrokeFast doit préserver recognizedSymbol');
+    assert.equal(clonedStroke.recognizedGroup, 'g_test', 'cloneStrokeFast doit préserver recognizedGroup');
+    assert.equal(api.getCachedStrokePath(clonedStroke), cachedPen, 'cloneStrokeFast doit préserver l’entrée WeakMap strokePathCache');
+
+    const hlStroke = {
+      id: 'st_hl_mode_check',
+      tool: 'highlighter',
+      color: '#facc15',
+      size: 20,
+      pressureMode: 'uniform',
+      points: [{ x: 100, y: 100, pressure: 0.5 }, { x: 200, y: 100, pressure: 0.5 }]
+    };
+    const cachedHl = api.getCachedStrokePath(hlStroke);
+    assert.equal(cachedHl.renderMode, 'stroke', 'Un trait de surligneur doit avoir renderMode="stroke" dans strokePathCache');
+
+    // Test Gomme (applyEraserAtPoint utilise getCachedStrokeBounds) + Undo/Redo avec tapes et images
+    api.pushHistorySnapshot(pg);
+    pg.tapes = [{ id: 'tp_test_1', x1: 100, y1: 100, x2: 240, y2: 100, thickness: 24, color: '#f59e0b', revealed: false }];
+    pg.images = [{ id: 'img_test_1', x: 120, y: 120, width: 160, height: 120, src: 'data:image/png;base64,iVBORw0KGgo=' }];
+    const hitPt = firstStroke.points[0];
+    st.eraserMode = 'stroke';
+    api.applyEraserAtPoint(hitPt.x, hitPt.y);
+    assert.equal(pg.strokes.length, 2, 'La gomme mode trait entier doit effacer le trait touché via getCachedStrokeBounds');
+
+    api.performUndo();
+    assert.equal(pg.strokes.length, 3, 'Undo après gomme doit restaurer les 3 traits');
+    assert.equal((pg.tapes || []).length, 0, 'Undo doit restaurer tapes à son état précédent');
+    assert.equal((pg.images || []).length, 0, 'Undo doit restaurer images à son état précédent');
+
+    api.performRedo();
+    assert.equal(pg.strokes.length, 2, 'Redo doit ré-appliquer la suppression par gomme');
+    assert.equal((pg.tapes || []).length, 1, 'Redo doit restaurer le ruban (tape)');
+    assert.equal((pg.images || []).length, 1, 'Redo doit restaurer l’image');
+
+    // Vérification GoodNotes Ink & Outils : One-Euro Filter, traits pointillés/tirets, Surligneur auto-straighten, Gomme Segment & Surligneur seul & Auto-deselect, Lasso Rectangulaire
+    const euroState = { minCutoff: 1.45, beta: 0.032, dCutoff: 1.0 };
+    const euroInit = api.oneEuroFilterStep(100, 0.0, euroState);
+    const euroFiltered = api.oneEuroFilterStep(110, 0.016, euroState);
+    assert.equal(euroInit, 100, 'oneEuroFilterStep doit initialiser avec la première valeur');
+    assert.ok(euroFiltered > 100 && euroFiltered <= 110, 'oneEuroFilterStep doit lisser de manière adaptative entre prevVal et rawVal');
+
+    const dashedStroke = {
+      id: 'st_dashed_check',
+      tool: 'pen',
+      penStyle: 'ballpoint',
+      lineStyle: 'dashed',
+      color: '#1e293b',
+      size: 4,
+      pressureMode: 'dynamic',
+      points: [{ x: 100, y: 120, pressure: 0.5 }, { x: 240, y: 120, pressure: 0.6 }]
+    };
+    assert.equal(api.getCachedStrokePath(dashedStroke).renderMode, 'stroke', 'Un trait en mode tirets (lineStyle="dashed") doit utiliser renderMode="stroke"');
+
+    // Surligneur Auto-Straighten : un trait quasi-rectiligne doit être redressé en 2 points alignés
+    st.tool = 'highlighter';
+    st.highlighterAutoStraighten = true;
+    api.handlePointerDown({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 1, clientX: 100, clientY: 200, pressure: 0.5, preventDefault() {} });
+    api.handlePointerMove({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 1, clientX: 180, clientY: 202, pressure: 0.5, getCoalescedEvents: () => [], preventDefault() {} });
+    api.handlePointerMove({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 1, clientX: 260, clientY: 201, pressure: 0.5, getCoalescedEvents: () => [], preventDefault() {} });
+    api.handlePointerUpOrCancel({ pointerId: 910, pointerType: 'pen', button: 0, buttons: 0, clientX: 260, clientY: 201, pressure: 0, preventDefault() {} });
+    const autoStraightHl = pg.strokes[pg.strokes.length - 1];
+    assert.equal(autoStraightHl.tool, 'highlighter', 'Le dernier trait doit être un surligneur');
+    assert.equal(autoStraightHl.points.length, 2, 'Le surligneur quasi-rectiligne doit être redressé en un segment parfait de 2 points');
+    assert.equal(autoStraightHl.points[0].y, autoStraightHl.points[1].y, 'Le surligneur quasi-horizontal (< 4°) doit être aligné horizontalement');
+
+    // Gomme mode "segment" + "Surligneur seul" (eraserHighlighterOnly)
+    st.eraserMode = 'segment';
+    st.eraserHighlighterOnly = true;
+    const penStrokesBeforeHlErase = pg.strokes.filter((s) => s.tool !== 'highlighter').length;
+    const midHlX = (autoStraightHl.points[0].x + autoStraightHl.points[1].x) * 0.5;
+    const midHlY = autoStraightHl.points[0].y;
+    api.applyEraserAtPoint(midHlX, midHlY);
+    const hlStrokesAfterSplit = pg.strokes.filter((s) => s.tool === 'highlighter');
+    assert.equal(hlStrokesAfterSplit.length, 2, 'La gomme mode segment au milieu d’un trait de surligneur doit le scinder en 2 sous-traits');
+    // Tenter d'effacer un trait de stylo avec eraserHighlighterOnly = true ne doit PAS supprimer le trait de stylo
+    const remainingPenPt = pg.strokes.find((s) => s.tool !== 'highlighter').points[0];
+    api.applyEraserAtPoint(remainingPenPt.x, remainingPenPt.y);
+    assert.equal(pg.strokes.filter((s) => s.tool !== 'highlighter').length, penStrokesBeforeHlErase, 'eraserHighlighterOnly=true doit préserver les traits de stylo');
+    st.eraserHighlighterOnly = false;
+    st.eraserMode = 'stroke';
+
+    // Gomme avec retour automatique au stylo (eraserAutoDeselect)
+    st.previousWritingTool = 'pen';
+    st.tool = 'eraser';
+    st.eraserAutoDeselect = true;
+    api.handlePointerDown({ pointerId: 911, pointerType: 'pen', button: 0, buttons: 1, clientX: 50, clientY: 50, pressure: 0.5, preventDefault() {} });
+    api.handlePointerUpOrCancel({ pointerId: 911, pointerType: 'pen', button: 0, buttons: 0, clientX: 55, clientY: 55, pressure: 0, preventDefault() {} });
+    assert.equal(st.tool, 'pen', 'eraserAutoDeselect=true doit ramener automatiquement à l’outil d’écriture après avoir gommé');
+    st.eraserAutoDeselect = false;
+
+    // Lasso rectangulaire (lassoMode = 'rect')
+    st.tool = 'lasso';
+    st.lassoMode = 'rect';
+    api.handlePointerDown({ pointerId: 912, pointerType: 'pen', button: 0, buttons: 1, clientX: 40, clientY: 40, pressure: 0.5, preventDefault() {} });
+    api.handlePointerMove({ pointerId: 912, pointerType: 'pen', button: 0, buttons: 1, clientX: 420, clientY: 420, pressure: 0.5, getCoalescedEvents: () => [], preventDefault() {} });
+    assert.equal(st.lassoPolygon.length, 4, 'En mode lasso rectangulaire (rect), lassoPolygon doit former un rectangle à 4 sommets');
+    api.handlePointerUpOrCancel({ pointerId: 912, pointerType: 'pen', button: 0, buttons: 0, clientX: 420, clientY: 420, pressure: 0, preventDefault() {} });
+    st.lassoMode = 'freehand';
+    st.tool = 'pen';
+
     await api.flushPendingPageSaves();
     await api.deleteNotebookById(nb.id);
-    return `100 raccourcis Ctrl+Z / Ctrl+Y frénétiques exécutés : 3 -> 0 -> 3 traits, max ${toastDomCountAfterRedo} toast DOM actif.`;
+    return `100 raccourcis Ctrl+Z / Ctrl+Y + One-Euro + Tirets + Surligneur auto-straighten + Gomme 3 modes/Surligneur seul + Lasso rect vérifiés.`;
   });
 
   // ------------------------------------------------------------------------
@@ -985,6 +1135,9 @@ async function runTests() {
         clientY: 160 + Math.sin(i * 0.25) * 24,
         timeStamp: 1000 + i * 4,
         cancelable: true,
+        getPredictedEvents: () => [
+          { clientX: 80 + (i + 1) * 2.2, clientY: 160 + Math.sin((i + 1) * 0.25) * 24, pressure: 0.5 }
+        ],
         preventDefault: () => {}
       });
       const dt = performance.now() - t0;
@@ -994,6 +1147,7 @@ async function runTests() {
 
     const avgFirst100MoveMs = first100Ms / 100;
     const avgLast100MoveMs = last100Ms / 100;
+    assert.equal(st.predictedPoints.length, 1, 'getPredictedEvents doit alimenter state.predictedPoints pendant le tracé');
 
     const perfDuringMove = api.getRenderPerfStats();
     const staticRedrawsDuringMove = perfDuringMove.staticRenderCount - perfBefore.staticRenderCount;

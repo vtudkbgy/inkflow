@@ -13,21 +13,45 @@ const path = require('path');
 const rootDir = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
 const isLinux = process.platform === 'linux';
+const isWin = process.platform === 'win32';
 const isBuildCmd = args[0] === 'build';
+const isDevCmd = args[0] === 'dev';
 
 const env = { ...process.env };
 const localRustup = path.join(rootDir, '.rustup');
 const localCargo = path.join(rootDir, '.cargo');
 const localCargoBin = path.join(localCargo, 'bin');
 
-if (fs.existsSync(localRustup)) {
+if (fs.existsSync(path.join(localRustup, 'toolchains'))) {
   env.RUSTUP_HOME = localRustup;
 }
 if (fs.existsSync(localCargo)) {
   env.CARGO_HOME = localCargo;
 }
 if (fs.existsSync(localCargoBin)) {
-  env.PATH = `${localCargoBin}:${env.PATH || ''}`;
+  env.PATH = `${localCargoBin}${path.delimiter}${env.PATH || ''}`;
+}
+
+if (isWin && (isBuildCmd || isDevCmd) && !env.RUSTUP_TOOLCHAIN) {
+  const hasMsvcLink = spawnSync('where', ['link.exe'], { stdio: 'ignore' }).status === 0;
+  if (!hasMsvcLink) {
+    const toolchains = spawnSync('rustup', ['toolchain', 'list'], { encoding: 'utf8', env });
+    if (toolchains.status === 0 && /stable-x86_64-pc-windows-gnu/.test(toolchains.stdout || '')) {
+      env.RUSTUP_TOOLCHAIN = 'stable-x86_64-pc-windows-gnu';
+      // Ajoute WinLibs MinGW-w64 (dlltool, as, windres, gcc) s'il est installé via winget
+      const wingetPkgs = path.join(env.LOCALAPPDATA || '', 'Microsoft', 'WinGet', 'Packages');
+      if (fs.existsSync(wingetPkgs)) {
+        const winlibsDir = fs.readdirSync(wingetPkgs).find((d) => d.startsWith('BrechtSanders.WinLibs'));
+        if (winlibsDir) {
+          const mingwBin = path.join(wingetPkgs, winlibsDir, 'mingw64', 'bin');
+          if (fs.existsSync(mingwBin)) {
+            env.PATH = `${mingwBin}${path.delimiter}${env.PATH || ''}`;
+          }
+        }
+      }
+      console.log('[InkFlow Tauri v2] MSVC link.exe absent → bascule automatique sur stable-x86_64-pc-windows-gnu');
+    }
+  }
 }
 
 let finalArgs = [...args];
@@ -78,18 +102,41 @@ console.log(`[Plume Studio Tauri v2] Exécution : tauri ${finalArgs.join(' ')}`)
 const res = spawnSync(tauriBin, finalArgs, {
   cwd: rootDir,
   env,
-  stdio: 'inherit'
+  stdio: 'inherit',
+  shell: process.platform === 'win32'
 });
 
 if (res.status === 0 && isBuildCmd) {
-  const winExe = path.join(rootDir, 'src-tauri', 'target', 'x86_64-pc-windows-msvc', 'release', 'PlumeStudioPro.exe');
-  const rootExeCopy = path.join(rootDir, 'PlumeStudioPro.exe');
-  if (fs.existsSync(winExe)) {
-    fs.copyFileSync(winExe, rootExeCopy);
+  const candidates = [
+    path.join(rootDir, 'src-tauri', 'target', 'release', 'InkFlow.exe'),
+    path.join(rootDir, 'src-tauri', 'target', 'x86_64-pc-windows-gnu', 'release', 'InkFlow.exe'),
+    path.join(rootDir, 'src-tauri', 'target', 'x86_64-pc-windows-msvc', 'release', 'InkFlow.exe')
+  ];
+  const winExe = candidates.find((p) => fs.existsSync(p));
+  const rootExeCopy = path.join(rootDir, 'InkFlow.exe');
+  if (winExe) {
+    let copiedToRoot = false;
+    try {
+      fs.copyFileSync(winExe, rootExeCopy);
+      copiedToRoot = true;
+    } catch (err) {
+      if (err && (err.code === 'EBUSY' || err.code === 'EPERM')) {
+        console.warn(`\n⚠️ Impossible d'écraser ${rootExeCopy} car l'application InkFlow.exe est actuellement ouverte.`);
+        console.warn(`   Fermez la fenêtre InkFlow.exe ou lancez directement : ${winExe}`);
+      } else {
+        throw err;
+      }
+    }
+    const webview2Dll = path.join(path.dirname(winExe), 'WebView2Loader.dll');
+    if (fs.existsSync(webview2Dll)) {
+      try {
+        fs.copyFileSync(webview2Dll, path.join(rootDir, 'WebView2Loader.dll'));
+      } catch (_) {}
+    }
     const sizeMb = (fs.statSync(winExe).size / (1024 * 1024)).toFixed(2);
     console.log(`\n✅ Exécutable Windows natif généré avec succès (${sizeMb} Mo) :`);
     console.log(`   - ${winExe}`);
-    console.log(`   - ${rootExeCopy}`);
+    if (copiedToRoot) console.log(`   - ${rootExeCopy}`);
   }
 }
 

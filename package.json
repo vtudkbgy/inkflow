@@ -13,6 +13,7 @@
     "tauri": "node scripts/tauri-runner.js",
     "tauri:dev": "node scripts/tauri-runner.js dev",
     "tauri:build": "node scripts/tauri-runner.js build",
+    "install:start-menu": "powershell -ExecutionPolicy Bypass -File scripts/install-start-menu.ps1",
     "desktop": "electron .",
     "build:win": "electron-builder --win --x64",
     "build:mac": "electron-builder --mac",
@@ -38,17 +39,19 @@
   },
   "build": {
     "appId": "com.plumestudio.notes",
-    "productName": "Plume Studio",
+    "productName": "InkFlow",
     "files": [
       "index.html",
       "styles.css",
       "app.js",
       "manifest.json",
       "sw.js",
+      "assets/**/*",
       "vendor/**/*",
       "electron/**/*"
     ],
     "win": {
+      "icon": "src-tauri/icons/icon.ico",
       "target": [
         "nsis",
         "portable"

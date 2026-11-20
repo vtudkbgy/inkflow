@@ -1,11 +1,19 @@
 {
-  "name": "Plume Studio — Notes Manuscrites",
-  "short_name": "Plume Studio",
+  "name": "InkFlow — Notes Manuscrites",
+  "short_name": "InkFlow",
   "description": "Application de prise de notes manuscrites vectorielles avec support stylet Windows Ink, pression dynamique et sauvegarde IndexedDB.",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#f3f2ee",
-  "theme_color": "#1e293b",
+  "theme_color": "#0f172a",
   "orientation": "any",
+  "icons": [
+    {
+      "src": "./assets/inkflow-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
   "categories": ["productivity", "education", "utilities"]
 }

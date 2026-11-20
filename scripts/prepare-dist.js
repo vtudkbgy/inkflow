@@ -64,3 +64,16 @@ if (fs.existsSync(vendorSrc)) {
     }
   }
 }
+
+const assetsSrc = path.join(rootDir, 'assets');
+const assetsDest = path.join(distDir, 'assets');
+if (fs.existsSync(assetsSrc)) {
+  fs.mkdirSync(assetsDest, { recursive: true });
+  for (const entry of fs.readdirSync(assetsSrc)) {
+    const s = path.join(assetsSrc, entry);
+    const d = path.join(assetsDest, entry);
+    if (fs.statSync(s).isFile()) {
+      fs.copyFileSync(s, d);
+    }
+  }
+}

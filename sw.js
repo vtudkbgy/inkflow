@@ -1,8 +1,9 @@
-const CACHE_NAME = 'plume-studio-v2';
+const CACHE_NAME = 'inkflow-v3';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
+  './assets/inkflow-logo.png',
   './vendor/pdf.min.js',
   './vendor/pdf.worker.min.js',
   './vendor/pdf-lib.min.js',

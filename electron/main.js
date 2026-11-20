@@ -12,7 +12,8 @@ function createMainWindow() {
     height: 920,
     minWidth: 960,
     minHeight: 640,
-    title: 'Plume Studio — Notes Manuscrites',
+    title: 'InkFlow — Notes Manuscrites',
+    icon: path.join(__dirname, '..', 'src-tauri', 'icons', 'icon.ico'),
     backgroundColor: '#f3f2ee',
     autoHideMenuBar: true,
     webPreferences: {

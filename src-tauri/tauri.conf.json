@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Plume Studio Pro",
-  "mainBinaryName": "PlumeStudioPro",
+  "productName": "InkFlow",
+  "mainBinaryName": "InkFlow",
   "version": "1.0.0",
   "identifier": "com.plumestudio.pro",
   "build": {
@@ -15,7 +15,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Plume Studio Pro — Notes Manuscrites, Stylet Windows Ink & PDF",
+        "title": "InkFlow — Notes Manuscrites, Stylet Windows Ink & PDF",
         "width": 1440,
         "height": 900,
         "minWidth": 960,
