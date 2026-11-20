@@ -2600,6 +2600,10 @@
       updateUndoRedoButtons();
       renderWorldTextCards();
       requestRender();
+      if (dom.leftSidebar && dom.sectionPages && !dom.leftSidebar.classList.contains('collapsed') && !dom.sectionPages.classList.contains('hidden')) {
+        page.thumbnail = generatePageThumbnail(page);
+        updateSingleSidebarThumbnailDom(page);
+      }
       scheduleSaveActivePage(page);
       showToast('Action annulée', 'info', 'undo-redo');
       return true;
@@ -2640,6 +2644,10 @@
       updateUndoRedoButtons();
       renderWorldTextCards();
       requestRender();
+      if (dom.leftSidebar && dom.sectionPages && !dom.leftSidebar.classList.contains('collapsed') && !dom.sectionPages.classList.contains('hidden')) {
+        page.thumbnail = generatePageThumbnail(page);
+        updateSingleSidebarThumbnailDom(page);
+      }
       scheduleSaveActivePage(page);
       showToast('Action rétablie', 'info', 'undo-redo');
       return true;
@@ -8104,6 +8112,24 @@
     return true;
   }
 
+  let toolOptionsPulseTimer = null;
+  function triggerToolOptionsPulse() {
+    const targets = [dom.btnToggleToolOptions, dom.activeToolColorPreview];
+    targets.forEach((el) => {
+      if (!el || !el.classList) return;
+      el.classList.remove('pulse-update');
+      try { void el.offsetWidth; } catch (_) {}
+      el.classList.add('pulse-update');
+    });
+    if (toolOptionsPulseTimer) clearTimeout(toolOptionsPulseTimer);
+    toolOptionsPulseTimer = setTimeout(() => {
+      targets.forEach((el) => {
+        if (el && el.classList) el.classList.remove('pulse-update');
+      });
+      toolOptionsPulseTimer = null;
+    }, 280);
+  }
+
   function setActiveTool(t, toggleOptionsIfSame = false) {
     if (state.colorWheelOpen) closeRadialColorWheel(false);
     state.temporaryEraserOverride = false;
@@ -8111,15 +8137,23 @@
     if (t === 'pen' || t === 'highlighter') {
       state.previousWritingTool = t;
     }
-    if (state.tool === t && toggleOptionsIfSame && t !== 'pan') {
+    const isSameTool = state.tool === t;
+    if (isSameTool && toggleOptionsIfSame && t !== 'pan') {
       state.toolOptionsOpen = !state.toolOptionsOpen;
+      if (state.toolOptionsOpen) {
+        if (dom.paperPopover) dom.paperPopover.classList.add('hidden');
+        if (dom.exportPopover) dom.exportPopover.classList.add('hidden');
+      }
     } else {
+      syncCanonicalToToolMemory(state.tool);
       state.tool = t;
+      applyToolMemoryToCanonical(t);
       // N'affiche pas automatiquement la barre d'options quand on change d'outil pour garder l'espace épuré
       state.toolOptionsOpen = false;
     }
     if (t !== 'lasso') clearLassoSelection();
     updateToolbarActiveState();
+    triggerToolOptionsPulse();
     requestRender();
   }
 
@@ -8131,8 +8165,8 @@
     } else {
       state.toolOptionsOpen = !state.toolOptionsOpen;
     }
-    dom.paperPopover.classList.add('hidden');
-    dom.exportPopover.classList.add('hidden');
+    if (dom.paperPopover) dom.paperPopover.classList.add('hidden');
+    if (dom.exportPopover) dom.exportPopover.classList.add('hidden');
     updateToolbarActiveState();
   }
 
@@ -8142,14 +8176,15 @@
     dom.canvasViewport.classList.toggle('text-cursor', state.tool === 'text');
     dom.canvasViewport.classList.toggle('eraser-cursor', state.tool === 'eraser');
 
-    // Permet au stylet de dessiner à travers les cartes de texte quand on est en outil Stylo/Surligneur/Gomme/Formes
-    const isDrawingTool = state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'eraser' || state.tool === 'shape';
+    // Permet au stylet de dessiner à travers les cartes de texte quand on est en outil Stylo/Surligneur/Gomme/Formes/Ruban/Laser
+    const isDrawingTool = state.tool === 'pen' || state.tool === 'highlighter' || state.tool === 'eraser' || state.tool === 'shape' || state.tool === 'tape' || state.tool === 'laser';
     dom.canvasViewport.classList.toggle('drawing-mode-active', isDrawingTool);
 
     if (state.tool !== 'eraser') dom.eraserCursor.style.display = 'none';
 
     const isInk = state.tool === 'pen' || state.tool === 'highlighter';
     const isShape = state.tool === 'shape', isText = state.tool === 'text', isEraser = state.tool === 'eraser', isLasso = state.tool === 'lasso';
+    const isTape = state.tool === 'tape', isLaser = state.tool === 'laser';
 
     const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan');
     dom.toolOptionsDock.classList.toggle('hidden', !showDock);
@@ -8159,9 +8194,11 @@
       dom.btnToggleToolOptions.disabled = state.tool === 'pan';
     }
 
-    dom.colorPaletteGroup.style.display = isInk || isShape || isText || isLasso ? 'flex' : 'none';
-    dom.dividerAfterColor.style.display = isInk || isShape || isText || isLasso ? 'block' : 'none';
-    dom.sizeControlGroup.style.display = isInk || isShape || isEraser ? 'flex' : 'none';
+    const showColorGroup = isInk || isShape || isText || isLasso || isTape || isLaser;
+    const showSizeGroup = isInk || isShape || isEraser || isTape || isLaser;
+    dom.colorPaletteGroup.style.display = showColorGroup ? 'flex' : 'none';
+    dom.dividerAfterColor.style.display = showColorGroup && showSizeGroup ? 'block' : 'none';
+    dom.sizeControlGroup.style.display = showSizeGroup ? 'flex' : 'none';
     dom.smoothingControlGroup.classList.toggle('hidden', !isInk);
     if (dom.autoShapeToggle) dom.autoShapeToggle.checked = state.autoShapeEnabled;
     if (dom.textControlGroup) dom.textControlGroup.classList.toggle('hidden', !isText);
@@ -8169,14 +8206,28 @@
     dom.eraserControlGroup.classList.toggle('hidden', !isEraser);
     dom.lassoControlGroup.classList.toggle('hidden', !isLasso);
 
-    const activeSize = state.tool === 'highlighter' ? state.highlighterSize : state.tool === 'eraser' ? state.eraserSize : state.penSize;
-    const activeColor = state.tool === 'highlighter' ? state.highlighterColor : state.penColor;
+    const activeSize = getActiveToolSize(state.tool);
+    const activeColor = getActiveToolColor(state.tool);
     dom.strokeSizeSlider.value = activeSize;
     dom.strokeSizeValue.textContent = `${Number(activeSize).toFixed(1)}px`;
+    if (dom.customColorPicker && /^#[0-9a-f]{6}$/i.test(activeColor)) {
+      dom.customColorPicker.value = activeColor;
+    }
     dom.penColorDot.style.background = state.penColor;
     dom.hlColorDot.style.background = state.highlighterColor;
     dom.colorSwatches.forEach((sw) => sw.classList.toggle('active', sw.dataset.color.toLowerCase() === activeColor.toLowerCase()));
-    dom.sizeDotBtns.forEach((b) => b.classList.toggle('active', Math.abs(parseFloat(b.dataset.size) - activeSize) < 0.25));
+
+    const toolMem = state.toolMemory && state.toolMemory[state.tool];
+    const sizeSlots = (toolMem && Array.isArray(toolMem.sizeSlots) && toolMem.sizeSlots.length === 3)
+      ? toolMem.sizeSlots
+      : [2.5, 5, 12];
+    dom.sizeDotBtns.forEach((b, idx) => {
+      const slotIdx = b.dataset.sizeSlot !== undefined ? Number(b.dataset.sizeSlot) : idx;
+      if (Number.isFinite(slotIdx) && sizeSlots[slotIdx] !== undefined) {
+        b.dataset.size = String(sizeSlots[slotIdx]);
+      }
+      b.classList.toggle('active', Math.abs(parseFloat(b.dataset.size) - activeSize) < 0.25);
+    });
 
     const penStylePills = document.getElementById('penStylePills');
     if (penStylePills) penStylePills.style.display = state.tool === 'pen' ? 'flex' : 'none';
@@ -8207,12 +8258,12 @@
 
     // Mise à jour du bouton déclencheur d'options dans la barre principale
     if (dom.activeToolColorPreview) {
-      const showColorDot = isInk || isShape || isText || isLasso;
+      const showColorDot = showColorGroup;
       dom.activeToolColorPreview.style.display = showColorDot ? 'inline-block' : 'none';
       dom.activeToolColorPreview.style.background = activeColor;
     }
     if (dom.activeToolSummaryText) {
-      if (isInk || isEraser || isShape) {
+      if (showSizeGroup) {
         dom.activeToolSummaryText.textContent = `${Number(activeSize).toFixed(1)}px`;
       } else if (isLasso) {
         const selCount = state.selectedIds.strokes.size + state.selectedIds.shapes.size + state.selectedIds.texts.size;
@@ -8369,11 +8420,18 @@
 
     dom.tabNotebooksBtn.addEventListener('click', () => {
       dom.tabNotebooksBtn.classList.add('active'); dom.tabPagesBtn.classList.remove('active');
+      dom.tabNotebooksBtn.setAttribute('aria-selected', 'true'); dom.tabPagesBtn.setAttribute('aria-selected', 'false');
       dom.sectionNotebooks.classList.remove('hidden'); dom.sectionPages.classList.add('hidden');
     });
     dom.tabPagesBtn.addEventListener('click', () => {
       dom.tabPagesBtn.classList.add('active'); dom.tabNotebooksBtn.classList.remove('active');
+      dom.tabPagesBtn.setAttribute('aria-selected', 'true'); dom.tabNotebooksBtn.setAttribute('aria-selected', 'false');
       dom.sectionPages.classList.remove('hidden'); dom.sectionNotebooks.classList.add('hidden');
+      const curPage = getActivePage();
+      if (curPage) {
+        curPage.thumbnail = generatePageThumbnail(curPage);
+        updateSingleSidebarThumbnailDom(curPage);
+      }
     });
 
     // Cliquer sur un outil le sélectionne sans encombrer l'écran ; re-cliquer sur l'outil déjà actif (ou cliquer sur le bouton d'options dédié) ouvre/ferme ses options
@@ -8516,21 +8574,22 @@
     });
 
     const applyColor = (c) => {
-      if (state.tool === 'highlighter') state.highlighterColor = c; else state.penColor = c;
+      setToolColor(state.tool, c);
       if (state.tool === 'lasso' && hasAnyLassoSelection()) recolorLassoSelection(c);
       updateToolbarActiveState();
+      triggerToolOptionsPulse();
     };
     dom.colorSwatches.forEach((sw) => sw.addEventListener('click', () => applyColor(sw.dataset.color)));
     dom.customColorPicker.addEventListener('input', (e) => applyColor(e.target.value));
 
     const applySize = (v) => {
       const n = parseFloat(v);
-      if (state.tool === 'highlighter') state.highlighterSize = n;
-      else if (state.tool === 'eraser') state.eraserSize = n;
-      else state.penSize = n;
+      if (!Number.isFinite(n)) return;
+      setToolSize(state.tool, n);
       dom.strokeSizeSlider.value = n;
       dom.strokeSizeValue.textContent = `${n.toFixed(1)}px`;
       updateToolbarActiveState();
+      triggerToolOptionsPulse();
     };
     dom.strokeSizeSlider.addEventListener('input', (e) => applySize(e.target.value));
     dom.sizeDotBtns.forEach((b) => b.addEventListener('click', () => applySize(b.dataset.size)));
@@ -9422,9 +9481,22 @@
     if (sortSelect) {
       sortSelect.addEventListener('change', () => {
         state.notebookSortBy = sortSelect.value || 'date_desc';
+        state.sidebarSort = (state.notebookSortBy === 'name_asc' || state.notebookSortBy === 'name_desc') ? 'name' : 'date';
+        syncSortControlsUi();
         renderNotebooksSidebar();
       });
     }
+
+    const btnSortDocs = document.getElementById('btnSortDocs');
+    if (btnSortDocs) {
+      btnSortDocs.addEventListener('click', () => {
+        state.sidebarSort = state.sidebarSort === 'name' ? 'date' : 'name';
+        state.notebookSortBy = state.sidebarSort === 'name' ? 'name_asc' : 'date_desc';
+        syncSortControlsUi();
+        renderNotebooksSidebar();
+      });
+    }
+    syncSortControlsUi();
 
     const btnToggleLibraryView = document.getElementById('btnToggleLibraryView');
     if (btnToggleLibraryView) {

@@ -160,221 +160,205 @@
 
     <!-- ==================== ZONE DE TRAVAIL CENTRALE ==================== -->
     <main class="workspace-area" id="workspaceArea">
-      <!-- BARRE D'OUTILS UNIQUE ET ÉPURÉE EN HAUT (GOODNOTES 6) -->
-      <header class="floating-header">
-        <div class="unified-top-bar" role="toolbar" aria-label="Barre d'outils principale">
-          <!-- Bouton Cahiers (barre latérale / grille de documents Goodnotes) -->
-          <button class="tool-btn gn-sidebar-btn" id="btnToggleSidebar" title="Afficher/Masquer les cahiers et pages (Ctrl+B)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="7.5" height="7.5" rx="2" fill="currentColor" fill-opacity="0.16"></rect>
-              <rect x="13.5" y="3" width="7.5" height="7.5" rx="2"></rect>
-              <rect x="3" y="13.5" width="7.5" height="7.5" rx="2"></rect>
-              <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"></rect>
-            </svg>
-            <span>Cahiers</span>
-          </button>
+      <!-- BARRE D'OUTILS GOODNOTES 6 EN HAUT (PLEINE LARGEUR, 1 SEULE LIGNE, ICÔNES ÉPURÉES) -->
+      <header class="floating-header gn-header">
+        <div class="unified-top-bar gn-toolbar" role="toolbar" aria-label="Barre d'outils principale">
+          <!-- ZONE GAUCHE : Bibliothèque Cahiers + Annuler / Rétablir (disposition GoodNotes) -->
+          <div class="gn-bar-group gn-bar-left">
+            <button class="tool-btn gn-sidebar-btn" id="btnToggleSidebar" title="Bibliothèque — Cahiers, dossiers & pages (Ctrl+B)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="7.5" height="7.5" rx="2" fill="currentColor" fill-opacity="0.18"></rect>
+                <rect x="13.5" y="3" width="7.5" height="7.5" rx="2"></rect>
+                <rect x="3" y="13.5" width="7.5" height="7.5" rx="2"></rect>
+                <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"></rect>
+              </svg>
+              <span>Cahiers</span>
+            </button>
 
-          <div class="dock-divider"></div>
+            <div class="dock-divider"></div>
 
-          <!-- Outils principaux Goodnotes 6 -->
-          <button class="tool-btn active" data-tool="pen" id="toolPen" title="Stylo (P) — Re-cliquer ou utiliser Réglages pour les options">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Plume Goodnotes : bec fendu, œillet et virole -->
-              <path d="M12 2.5L7.2 12.2a1.8 1.8 0 0 0 .35 2.05L9.5 16.2h5l1.95-1.95a1.8 1.8 0 0 0 .35-2.05L12 2.5z" fill="currentColor" fill-opacity="0.14"></path>
-              <line x1="12" y1="2.5" x2="12" y2="10.2"></line>
-              <circle cx="12" cy="11.4" r="1.25" fill="currentColor" stroke="none"></circle>
-              <rect x="8.8" y="16.2" width="6.4" height="2.4" rx="0.8" fill="currentColor" fill-opacity="0.24"></rect>
-              <path d="M9.6 18.6v2.2a1 1 0 0 0 1 1h2.8a1 1 0 0 0 1-1v-2.2"></path>
-            </svg>
-            <span>Stylo</span>
-            <span class="color-indicator" id="penColorDot" style="background:#1e293b"></span>
-          </button>
+            <button class="tool-btn gn-icon-only" id="btnUndo" title="Annuler (Ctrl+Z)" disabled>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M8.5 6.5L4 11l4.5 4.5"></path>
+                <path d="M4.5 11H14a5.5 5.5 0 1 1 0 11h-2.5"></path>
+              </svg>
+            </button>
+            <button class="tool-btn gn-icon-only" id="btnRedo" title="Rétablir (Ctrl+Y)" disabled>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15.5 6.5L20 11l-4.5 4.5"></path>
+                <path d="M19.5 11H10a5.5 5.5 0 1 0 0 11h2.5"></path>
+              </svg>
+            </button>
+          </div>
 
-          <button class="tool-btn" data-tool="highlighter" id="toolHighlighter" title="Surligneur translucide (H)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Surligneur pointe biseautée inclinée Goodnotes -->
-              <path d="M14.8 3.2l6 6a1.4 1.4 0 0 1 0 2l-7.2 7.2-6.8-6.8 6-6a1.4 1.4 0 0 1 2 0z" fill="currentColor" fill-opacity="0.14"></path>
-              <path d="M6.8 11.6l-2.6 4.8a1 1 0 0 0 .2 1.2l1.8 1.8a1 1 0 0 0 1.2.2l4.8-2.6"></path>
-              <line x1="12.2" y1="5.8" x2="18.2" y2="11.8"></line>
-              <path d="M3.5 21h14" stroke-width="2.4" stroke-opacity="0.45"></path>
-            </svg>
-            <span>Surligneur</span>
-            <span class="color-indicator" id="hlColorDot" style="background:#facc15"></span>
-          </button>
+          <!-- ZONE CENTRALE : Palette d'outils GoodNotes (icônes pures + capsule couleur/taille) -->
+          <div class="gn-bar-group gn-bar-center">
+            <button class="tool-btn gn-tool-icon active" data-tool="pen" id="toolPen" title="Stylo (P) — Re-cliquer pour les options">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2.5L7.2 12.2a1.8 1.8 0 0 0 .35 2.05L9.5 16.2h5l1.95-1.95a1.8 1.8 0 0 0 .35-2.05L12 2.5z" fill="currentColor" fill-opacity="0.14"></path>
+                <line x1="12" y1="2.5" x2="12" y2="10.2"></line>
+                <circle cx="12" cy="11.4" r="1.25" fill="currentColor" stroke="none"></circle>
+                <rect x="8.8" y="16.2" width="6.4" height="2.4" rx="0.8" fill="currentColor" fill-opacity="0.24"></rect>
+                <path d="M9.6 18.6v2.2a1 1 0 0 0 1 1h2.8a1 1 0 0 0 1-1v-2.2"></path>
+              </svg>
+              <span class="gn-sr-label">Stylo</span>
+              <span class="color-indicator" id="penColorDot" style="background:#1e293b"></span>
+            </button>
 
-          <button class="tool-btn" data-tool="eraser" id="toolEraser" title="Gomme vectorielle (E)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Gomme bloc bicolore inclinée Goodnotes -->
-              <path d="M11.6 5.2l7.2 7.2a2.1 2.1 0 0 1 0 3l-4.4 4.4H8.6l-4.8-4.8a2.1 2.1 0 0 1 0-3l4.8-6.8a2.1 2.1 0 0 1 3 0z"></path>
-              <path d="M9.6 8.1l7.1 7.1-2.3 2.3-7.1-7.1z" fill="currentColor" fill-opacity="0.22" stroke="none"></path>
-              <line x1="8.8" y1="8.9" x2="15.9" y2="16"></line>
-              <line x1="12.5" y1="19.8" x2="21" y2="19.8" stroke-opacity="0.65"></line>
-            </svg>
-            <span>Gomme</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="highlighter" id="toolHighlighter" title="Surligneur translucide (H)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14.8 3.2l6 6a1.4 1.4 0 0 1 0 2l-7.2 7.2-6.8-6.8 6-6a1.4 1.4 0 0 1 2 0z" fill="currentColor" fill-opacity="0.14"></path>
+                <path d="M6.8 11.6l-2.6 4.8a1 1 0 0 0 .2 1.2l1.8 1.8a1 1 0 0 0 1.2.2l4.8-2.6"></path>
+                <line x1="12.2" y1="5.8" x2="18.2" y2="11.8"></line>
+                <path d="M3.5 21h14" stroke-width="2.4" stroke-opacity="0.45"></path>
+              </svg>
+              <span class="gn-sr-label">Surligneur</span>
+              <span class="color-indicator" id="hlColorDot" style="background:#facc15"></span>
+            </button>
 
-          <button class="tool-btn" data-tool="lasso" id="toolLasso" title="Lasso de sélection (L)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Boucle lasso pointillée fluide avec nœud Goodnotes -->
-              <ellipse cx="12.2" cy="9.6" rx="8.8" ry="6.4" stroke-dasharray="3.2 2.4" fill="currentColor" fill-opacity="0.08"></ellipse>
-              <circle cx="8.2" cy="15.7" r="1.8" fill="currentColor" fill-opacity="0.25"></circle>
-              <path d="M7.6 17.4c-.9 1.6-.4 3.4 1.2 4.1 1.4.6 3.1.1 4.2-.8"></path>
-            </svg>
-            <span>Lasso</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="eraser" id="toolEraser" title="Gomme vectorielle (E)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M11.6 5.2l7.2 7.2a2.1 2.1 0 0 1 0 3l-4.4 4.4H8.6l-4.8-4.8a2.1 2.1 0 0 1 0-3l4.8-6.8a2.1 2.1 0 0 1 3 0z"></path>
+                <path d="M9.6 8.1l7.1 7.1-2.3 2.3-7.1-7.1z" fill="currentColor" fill-opacity="0.22" stroke="none"></path>
+                <line x1="8.8" y1="8.9" x2="15.9" y2="16"></line>
+                <line x1="12.5" y1="19.8" x2="21" y2="19.8" stroke-opacity="0.65"></line>
+              </svg>
+              <span class="gn-sr-label">Gomme</span>
+            </button>
 
-          <button class="tool-btn" data-tool="text" id="toolText" title="Ajouter un emplacement de texte clavier sur la page (T)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Zone texte encadrée avec poignées d'angle et T centré -->
-              <rect x="4" y="4" width="16" height="16" rx="2.2" stroke-opacity="0.55" fill="currentColor" fill-opacity="0.06"></rect>
-              <rect x="2.6" y="2.6" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
-              <rect x="18.4" y="2.6" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
-              <rect x="2.6" y="18.4" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
-              <rect x="18.4" y="18.4" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
-              <path d="M8.5 8.8h7M12 8.8v7.2M10.2 16h3.6" stroke-width="2"></path>
-            </svg>
-            <span>Texte</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="lasso" id="toolLasso" title="Lasso de sélection (L)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <ellipse cx="12.2" cy="9.6" rx="8.8" ry="6.4" stroke-dasharray="3.2 2.4" fill="currentColor" fill-opacity="0.08"></ellipse>
+                <circle cx="8.2" cy="15.7" r="1.8" fill="currentColor" fill-opacity="0.25"></circle>
+                <path d="M7.6 17.4c-.9 1.6-.4 3.4 1.2 4.1 1.4.6 3.1.1 4.2-.8"></path>
+              </svg>
+              <span class="gn-sr-label">Lasso</span>
+            </button>
 
-          <button class="tool-btn" id="btnOpenLatexModal" title="Insérer ou éditer une équation mathématique LaTeX (M)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Badge mathématique Sigma épuré -->
-              <rect x="3" y="3" width="18" height="18" rx="5" fill="currentColor" fill-opacity="0.12" stroke-opacity="0.45"></rect>
-              <path d="M16.2 7.5H8.3l4.6 4.5-4.6 4.5h7.9" stroke-width="2"></path>
-            </svg>
-            <span>LaTeX</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="shape" id="toolShape" title="Formes géométriques (S)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="10.5" width="9.5" height="9.5" rx="2.2" fill="currentColor" fill-opacity="0.14"></rect>
+                <circle cx="16.2" cy="14.8" r="5" fill="currentColor" fill-opacity="0.10"></circle>
+                <path d="M11.6 3.2l5 8.4H6.6l5-8.4z" fill="currentColor" fill-opacity="0.18"></path>
+              </svg>
+              <span class="gn-sr-label">Formes</span>
+            </button>
 
-          <button class="tool-btn" data-tool="shape" id="toolShape" title="Formes géométriques (S)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Cercle + Carré arrondi + Triangle superposés Goodnotes -->
-              <rect x="3" y="10.5" width="9.5" height="9.5" rx="2.2" fill="currentColor" fill-opacity="0.14"></rect>
-              <circle cx="16.2" cy="14.8" r="5" fill="currentColor" fill-opacity="0.10"></circle>
-              <path d="M11.6 3.2l5 8.4H6.6l5-8.4z" fill="currentColor" fill-opacity="0.18"></path>
-            </svg>
-            <span>Formes</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="tape" id="toolTape" title="Ruban d'étude GoodNotes (R)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3.2 8.2L4.8 9.8 3.2 12 4.8 14.2 3.2 15.8h17.6L19.2 14.2 20.8 12 19.2 9.8 20.8 8.2H3.2z" fill="currentColor" fill-opacity="0.16"></path>
+                <line x1="7.5" y1="8.2" x2="10.5" y2="15.8"></line>
+                <line x1="11.8" y1="8.2" x2="14.8" y2="15.8"></line>
+                <line x1="16.1" y1="8.2" x2="18.2" y2="13.4"></line>
+              </svg>
+              <span class="gn-sr-label">Ruban</span>
+            </button>
 
-          <button class="tool-btn" data-tool="tape" id="toolTape" title="Ruban d'étude Goodnotes (R) — Masquer/révéler pour réviser">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Ruban d'étude Goodnotes avec motif diagonal -->
-              <path d="M3.2 8.2L4.8 9.8 3.2 12 4.8 14.2 3.2 15.8h17.6L19.2 14.2 20.8 12 19.2 9.8 20.8 8.2H3.2z" fill="currentColor" fill-opacity="0.16"></path>
-              <line x1="7.5" y1="8.2" x2="10.5" y2="15.8"></line>
-              <line x1="11.8" y1="8.2" x2="14.8" y2="15.8"></line>
-              <line x1="16.1" y1="8.2" x2="18.2" y2="13.4"></line>
-            </svg>
-            <span>Ruban</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="text" id="toolText" title="Zone de texte clavier (T)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="4" width="16" height="16" rx="2.2" stroke-opacity="0.55" fill="currentColor" fill-opacity="0.06"></rect>
+                <rect x="2.6" y="2.6" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
+                <rect x="18.4" y="2.6" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
+                <rect x="2.6" y="18.4" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
+                <rect x="18.4" y="18.4" width="3" height="3" rx="0.7" fill="currentColor" stroke="none"></rect>
+                <path d="M8.5 8.8h7M12 8.8v7.2M10.2 16h3.6" stroke-width="2"></path>
+              </svg>
+              <span class="gn-sr-label">Texte</span>
+            </button>
 
-          <button class="tool-btn" data-tool="laser" id="toolLaser" title="Pointeur laser Goodnotes (K) — S'efface automatiquement">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Pointeur laser lumineux avec halo et rayons -->
-              <circle cx="12" cy="12" r="5.6" fill="currentColor" fill-opacity="0.18" stroke="none"></circle>
-              <circle cx="12" cy="12" r="2.7" fill="currentColor"></circle>
-              <path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.9 1.9M16.8 16.8l1.9 1.9M18.7 5.3l-1.9 1.9M7.2 16.8l-1.9 1.9"></path>
-            </svg>
-            <span>Laser</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" id="btnOpenLatexModal" title="Équation mathématique LaTeX (M)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="5" fill="currentColor" fill-opacity="0.12" stroke-opacity="0.45"></rect>
+                <path d="M16.2 7.5H8.3l4.6 4.5-4.6 4.5h7.9" stroke-width="2"></path>
+              </svg>
+              <span class="gn-sr-label">LaTeX</span>
+            </button>
 
-          <button class="tool-btn" id="btnInsertImage" title="Insérer une image / sticker (ou Ctrl+V pour coller)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Cadre photo Goodnotes avec montagnes et soleil -->
-              <rect x="3" y="3.8" width="18" height="16.4" rx="3"></rect>
-              <circle cx="8.6" cy="8.8" r="1.7" fill="currentColor" stroke="none"></circle>
-              <path d="M4.2 18.4l5.2-5.4a1.2 1.2 0 0 1 1.7 0l2.4 2.4 2.6-2.8a1.2 1.2 0 0 1 1.8.1l2.8 3.6v2.1a1.5 1.5 0 0 1-1.5 1.5H5.7a1.5 1.5 0 0 1-1.5-1.5z" fill="currentColor" fill-opacity="0.18" stroke="none"></path>
-              <path d="M4 17.8l5.3-5.2a1.2 1.2 0 0 1 1.7 0l2.3 2.3 2.7-2.8a1.2 1.2 0 0 1 1.8.1L20.5 16"></path>
-            </svg>
-            <span>Image</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" id="btnInsertImage" title="Insérer une image / sticker (Ctrl+V)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3.8" width="18" height="16.4" rx="3"></rect>
+                <circle cx="8.6" cy="8.8" r="1.7" fill="currentColor" stroke="none"></circle>
+                <path d="M4.2 18.4l5.2-5.4a1.2 1.2 0 0 1 1.7 0l2.4 2.4 2.6-2.8a1.2 1.2 0 0 1 1.8.1l2.8 3.6v2.1a1.5 1.5 0 0 1-1.5 1.5H5.7a1.5 1.5 0 0 1-1.5-1.5z" fill="currentColor" fill-opacity="0.18" stroke="none"></path>
+                <path d="M4 17.8l5.3-5.2a1.2 1.2 0 0 1 1.7 0l2.3 2.3 2.7-2.8a1.2 1.2 0 0 1 1.8.1L20.5 16"></path>
+              </svg>
+              <span class="gn-sr-label">Image</span>
+            </button>
 
-          <button class="tool-btn" data-tool="pan" id="toolPan" title="Main / Bouger dans la page infinie (Espace ou 2 doigts)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <!-- Main ouverte fluide pour déplacement -->
-              <path d="M18 11.2V6.6a1.6 1.6 0 1 0-3.2 0v3.6"></path>
-              <path d="M14.8 10.2V4.6a1.6 1.6 0 1 0-3.2 0v5.6"></path>
-              <path d="M11.6 10.2V5.8a1.6 1.6 0 1 0-3.2 0v7.8"></path>
-              <path d="M18 9.2a1.6 1.6 0 1 1 3.2 0v5.2a7.2 7.2 0 0 1-7.2 7.2h-1.6c-2.6 0-4.4-.9-5.8-2.4l-3.1-3.4a1.7 1.7 0 0 1 2.4-2.4l2.5 2.1"></path>
-            </svg>
-            <span>Bouger</span>
-          </button>
+            <button class="tool-btn gn-tool-icon" data-tool="laser" id="toolLaser" title="Pointeur laser (K)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="5.6" fill="currentColor" fill-opacity="0.18" stroke="none"></circle>
+                <circle cx="12" cy="12" r="2.7" fill="currentColor"></circle>
+                <path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.9 1.9M16.8 16.8l1.9 1.9M18.7 5.3l-1.9 1.9M7.2 16.8l-1.9 1.9"></path>
+              </svg>
+              <span class="gn-sr-label">Laser</span>
+            </button>
 
-          <div class="dock-divider"></div>
+            <button class="tool-btn gn-tool-icon" data-tool="pan" id="toolPan" title="Main / Déplacer la page (Espace ou 2 doigts)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 11.2V6.6a1.6 1.6 0 1 0-3.2 0v3.6"></path>
+                <path d="M14.8 10.2V4.6a1.6 1.6 0 1 0-3.2 0v5.6"></path>
+                <path d="M11.6 10.2V5.8a1.6 1.6 0 1 0-3.2 0v7.8"></path>
+                <path d="M18 9.2a1.6 1.6 0 1 1 3.2 0v5.2a7.2 7.2 0 0 1-7.2 7.2h-1.6c-2.6 0-4.4-.9-5.8-2.4l-3.1-3.4a1.7 1.7 0 0 1 2.4-2.4l2.5 2.1"></path>
+              </svg>
+              <span class="gn-sr-label">Bouger</span>
+            </button>
 
-          <!-- Capsule Goodnotes : couleur active, épaisseur et tiroir d'options -->
-          <button class="tool-btn tool-options-trigger" id="btnToggleToolOptions" title="Afficher / Masquer les options de l'outil (Couleur, Taille, Lissage, Gomme...)" aria-expanded="false">
-            <span class="trigger-color-dot" id="activeToolColorPreview" style="background:#1e293b"></span>
-            <span id="activeToolSummaryText">5.0px</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-              <line x1="4" y1="7" x2="20" y2="7"></line>
-              <circle cx="9" cy="7" r="2.2" fill="currentColor"></circle>
-              <line x1="4" y1="17" x2="20" y2="17"></line>
-              <circle cx="15" cy="17" r="2.2" fill="currentColor"></circle>
-            </svg>
-            <span class="trigger-chevron" id="toolOptionsChevron">▾</span>
-          </button>
+            <div class="dock-divider"></div>
 
-          <div class="dock-divider"></div>
+            <!-- Capsule GoodNotes : couleur active, épaisseur et tiroir d'options (masqué par défaut) -->
+            <button class="tool-btn tool-options-trigger" id="btnToggleToolOptions" title="Options de l'outil (Couleur, Épaisseur, Lissage, Gomme...)" aria-expanded="false">
+              <span class="trigger-color-dot" id="activeToolColorPreview" style="background:#1e293b"></span>
+              <span id="activeToolSummaryText">5.0px</span>
+              <span class="trigger-chevron" id="toolOptionsChevron">▾</span>
+            </button>
+          </div>
 
-          <!-- Reconnaissance d'écriture & d'équations + Annuler / Rétablir -->
-          <button class="tool-btn ai-btn" id="btnOpenRecognition" title="Reconnaître l'écriture manuscrite et les équations en Texte / LaTeX">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" fill="currentColor" fill-opacity="0.2"></path>
-              <path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16z"></path>
-            </svg>
-            <span>Reconnaître</span>
-          </button>
+          <!-- ZONE DROITE : IA, Papier, PDF, Export, Thème -->
+          <div class="gn-bar-group gn-bar-right">
+            <button class="tool-btn ai-btn gn-icon-only" id="btnOpenRecognition" title="Reconnaître l'écriture manuscrite et les équations (IA / LaTeX)">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" fill="currentColor" fill-opacity="0.22"></path>
+                <path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16z"></path>
+              </svg>
+              <span class="gn-sr-label">Reconnaître</span>
+            </button>
 
-          <button class="tool-btn gn-icon-only" id="btnUndo" title="Annuler (Ctrl+Z)" disabled>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M8.5 6.5L4 11l4.5 4.5"></path>
-              <path d="M4.5 11H14a5.5 5.5 0 1 1 0 11h-2.5"></path>
-            </svg>
-          </button>
-          <button class="tool-btn gn-icon-only" id="btnRedo" title="Rétablir (Ctrl+Y)" disabled>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M15.5 6.5L20 11l-4.5 4.5"></path>
-              <path d="M19.5 11H10a5.5 5.5 0 1 0 0 11h2.5"></path>
-            </svg>
-          </button>
+            <button class="tool-btn gn-icon-only" id="btnPaperSettings" title="Modèle & fond de page (Seyès, Cornell, Quadrillé, Planner, Sombre...)">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="3" width="16" height="18" rx="2.5" fill="currentColor" fill-opacity="0.08"></rect>
+                <line x1="4" y1="8.5" x2="20" y2="8.5" stroke-opacity="0.7"></line>
+                <line x1="4" y1="13.5" x2="20" y2="13.5" stroke-opacity="0.7"></line>
+                <line x1="9.5" y1="3" x2="9.5" y2="21" stroke-opacity="0.7"></line>
+              </svg>
+              <span class="gn-sr-label">Fonds</span>
+            </button>
 
-          <div class="dock-divider"></div>
+            <button class="tool-btn gn-icon-only" id="btnQuickImportPdf" title="Importer un fichier PDF local pour l'annoter au stylet">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2.8H6.8A2.3 2.3 0 0 0 4.5 5.1v13.8a2.3 2.3 0 0 0 2.3 2.3h10.4a2.3 2.3 0 0 0 2.3-2.3V8.3L14 2.8z" fill="currentColor" fill-opacity="0.1"></path>
+                <polyline points="14 2.8 14 8.3 19.5 8.3"></polyline>
+                <path d="M12 17.5v-5.5"></path>
+                <path d="M9.4 14.5L12 11.8l2.6 2.7"></path>
+              </svg>
+              <span class="gn-sr-label">Importer PDF</span>
+            </button>
 
-          <!-- Fonds, PDF, Export, Thème -->
-          <button class="tool-btn" id="btnPaperSettings" title="Changer le fond de page (Seyès, Millimétré, Isométrique, Cornell, Pointillé, Portée...)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="4" y="3" width="16" height="18" rx="2.5" fill="currentColor" fill-opacity="0.08"></rect>
-              <line x1="4" y1="8.5" x2="20" y2="8.5" stroke-opacity="0.7"></line>
-              <line x1="4" y1="13.5" x2="20" y2="13.5" stroke-opacity="0.7"></line>
-              <line x1="9.5" y1="3" x2="9.5" y2="21" stroke-opacity="0.7"></line>
-            </svg>
-            <span>Fonds</span>
-          </button>
+            <button class="tool-btn gn-icon-only" id="btnExportMenu" title="Exporter (PDF annoté, SVG, PNG)">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3.2v11.3"></path>
+                <path d="M8.4 6.8L12 3.2l3.6 3.6"></path>
+                <path d="M5 12.2v6.2A2.4 2.4 0 0 0 7.4 20.8h9.2a2.4 2.4 0 0 0 2.4-2.4v-6.2"></path>
+              </svg>
+              <span class="gn-sr-label">Export</span>
+            </button>
 
-          <button class="tool-btn" id="btnQuickImportPdf" title="Importer un fichier PDF local (PDF.js) pour l'annoter au stylet">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M14 2.8H6.8A2.3 2.3 0 0 0 4.5 5.1v13.8a2.3 2.3 0 0 0 2.3 2.3h10.4a2.3 2.3 0 0 0 2.3-2.3V8.3L14 2.8z" fill="currentColor" fill-opacity="0.1"></path>
-              <polyline points="14 2.8 14 8.3 19.5 8.3"></polyline>
-              <path d="M12 17.5v-5.5"></path>
-              <path d="M9.4 14.5L12 11.8l2.6 2.7"></path>
-            </svg>
-            <span>Importer PDF</span>
-          </button>
-
-          <button class="tool-btn" id="btnExportMenu" title="Exporter en PDF annoté (pdf-lib), SVG, PNG ou App PC">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3.2v11.3"></path>
-              <path d="M8.4 6.8L12 3.2l3.6 3.6"></path>
-              <path d="M5 12.2v6.2A2.4 2.4 0 0 0 7.4 20.8h9.2a2.4 2.4 0 0 0 2.4-2.4v-6.2"></path>
-            </svg>
-            <span>Export</span>
-          </button>
-
-          <button class="tool-btn gn-icon-only" id="btnThemeToggle" title="Basculer le thème Clair / Sombre">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20.4 13.4A8.4 8.4 0 1 1 10.6 3.6a6.6 6.6 0 0 0 9.8 9.8z" fill="currentColor" fill-opacity="0.16"></path>
-              <path d="M18.2 4.5v2.4M17 5.7h2.4" stroke-width="1.6"></path>
-            </svg>
-          </button>
+            <button class="tool-btn gn-icon-only" id="btnThemeToggle" title="Basculer le thème Clair / Sombre">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20.4 13.4A8.4 8.4 0 1 1 10.6 3.6a6.6 6.6 0 0 0 9.8 9.8z" fill="currentColor" fill-opacity="0.16"></path>
+                <path d="M18.2 4.5v2.4M17 5.7h2.4" stroke-width="1.6"></path>
+              </svg>
+            </button>
+          </div>
         </div>
 
         <!-- POPOVER D'OPTIONS D'OUTIL (MASQUÉ PAR DÉFAUT, S'OUVRE UNIQUEMENT AU CLIC) -->

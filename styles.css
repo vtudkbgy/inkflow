@@ -729,43 +729,85 @@ html, body {
 
 .floating-header {
   position: absolute;
-  top: 10px;
-  left: 10px;
-  right: 10px;
-  width: calc(100% - 20px);
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   z-index: 30;
   pointer-events: none;
 }
 
+/* Bandeau supérieur GoodNotes 6 — pleine largeur, 1 seule ligne, verre acrylique */
 .unified-top-bar {
   pointer-events: auto;
-  max-width: 100%;
-  background: var(--surface-panel);
-  backdrop-filter: blur(18px) saturate(180%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
-  border: 1px solid var(--border-color);
-  border-radius: 20px;
-  box-shadow: var(--shadow-dock);
-  padding: 5px 9px;
+  width: 100%;
+  height: 50px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(246, 246, 248, 0.88) 100%);
+  backdrop-filter: blur(30px) saturate(185%);
+  -webkit-backdrop-filter: blur(30px) saturate(185%);
+  border-top: 2.5px solid #3462a2;
+  border-bottom: 1px solid rgba(30, 27, 27, 0.11);
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+  padding: 0 14px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 3px;
-  transition: box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s ease;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  transition: box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s ease, background 0.2s ease;
 }
 
-/* Tool Buttons (Goodnotes 6 Spring Physics) */
+.unified-top-bar::-webkit-scrollbar {
+  display: none;
+}
+
+[data-theme="dark"] .unified-top-bar {
+  background: linear-gradient(180deg, rgba(30, 32, 40, 0.94) 0%, rgba(22, 24, 30, 0.90) 100%);
+  border-top-color: #294c7f;
+  border-bottom-color: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.36);
+}
+
+.gn-bar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.gn-bar-center {
+  background: rgba(15, 23, 42, 0.035);
+  border: 1px solid rgba(15, 23, 42, 0.065);
+  border-radius: 14px;
+  padding: 3px 6px;
+  gap: 2px;
+}
+
+[data-theme="dark"] .gn-bar-center {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.gn-sr-label {
+  display: none;
+}
+
+/* Tool Buttons (GoodNotes 6 Iconic Toolbar) */
 .tool-btn {
   position: relative;
-  height: 34px;
-  min-width: 32px;
-  padding: 0 8px;
-  border-radius: var(--radius-pill);
+  height: 36px;
+  min-width: 36px;
+  padding: 0 9px;
+  border-radius: 10px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
@@ -773,65 +815,109 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
   cursor: pointer;
   will-change: transform;
-  transition: transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1),
-              background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-              color 0.16s ease,
-              box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+              background 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+              color 0.15s ease,
+              box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.tool-btn.gn-icon-only {
-  padding: 0 7px;
-  min-width: 34px;
+.tool-btn.gn-icon-only,
+.tool-btn.gn-tool-icon {
+  padding: 0;
+  width: 36px;
+  min-width: 36px;
+}
+
+.tool-btn.gn-sidebar-btn {
+  background: rgba(52, 98, 162, 0.10);
+  color: #3462a2;
+  border-color: rgba(52, 98, 162, 0.18);
+  padding: 0 11px;
+  border-radius: 10px;
+}
+
+.tool-btn.gn-sidebar-btn:hover:not(:disabled) {
+  background: #3462a2;
+  color: #ffffff;
+  border-color: #3462a2;
+}
+
+[data-theme="dark"] .tool-btn.gn-sidebar-btn {
+  background: rgba(41, 76, 127, 0.38);
+  color: #93c5fd;
+  border-color: rgba(147, 197, 253, 0.22);
+}
+
+[data-theme="dark"] .tool-btn.gn-sidebar-btn:hover:not(:disabled) {
+  background: #294c7f;
+  color: #ffffff;
 }
 
 .tool-btn svg {
   flex-shrink: 0;
-  transition: transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .tool-btn:hover:not(:disabled) {
-  background: var(--surface-hover);
+  background: rgba(15, 23, 42, 0.065);
   color: var(--text-primary);
-  transform: translateY(-1.5px) scale(1.03);
+  transform: translateY(-1px);
+}
+
+[data-theme="dark"] .tool-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
 }
 
 .tool-btn:hover:not(:disabled) svg {
-  transform: scale(1.07);
+  transform: scale(1.06);
 }
 
 .tool-btn:active:not(:disabled) {
-  transform: translateY(0.5px) scale(0.95);
-  transition-duration: 0.1s;
+  transform: scale(0.94);
+  transition-duration: 0.09s;
 }
 
+/* GoodNotes 6 Active Toolbar Button (#dfecfb Light / #294c7f Dark + accent icon) */
 .tool-btn.active {
-  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-dark) 100%);
-  color: #ffffff;
-  transform: translateY(-2px) scale(1.04);
-  box-shadow: 0 6px 16px -2px rgba(0, 114, 206, 0.42),
-              0 2px 6px -1px rgba(0, 114, 206, 0.24),
-              inset 0 1px 0 rgba(255, 255, 255, 0.30);
+  background: #dfecfb;
+  color: #0072ce;
+  border-color: rgba(0, 114, 206, 0.26);
+  transform: translateY(-0.5px);
+  box-shadow: 0 2px 8px rgba(0, 114, 206, 0.16),
+              inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+[data-theme="dark"] .tool-btn.active {
+  background: #294c7f;
+  color: #7cc4fa;
+  border-color: rgba(124, 196, 250, 0.30);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.32),
+              inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .tool-btn.active::after {
   content: "";
   position: absolute;
-  bottom: -4px;
+  bottom: 2px;
   left: 50%;
   width: 14px;
   height: 2.5px;
   border-radius: 999px;
-  background: var(--accent-primary);
-  box-shadow: 0 0 8px rgba(0, 114, 206, 0.55);
+  background: #0072ce;
+  box-shadow: 0 0 6px rgba(69, 191, 219, 0.65);
   transform: translateX(-50%) scaleX(1);
-  animation: gnActiveIndicatorPop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: gnActiveIndicatorPop 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
   pointer-events: none;
+}
+
+[data-theme="dark"] .tool-btn.active::after {
+  background: #45bfdb;
 }
 
 @keyframes gnActiveIndicatorPop {
@@ -846,33 +932,36 @@ html, body {
 }
 
 .tool-btn.active:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-dark) 100%);
-  color: #ffffff;
-  transform: translateY(-2.5px) scale(1.05);
-  box-shadow: 0 8px 20px -2px rgba(0, 114, 206, 0.48),
-              0 3px 7px -1px rgba(0, 114, 206, 0.26),
-              inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  background: #d2e6fc;
+  color: #005aa8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 114, 206, 0.22);
+}
+
+[data-theme="dark"] .tool-btn.active:hover:not(:disabled) {
+  background: #315a96;
+  color: #bae6fd;
 }
 
 .tool-btn.active:active:not(:disabled) {
-  transform: translateY(-0.5px) scale(0.97);
+  transform: scale(0.95);
 }
 
 .tool-btn.ai-btn {
   background: var(--accent-ai-soft);
   color: var(--accent-ai);
-  border-color: rgba(124, 58, 237, 0.25);
+  border-color: rgba(124, 58, 237, 0.22);
 }
 
 .tool-btn.ai-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  background: linear-gradient(135deg, #7c3aed, #0072ce);
   color: #ffffff;
   border-color: transparent;
-  box-shadow: 0 6px 15px -3px rgba(124, 58, 237, 0.38);
+  box-shadow: 0 4px 12px -2px rgba(124, 58, 237, 0.35);
 }
 
 .tool-btn:disabled {
-  opacity: 0.34;
+  opacity: 0.32;
   cursor: not-allowed;
   transform: none;
 }
@@ -881,10 +970,10 @@ html, body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.94);
+  border: 1.5px solid rgba(255, 255, 255, 0.96);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.28);
   position: absolute;
-  bottom: 3px;
+  bottom: 4px;
   right: 4px;
   transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.18s ease;
 }
