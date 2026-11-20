@@ -1914,8 +1914,8 @@
   // 6. ÉTAT GLOBAL DE L'APPLICATION
   // ============================================================================
 
-  const PAGE_WIDTH = 840;
-  const PAGE_HEIGHT = 1188;
+  const PAGE_WIDTH = 1190;
+  const PAGE_HEIGHT = 1684;
 
   const state = {
     notebooks: [],
@@ -2744,18 +2744,78 @@
     };
   }
 
-  function getViewportZoomLimits(page) {
-    const rect = dom.canvasViewport ? dom.canvasViewport.getBoundingClientRect() : null;
-    if (isBoundedPage(page)) {
-      const b = getPageBounds(page);
-      let fitZoom = 0.72;
-      if (rect && rect.width > 0 && rect.height > 0) {
-        const availW = Math.max(200, rect.width - 48);
-        const availH = Math.max(200, rect.height - 96);
-        fitZoom = Math.min(availW / b.width, availH / b.height);
+  function intersectSegmentWithRect(p0, p1, maxX, maxY) {
+    // Algorithme de Liang-Barsky pour trouver l'intersection exacte avec [0, maxX] x [0, maxY]
+    const dx = p1.x - p0.x;
+    const dy = p1.y - p0.y;
+    let t0 = 0;
+    let t1 = 1;
+    const checks = [
+      [-dx, p0.x],
+      [dx, maxX - p0.x],
+      [-dy, p0.y],
+      [dy, maxY - p0.y]
+    ];
+    for (let i = 0; i < 4; i++) {
+      const p = checks[i][0];
+      const q = checks[i][1];
+      if (Math.abs(p) < 1e-9) {
+        if (q < 0) return null;
+      } else {
+        const r = q / p;
+        if (p < 0) {
+          if (r > t1) return null;
+          if (r > t0) t0 = r;
+        } else {
+          if (r < t0) return null;
+          if (r < t1) t1 = r;
+        }
       }
-      // Empêche de dézoomer trop loin de la feuille A4 / PDF
-      const minZoom = Math.max(0.45, Math.min(0.85, fitZoom * 0.72));
+    }
+    return {
+      entry: { x: p0.x + t0 * dx, y: p0.y + t0 * dy },
+      exit: { x: p0.x + t1 * dx, y: p0.y + t1 * dy }
+    };
+  }
+
+  function getBoundedFitHeightZoom(page) {
+    const rect = dom.canvasViewport ? dom.canvasViewport.getBoundingClientRect() : null;
+    const b = getPageBounds(page);
+    if (!rect || rect.width <= 0 || rect.height <= 0) return 0.72;
+    const topSafe = 58;
+    const bottomPad = 14;
+    const availW = Math.max(200, rect.width - 28);
+    const availH = Math.max(200, rect.height - topSafe - bottomPad);
+    return Math.min(availW / b.width, availH / b.height);
+  }
+
+  function snapBackBoundedViewportIfZoomedOut() {
+    const page = getActivePage();
+    if (!isBoundedPage(page) || !dom.canvasViewport) return false;
+    const rect = dom.canvasViewport.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    const fitZoom = getBoundedFitHeightZoom(page);
+    const b = getPageBounds(page);
+    const topSafe = 58;
+    const bottomPad = 14;
+    const scaledH = b.height * state.zoom;
+    const availH = rect.height - topSafe - bottomPad;
+    // Si la feuille est dézoomée plus petite que la hauteur haut-bas de l'écran, on rezoome automatiquement pour la recaler haut & bas
+    if (state.zoom < fitZoom - 0.004 || scaledH < availH - 2) {
+      const targetZoom = Math.max(fitZoom, state.zoom);
+      const targetPanX = Math.round((rect.width - b.width * targetZoom) / 2);
+      const targetPanY = Math.round(topSafe + Math.max(0, (availH - b.height * targetZoom) / 2));
+      animateViewportTo(targetZoom, targetPanX, targetPanY, 220);
+      return true;
+    }
+    return false;
+  }
+
+  function getViewportZoomLimits(page) {
+    if (isBoundedPage(page)) {
+      const fitZoom = getBoundedFitHeightZoom(page);
+      // Légère élasticité pendant le pincement/molette (70% du fitZoom), puis rebond automatique vers fitZoom au relâchement
+      const minZoom = Math.max(0.25, fitZoom * 0.70);
       return { minZoom, maxZoom: 4.5 };
     }
     return { minZoom: 0.35, maxZoom: 4.5 };
@@ -2924,11 +2984,13 @@
     const page = getActivePage();
     const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
     const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
-    const availW = rect.width - 48;
-    const availH = rect.height - 96;
-    const targetZoom = Math.max(0.45, Math.min(1.08, Math.min(availW / pw, availH / ph)));
+    const availW = rect.width - 28;
+    const availH = rect.height - 72;
+    const targetZoom = isBoundedPage(page)
+      ? Math.min(availW / pw, availH / ph)
+      : Math.max(0.45, Math.min(1.08, Math.min(availW / pw, availH / ph)));
     const targetPanX = Math.round((rect.width - pw * targetZoom) / 2);
-    const targetPanY = Math.max(66, Math.round(54 + (rect.height - 54 - ph * targetZoom) / 2));
+    const targetPanY = Math.max(58, Math.round(58 + Math.max(0, (rect.height - 72 - ph * targetZoom) / 2)));
     if (animate) {
       animateViewportTo(targetZoom, targetPanX, targetPanY, 220);
       return;
@@ -2963,8 +3025,9 @@
     zoomSettleTimer = setTimeout(() => {
       zoomSettleTimer = null;
       isZoomInteracting = false;
+      if (!state.isPinching && snapBackBoundedViewportIfZoomedOut()) return;
       requestRender();
-    }, 110);
+    }, 135);
     if (dom.btnZoomReset) dom.btnZoomReset.textContent = `${Math.round(state.zoom * 100)}%`;
     syncWorldLayerTransform();
     requestRender();
@@ -5361,6 +5424,8 @@
 
     state.activePointerId = e.pointerId;
     state.isDrawing = true;
+    state.drawingPausedOutsidePage = false;
+    state.lastOutsideRawPt = null;
     state.strokeStartTime = performance.now();
     state.currentStrokeSnappedFromAutoShape = false;
     state.currentShape = null;
@@ -5557,7 +5622,7 @@
 
     const activePageForMove = getActivePage();
     if (state.tool === 'pen' || state.tool === 'highlighter') {
-      if (!state.currentStroke) return;
+      if (!state.currentStroke && !state.drawingPausedOutsidePage) return;
 
       // Si la forme a déjà été détectée au maintien, ajuste en douceur l'extrémité pour Ligne / Flèche sur le canvas actif uniquement
       if (state.currentStrokeSnappedFromAutoShape && state.currentShape) {
@@ -5576,32 +5641,118 @@
         return;
       }
 
+      const bounded = isBoundedPage(activePageForMove);
+      const pageB = bounded ? getPageBounds(activePageForMove) : null;
       let lastP = 0.5;
-      const pts = state.currentStroke.points;
       const minMoveDist = 0.85 / Math.max(0.25, state.zoom);
       let addedCount = 0;
+
       for (const ce of coalesced) {
         if (!Number.isFinite(ce.clientX) || !Number.isFinite(ce.clientY)) continue;
-        const wPt = clampPointToPage(activePageForMove, screenToWorld(ce.clientX, ce.clientY));
-        const p = extractEffectivePressure(ce, wPt);
+        const rawPt = screenToWorld(ce.clientX, ce.clientY);
+        const p = extractEffectivePressure(ce, rawPt);
         lastP = p;
+        const ptTime = ce.timeStamp || performance.now();
+
+        if (bounded) {
+          const inside = rawPt.x >= 0 && rawPt.x <= pageB.maxX && rawPt.y >= 0 && rawPt.y <= pageB.maxY;
+          if (!inside) {
+            // Sortie de la feuille A4 / PDF : on coupe proprement le trait au bord exact sans jamais dessiner le long du bord
+            if (!state.drawingPausedOutsidePage && state.currentStroke && state.currentStroke.points.length > 0) {
+              const curPts = state.currentStroke.points;
+              const prevIn = curPts[curPts.length - 1];
+              const hit = intersectSegmentWithRect(prevIn, rawPt, pageB.maxX, pageB.maxY);
+              if (hit && hit.exit && Math.hypot(hit.exit.x - prevIn.x, hit.exit.y - prevIn.y) > 0.25) {
+                curPts.push({
+                  x: hit.exit.x,
+                  y: hit.exit.y,
+                  pressure: p,
+                  tiltX: ce.tiltX || 0,
+                  tiltY: ce.tiltY || 0,
+                  t: ptTime
+                });
+              }
+              const finishedStroke = state.currentStroke;
+              invalidateStrokeCache(finishedStroke);
+              activePageForMove.strokes.push(finishedStroke);
+              state.currentStroke = null;
+              mergeCompletedItemIntoStaticCanvas(finishedStroke, 'stroke');
+              clearActiveCanvas();
+              scheduleSaveActivePage(activePageForMove);
+              state.drawingPausedOutsidePage = true;
+            }
+            state.lastOutsideRawPt = rawPt;
+            continue;
+          }
+
+          // Retour dans la feuille après en être sorti : démarre un nouveau trait net depuis le point d'entrée sur le bord
+          if (state.drawingPausedOutsidePage) {
+            const isHl = state.tool === 'highlighter';
+            const entryPts = [];
+            if (state.lastOutsideRawPt) {
+              const hit = intersectSegmentWithRect(state.lastOutsideRawPt, rawPt, pageB.maxX, pageB.maxY);
+              if (hit && hit.entry) {
+                entryPts.push({
+                  x: hit.entry.x,
+                  y: hit.entry.y,
+                  pressure: p,
+                  tiltX: ce.tiltX || 0,
+                  tiltY: ce.tiltY || 0,
+                  t: ptTime
+                });
+              }
+            }
+            entryPts.push({
+              x: rawPt.x,
+              y: rawPt.y,
+              pressure: p,
+              tiltX: ce.tiltX || 0,
+              tiltY: ce.tiltY || 0,
+              t: ptTime
+            });
+            state.currentStroke = {
+              id: createUid('st'),
+              tool: state.tool,
+              penStyle: isHl ? 'highlighter' : state.penStyle,
+              lineStyle: isHl ? 'solid' : (state.penLineStyle || 'solid'),
+              color: isHl ? state.highlighterColor : state.penColor,
+              size: isHl ? state.highlighterSize : state.penSize,
+              smoothing: state.smoothing,
+              pressureMode: isHl ? 'uniform' : state.pressureMode,
+              simulatePressure: e.pointerType === 'mouse',
+              points: entryPts,
+              _renderedUpToIndex: 0
+            };
+            state.drawingPausedOutsidePage = false;
+            state.lastOutsideRawPt = null;
+            state.lastPointerPoint = rawPt;
+            state.lastPointerTime = ptTime;
+            addedCount++;
+            continue;
+          }
+        }
+
+        if (!state.currentStroke) continue;
+        const pts = state.currentStroke.points;
         const prevPt = pts[pts.length - 1];
-        if (prevPt && Math.hypot(wPt.x - prevPt.x, wPt.y - prevPt.y) < minMoveDist) {
+        if (prevPt && Math.hypot(rawPt.x - prevPt.x, rawPt.y - prevPt.y) < minMoveDist) {
           prevPt.pressure = prevPt.pressure * 0.5 + p * 0.5;
           continue;
         }
-        state.lastPointerPoint = wPt;
-        state.lastPointerTime = ce.timeStamp || performance.now();
+        state.lastPointerPoint = rawPt;
+        state.lastPointerTime = ptTime;
         pts.push({
-          x: wPt.x,
-          y: wPt.y,
+          x: rawPt.x,
+          y: rawPt.y,
           pressure: p,
           tiltX: ce.tiltX || 0,
           tiltY: ce.tiltY || 0,
-          t: ce.timeStamp || performance.now()
+          t: ptTime
         });
         addedCount++;
       }
+
+      const pts = state.currentStroke ? state.currentStroke.points : [];
 
       // Lecture optionnelle des événements prédits (getPredictedEvents) pour l'aperçu d'encre anticipé
       const rawPredicted = typeof e.getPredictedEvents === 'function' ? e.getPredictedEvents() : null;
@@ -5689,9 +5840,13 @@
     cancelColorWheelTimer();
 
     if (e.pointerType === 'touch') {
+      const wasPinching = state.isPinching;
       state.touchPoints.delete(e.pointerId);
       if (state.touchPoints.size < 2) {
         state.isPinching = false;
+        if (wasPinching) {
+          snapBackBoundedViewportIfZoomedOut();
+        }
       }
     }
 
@@ -5733,6 +5888,8 @@
     if (state.activePointerId !== null && e.pointerId !== undefined && e.pointerId !== state.activePointerId) return;
 
     state.isDrawing = false;
+    state.drawingPausedOutsidePage = false;
+    state.lastOutsideRawPt = null;
     state.activePointerId = null;
     try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
 
