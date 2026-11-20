@@ -1971,7 +1971,7 @@
     shapeType: 'line',
     shapeFilled: false,
     autoShapeEnabled: true,
-    palmRejection: false,
+    palmRejection: true,
     lastPenSeenTime: 0,
     laserTrail: [],
     laserAnimFrame: null,
@@ -2718,6 +2718,111 @@
     }
   }
 
+  function isBoundedPage(page) {
+    if (!page) return false;
+    return (page.viewMode && page.viewMode !== 'infinite') || Boolean(page.pdfId || page.isPdfPage);
+  }
+
+  function getPageBounds(page) {
+    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
+    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    return { minX: 0, minY: 0, maxX: pw, maxY: ph, width: pw, height: ph };
+  }
+
+  function isPointInsidePage(page, x, y, margin = 0) {
+    if (!isBoundedPage(page)) return true;
+    const b = getPageBounds(page);
+    return x >= -margin && x <= b.maxX + margin && y >= -margin && y <= b.maxY + margin;
+  }
+
+  function clampPointToPage(page, pt) {
+    if (!pt || !isBoundedPage(page)) return pt;
+    const b = getPageBounds(page);
+    return {
+      x: Math.max(0, Math.min(b.maxX, pt.x)),
+      y: Math.max(0, Math.min(b.maxY, pt.y))
+    };
+  }
+
+  function getViewportZoomLimits(page) {
+    const rect = dom.canvasViewport ? dom.canvasViewport.getBoundingClientRect() : null;
+    if (isBoundedPage(page)) {
+      const b = getPageBounds(page);
+      let fitZoom = 0.72;
+      if (rect && rect.width > 0 && rect.height > 0) {
+        const availW = Math.max(200, rect.width - 48);
+        const availH = Math.max(200, rect.height - 96);
+        fitZoom = Math.min(availW / b.width, availH / b.height);
+      }
+      // Empêche de dézoomer trop loin de la feuille A4 / PDF
+      const minZoom = Math.max(0.45, Math.min(0.85, fitZoom * 0.72));
+      return { minZoom, maxZoom: 4.5 };
+    }
+    return { minZoom: 0.35, maxZoom: 4.5 };
+  }
+
+  function clampViewportPan(panX, panY, zoom, page) {
+    const rect = dom.canvasViewport ? dom.canvasViewport.getBoundingClientRect() : null;
+    if (!rect || rect.width <= 0 || rect.height <= 0) return { panX, panY };
+    const vw = rect.width;
+    const vh = rect.height;
+    const topSafe = 58;
+
+    if (isBoundedPage(page)) {
+      const b = getPageBounds(page);
+      const scaledW = b.width * zoom;
+      const scaledH = b.height * zoom;
+      let clampedX = panX;
+      let clampedY = panY;
+
+      if (scaledW <= vw - 32) {
+        const centerX = (vw - scaledW) / 2;
+        const slackX = Math.min(140, vw * 0.2);
+        clampedX = Math.max(centerX - slackX, Math.min(centerX + slackX, panX));
+      } else {
+        const marginX = Math.min(160, vw * 0.22);
+        const minPanX = vw - scaledW - marginX;
+        const maxPanX = marginX;
+        clampedX = Math.max(minPanX, Math.min(maxPanX, panX));
+      }
+
+      if (scaledH <= vh - topSafe - 24) {
+        const centerY = topSafe + (vh - topSafe - scaledH) / 2;
+        const slackY = Math.min(120, vh * 0.18);
+        clampedY = Math.max(centerY - slackY, Math.min(centerY + slackY, panY));
+      } else {
+        const marginY = Math.min(150, vh * 0.2);
+        const minPanY = vh - scaledH - marginY;
+        const maxPanY = topSafe + marginY;
+        clampedY = Math.max(minPanY, Math.min(maxPanY, panY));
+      }
+      return { panX: clampedX, panY: clampedY };
+    }
+
+    // Mode page infinie : borne raisonnable autour de l'origine et du contenu existant (±1400 px)
+    let minWX = 0, minWY = 0, maxWX = PAGE_WIDTH, maxWY = PAGE_HEIGHT;
+    if (page && Array.isArray(page.strokes)) {
+      for (let i = 0; i < page.strokes.length; i++) {
+        const sb = getCachedStrokeBounds(page.strokes[i]);
+        if (sb) {
+          if (sb.minX < minWX) minWX = sb.minX;
+          if (sb.minY < minWY) minWY = sb.minY;
+          if (sb.maxX > maxWX) maxWX = sb.maxX;
+          if (sb.maxY > maxWY) maxWY = sb.maxY;
+        }
+      }
+    }
+    const worldPad = 1400;
+    const minPanX = vw - (maxWX + worldPad) * zoom;
+    const maxPanX = -(minWX - worldPad) * zoom;
+    const minPanY = vh - (maxWY + worldPad) * zoom;
+    const maxPanY = topSafe - (minWY - worldPad) * zoom;
+    return {
+      panX: Math.max(minPanX, Math.min(maxPanX, panX)),
+      panY: Math.max(minPanY, Math.min(maxPanY, panY))
+    };
+  }
+
   function startPanInertiaLoop() {
     if (panVelocitySamples.length < 2) return;
     const first = panVelocitySamples[0];
@@ -2748,10 +2853,13 @@
       if (Math.hypot(dx, dy) < 0.15) {
         return;
       }
-      state.panX += dx;
-      state.panY += dy;
+      const nextPan = clampViewportPan(state.panX + dx, state.panY + dy, state.zoom, getActivePage());
+      const moved = Math.hypot(nextPan.panX - state.panX, nextPan.panY - state.panY);
+      state.panX = nextPan.panX;
+      state.panY = nextPan.panY;
       syncWorldLayerTransform();
       requestRender();
+      if (moved < 0.1) return;
       panInertiaFrame = requestAnimationFrame(step);
     };
     panInertiaFrame = requestAnimationFrame(step);
@@ -2759,7 +2867,12 @@
 
   function animateViewportTo(targetZoom, targetPanX, targetPanY, durationMs = 200) {
     stopViewportAnimations();
-    const clampedZoom = Math.max(0.12, Math.min(5.0, targetZoom));
+    const page = getActivePage();
+    const { minZoom, maxZoom } = getViewportZoomLimits(page);
+    const clampedZoom = Math.max(minZoom, Math.min(maxZoom, targetZoom));
+    const clampedTarget = clampViewportPan(targetPanX, targetPanY, clampedZoom, page);
+    targetPanX = clampedTarget.panX;
+    targetPanY = clampedTarget.panY;
     if (durationMs <= 0) {
       state.zoom = clampedZoom;
       state.panX = targetPanX;
@@ -2812,10 +2925,10 @@
     const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
     const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
     const availW = rect.width - 48;
-    const availH = rect.height - 140;
+    const availH = rect.height - 96;
     const targetZoom = Math.max(0.45, Math.min(1.08, Math.min(availW / pw, availH / ph)));
     const targetPanX = Math.round((rect.width - pw * targetZoom) / 2);
-    const targetPanY = Math.max(88, Math.round((rect.height - ph * targetZoom) / 2 + 16));
+    const targetPanY = Math.max(66, Math.round(54 + (rect.height - 54 - ph * targetZoom) / 2));
     if (animate) {
       animateViewportTo(targetZoom, targetPanX, targetPanY, 220);
       return;
@@ -2823,26 +2936,28 @@
     state.zoom = targetZoom;
     state.panX = targetPanX;
     state.panY = targetPanY;
-    dom.btnZoomReset.textContent = `${Math.round(state.zoom * 100)}%`;
+    if (dom.btnZoomReset) dom.btnZoomReset.textContent = `${Math.round(state.zoom * 100)}%`;
     syncWorldLayerTransform();
     requestRender();
   }
 
   function zoomAtScreenPoint(newZoom, screenX, screenY, animate = false) {
     stopViewportAnimations();
-    // Permet de dézoomer jusqu'à 12% (0.12x) pour étendre largement la page infinie, et zoomer jusqu'à 500% (5.0x)
-    const clamped = Math.max(0.12, Math.min(5.0, newZoom));
+    const page = getActivePage();
+    const { minZoom, maxZoom } = getViewportZoomLimits(page);
+    const clamped = Math.max(minZoom, Math.min(maxZoom, newZoom));
     const wx = (screenX - state.panX) / state.zoom;
     const wy = (screenY - state.panY) / state.zoom;
-    const targetPanX = screenX - wx * clamped;
-    const targetPanY = screenY - wy * clamped;
+    const rawPanX = screenX - wx * clamped;
+    const rawPanY = screenY - wy * clamped;
+    const clampedPan = clampViewportPan(rawPanX, rawPanY, clamped, page);
     if (animate) {
-      animateViewportTo(clamped, targetPanX, targetPanY, 200);
+      animateViewportTo(clamped, clampedPan.panX, clampedPan.panY, 200);
       return;
     }
     state.zoom = clamped;
-    state.panX = targetPanX;
-    state.panY = targetPanY;
+    state.panX = clampedPan.panX;
+    state.panY = clampedPan.panY;
     isZoomInteracting = true;
     if (zoomSettleTimer) clearTimeout(zoomSettleTimer);
     zoomSettleTimer = setTimeout(() => {
@@ -2850,7 +2965,7 @@
       isZoomInteracting = false;
       requestRender();
     }, 110);
-    dom.btnZoomReset.textContent = `${Math.round(state.zoom * 100)}%`;
+    if (dom.btnZoomReset) dom.btnZoomReset.textContent = `${Math.round(state.zoom * 100)}%`;
     syncWorldLayerTransform();
     requestRender();
     scheduleHiDpiPdfCheck();
@@ -4230,6 +4345,13 @@
     activeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     activeCtx.translate(state.panX, state.panY);
     activeCtx.scale(state.zoom, state.zoom);
+    const activePageForClip = getActivePage();
+    if (isBoundedPage(activePageForClip)) {
+      const pb = getPageBounds(activePageForClip);
+      activeCtx.beginPath();
+      activeCtx.rect(0, 0, pb.width, pb.height);
+      activeCtx.clip();
+    }
     activeCtx.globalAlpha = 1.0;
     activeCtx.globalCompositeOperation = 'source-over';
     activeCtx.fillStyle = color;
@@ -4512,6 +4634,14 @@
     const tapes = page.tapes || [];
     const hasSelectedStrokes = state.selectedIds.strokes.size > 0;
     const hasSelectedShapes = state.selectedIds.shapes.size > 0;
+    const clipBounded = isBoundedPage(page);
+    if (clipBounded) {
+      const pb = getPageBounds(page);
+      targetCtx.save();
+      targetCtx.beginPath();
+      targetCtx.rect(0, 0, pb.width, pb.height);
+      targetCtx.clip();
+    }
 
     for (let i = 0; i < strokes.length; i++) {
       const s = strokes[i];
@@ -4535,6 +4665,9 @@
     }
     for (let i = 0; i < tapes.length; i++) {
       drawTapeItem(targetCtx, tapes[i], false);
+    }
+    if (clipBounded) {
+      targetCtx.restore();
     }
   }
 
@@ -4919,7 +5052,7 @@
     // Efface l'amorce de tracé lasso pour garder le canevas propre
     state.lassoPolygon = [];
     state.lassoAction = null;
-    dom.pointerTypeBadge.textContent = 'Roue de couleurs (glisser vers une teinte)';
+    if (dom.pointerTypeBadge) dom.pointerTypeBadge.textContent = 'Roue de couleurs (glisser vers une teinte)';
     requestRender();
   }
 
@@ -5036,7 +5169,7 @@
 
     state.currentShape = detected;
     state.currentStrokeSnappedFromAutoShape = true;
-    dom.pointerTypeBadge.textContent = `✨ Forme parfaite : ${detected.detectedName}`;
+    if (dom.pointerTypeBadge) dom.pointerTypeBadge.textContent = `✨ Forme parfaite : ${detected.detectedName}`;
     showToast(`✨ ${detected.detectedName}`);
     requestActiveRender();
   }
@@ -5151,7 +5284,7 @@
         const pts = Array.from(state.touchPoints.values());
         state.pinchLastDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
         state.pinchLastCenter = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
-        dom.pointerTypeBadge.textContent = 'Pincement Zoom / Pan 2 doigts';
+        if (dom.pointerTypeBadge) dom.pointerTypeBadge.textContent = 'Pincement Zoom / Pan 2 doigts';
         return;
       }
     }
@@ -5159,15 +5292,15 @@
     const isPen = e.pointerType === 'pen';
     if (isPen) {
       state.lastPenSeenTime = performance.now();
-    } else if (e.pointerType === 'touch' && state.touchPoints.size === 1 && performance.now() - state.lastPenSeenTime < 650) {
-      // Rejet de paume automatique style OneNote : ignore le contact paume juste après le stylet (tout en gardant le zoom 2 doigts)
+    } else if (e.pointerType === 'touch' && state.touchPoints.size === 1 && performance.now() - state.lastPenSeenTime < 350) {
+      // Rejet de paume bref juste après le stylet (tout en gardant le zoom 2 doigts)
       return;
     }
 
-    // Déplacement (Pan) : Clic molette, Clic droit souris (hors bouton stylet !), Barre Espace, Outil Main, ou 1 Doigt si Tactile = Bouger
+    // Déplacement (Pan) : 1 doigt tactile automatiquement = bouger, Clic molette, Clic droit souris (hors bouton stylet !), Barre Espace, Outil Main
     const isMiddleOrMouseRight = (!isPen && (e.button === 1 || e.button === 2 || (e.buttons & 4) !== 0 || (e.buttons & 2) !== 0)) ||
       (isPen && e.button === 1 && !isPenLassoButton(e));
-    const isTouchPan = e.pointerType === 'touch' && state.palmRejection;
+    const isTouchPan = e.pointerType === 'touch';
     if (isMiddleOrMouseRight || state.isSpacePressed || state.tool === 'pan' || isTouchPan) {
       state.isPanning = true;
       state.activePointerId = e.pointerId;
@@ -5200,7 +5333,19 @@
       updateToolbarActiveState();
     }
 
-    const worldPt = screenToWorld(e.clientX, e.clientY);
+    let page = getActivePage();
+    if (!page) {
+      applyDemoStateSynchronously();
+      page = getActivePage();
+      if (!page) return;
+    }
+
+    const rawWorldPt = screenToWorld(e.clientX, e.clientY);
+    // En format A4 / page bornée (ou PDF), interdit de commencer à écrire en dehors de la feuille
+    if (isBoundedPage(page) && !isPointInsidePage(page, rawWorldPt.x, rawWorldPt.y, 4)) {
+      return;
+    }
+    const worldPt = clampPointToPage(page, rawWorldPt);
     const pressure = extractEffectivePressure(e, worldPt);
     state.lastPointerPoint = worldPt;
     state.lastPointerTime = e.timeStamp || performance.now();
@@ -5209,13 +5354,6 @@
     if (state.tool === 'text') {
       createInteractiveTextCardAt(worldPt.x, worldPt.y, '', false, true);
       return;
-    }
-
-    let page = getActivePage();
-    if (!page) {
-      applyDemoStateSynchronously();
-      page = getActivePage();
-      if (!page) return;
     }
 
     // Annule le minuteur de sauvegarde différée (500 ms) si un nouveau trait commence pour ne jamais bloquer le Main Thread pendant l'écriture
@@ -5344,8 +5482,14 @@
           const targetZoom = state.zoom * factor;
           zoomAtScreenPoint(targetZoom, newCenter.x - rect.left, newCenter.y - rect.top);
         }
-        state.panX += newCenter.x - state.pinchLastCenter.x;
-        state.panY += newCenter.y - state.pinchLastCenter.y;
+        const pinchPan = clampViewportPan(
+          state.panX + (newCenter.x - state.pinchLastCenter.x),
+          state.panY + (newCenter.y - state.pinchLastCenter.y),
+          state.zoom,
+          getActivePage()
+        );
+        state.panX = pinchPan.panX;
+        state.panY = pinchPan.panY;
         state.pinchLastDist = newDist;
         state.pinchLastCenter = newCenter;
         syncWorldLayerTransform();
@@ -5356,8 +5500,14 @@
 
     if (state.isPanning && (e.pointerId === state.activePointerId || state.activePointerId === null)) {
       if (e.cancelable) e.preventDefault();
-      state.panX = state.panStartOffset.x + (e.clientX - state.panStartScreen.x);
-      state.panY = state.panStartOffset.y + (e.clientY - state.panStartScreen.y);
+      const clampedPan = clampViewportPan(
+        state.panStartOffset.x + (e.clientX - state.panStartScreen.x),
+        state.panStartOffset.y + (e.clientY - state.panStartScreen.y),
+        state.zoom,
+        getActivePage()
+      );
+      state.panX = clampedPan.panX;
+      state.panY = clampedPan.panY;
       recordPanVelocitySample(e.clientX, e.clientY);
       syncWorldLayerTransform();
       requestRender();
@@ -5390,7 +5540,6 @@
         (isPenEraserButton(e) || isPenLassoButton(e));
       const isStylusOrTouchContact =
         (e.pointerType === 'pen' && (tipActive || hoverBarrelAllowed)) ||
-        (e.pointerType === 'touch' && !state.palmRejection && !state.isPinching && (e.pressure > 0 || e.buttons > 0)) ||
         (e.pointerType === 'mouse' && e.buttons === 1);
       if (isStylusOrTouchContact && state.tool !== 'text') {
         handlePointerDown(e);
@@ -5406,13 +5555,14 @@
     let coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [e];
     if (!coalesced || coalesced.length === 0) coalesced = [e];
 
+    const activePageForMove = getActivePage();
     if (state.tool === 'pen' || state.tool === 'highlighter') {
       if (!state.currentStroke) return;
 
       // Si la forme a déjà été détectée au maintien, ajuste en douceur l'extrémité pour Ligne / Flèche sur le canvas actif uniquement
       if (state.currentStrokeSnappedFromAutoShape && state.currentShape) {
         if (state.currentShape.type === 'line' || state.currentShape.type === 'arrow') {
-          const wPt = screenToWorld(e.clientX, e.clientY);
+          const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
           const dx = wPt.x - state.currentShape.x1, dy = wPt.y - state.currentShape.y1;
           let x2 = wPt.x, y2 = wPt.y;
           const ang = Math.atan2(dy, dx);
@@ -5432,7 +5582,7 @@
       let addedCount = 0;
       for (const ce of coalesced) {
         if (!Number.isFinite(ce.clientX) || !Number.isFinite(ce.clientY)) continue;
-        const wPt = screenToWorld(ce.clientX, ce.clientY);
+        const wPt = clampPointToPage(activePageForMove, screenToWorld(ce.clientX, ce.clientY));
         const p = extractEffectivePressure(ce, wPt);
         lastP = p;
         const prevPt = pts[pts.length - 1];
@@ -5461,7 +5611,7 @@
         for (let pi = 0; pi < maxPred; pi++) {
           const pe = rawPredicted[pi];
           if (pe && Number.isFinite(pe.clientX) && Number.isFinite(pe.clientY)) {
-            const pw = screenToWorld(pe.clientX, pe.clientY);
+            const pw = clampPointToPage(activePageForMove, screenToWorld(pe.clientX, pe.clientY));
             predPts.push({ x: pw.x, y: pw.y, pressure: extractEffectivePressure(pe, pw) });
           }
         }
@@ -5494,7 +5644,7 @@
       }
     } else if (state.tool === 'tape') {
       if (!state.currentTape) return;
-      const wPt = screenToWorld(e.clientX, e.clientY);
+      const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
       // Aligne horizontalement si l'angle est proche de 0° (comme Goodnotes Tape)
       const dx = wPt.x - state.currentTape.x1;
       const dy = wPt.y - state.currentTape.y1;
@@ -5504,20 +5654,20 @@
     } else if (state.tool === 'laser') {
       const now = performance.now();
       for (const ce of coalesced) {
-        const wPt = screenToWorld(ce.clientX, ce.clientY);
+        const wPt = clampPointToPage(activePageForMove, screenToWorld(ce.clientX, ce.clientY));
         state.laserTrail.push({ x: wPt.x, y: wPt.y, t: now });
       }
       startLaserDecayLoop();
       renderActiveCanvasOnly();
     } else if (state.tool === 'shape') {
       if (!state.currentShape) return;
-      const wPt = screenToWorld(e.clientX, e.clientY);
+      const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
       state.currentShape.x2 = wPt.x;
       state.currentShape.y2 = wPt.y;
       renderActiveCanvasOnly();
     } else if (state.tool === 'eraser') {
       for (const ce of coalesced) {
-        const wPt = screenToWorld(ce.clientX, ce.clientY);
+        const wPt = clampPointToPage(activePageForMove, screenToWorld(ce.clientX, ce.clientY));
         applyEraserAtPoint(wPt.x, wPt.y);
       }
       requestRender();
@@ -5526,7 +5676,7 @@
         const travel = Math.hypot(e.clientX - state.colorWheelAnchorScreen.x, e.clientY - state.colorWheelAnchorScreen.y);
         if (travel > 14) cancelColorWheelTimer();
       }
-      handleLassoPointerMove(screenToWorld(e.clientX, e.clientY));
+      handleLassoPointerMove(clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY)));
       if (state.lassoAction === 'draw') renderActiveCanvasOnly();
       else requestRender();
     }
@@ -5569,7 +5719,7 @@
         } else if (distCenter <= 26) {
           state.colorWheelTapMode = true;
           if (dom.radialColorWheel) dom.radialColorWheel.classList.add('tap-mode');
-          dom.pointerTypeBadge.textContent = 'Touchez une couleur sur la roue';
+          if (dom.pointerTypeBadge) dom.pointerTypeBadge.textContent = 'Touchez une couleur sur la roue';
         } else {
           closeRadialColorWheel(true);
           if (isPenEraserButton(e) || isPenLassoButton(e)) state.waitBarrelReleaseBeforeHoverTrigger = true;
@@ -7867,9 +8017,9 @@
     const nb = getActiveNotebook(), pages = getActiveNotebookPages(), page = getActivePage();
     if (!nb || !page) return;
     const idx = pages.findIndex((p) => p.id === page.id) + 1;
-    dom.hudPageIndicator.textContent = `${idx} / ${pages.length}`;
-    dom.btnPrevPage.disabled = idx <= 1;
-    dom.btnNextPage.disabled = idx >= pages.length;
+    if (dom.hudPageIndicator) dom.hudPageIndicator.textContent = `${idx} / ${pages.length}`;
+    if (dom.btnPrevPage) dom.btnPrevPage.disabled = idx <= 1;
+    if (dom.btnNextPage) dom.btnNextPage.disabled = idx >= pages.length;
 
     dom.paperOptionBtns.forEach((b) => b.classList.toggle('active', b.dataset.paper === (page.paperType || 'grid')));
     dom.toneBtns.forEach((b) => b.classList.toggle('active', b.dataset.tone === (page.paperTone || 'ivory')));
@@ -8405,8 +8555,9 @@
       } else {
         const dx = Math.max(-128, Math.min(128, e.deltaX || 0));
         const dy = Math.max(-128, Math.min(128, e.deltaY || 0));
-        state.panX -= dx;
-        state.panY -= dy;
+        const clampedWheel = clampViewportPan(state.panX - dx, state.panY - dy, state.zoom, getActivePage());
+        state.panX = clampedWheel.panX;
+        state.panY = clampedWheel.panY;
         syncWorldLayerTransform();
         requestRender();
       }
@@ -8958,41 +9109,59 @@
       requestRender();
     });
 
-    dom.palmRejectionToggle.addEventListener('change', (e) => { state.palmRejection = e.target.checked; });
-    dom.btnPrevPage.addEventListener('click', () => {
-      const pages = getActiveNotebookPages(), idx = pages.findIndex((p) => p.id === state.activePageId);
-      if (idx > 0) selectPage(pages[idx - 1].id);
-    });
-    dom.btnNextPage.addEventListener('click', () => {
-      const pages = getActiveNotebookPages(), idx = pages.findIndex((p) => p.id === state.activePageId);
-      if (idx >= 0 && idx < pages.length - 1) selectPage(pages[idx + 1].id);
-    });
-    dom.btnQuickAddPage.addEventListener('click', addNewPageToActiveNotebook);
-    dom.btnNewPageSidebar.addEventListener('click', addNewPageToActiveNotebook);
+    if (dom.palmRejectionToggle) {
+      dom.palmRejectionToggle.addEventListener('change', (e) => { state.palmRejection = e.target.checked; });
+    }
+    if (dom.btnPrevPage) {
+      dom.btnPrevPage.addEventListener('click', () => {
+        const pages = getActiveNotebookPages(), idx = pages.findIndex((p) => p.id === state.activePageId);
+        if (idx > 0) selectPage(pages[idx - 1].id);
+      });
+    }
+    if (dom.btnNextPage) {
+      dom.btnNextPage.addEventListener('click', () => {
+        const pages = getActiveNotebookPages(), idx = pages.findIndex((p) => p.id === state.activePageId);
+        if (idx >= 0 && idx < pages.length - 1) selectPage(pages[idx + 1].id);
+      });
+    }
+    if (dom.btnQuickAddPage) {
+      dom.btnQuickAddPage.addEventListener('click', addNewPageToActiveNotebook);
+    }
+    if (dom.btnNewPageSidebar) {
+      dom.btnNewPageSidebar.addEventListener('click', addNewPageToActiveNotebook);
+    }
 
-    dom.btnZoomIn.addEventListener('click', () => {
-      const r = dom.canvasViewport.getBoundingClientRect();
-      zoomAtScreenPoint(state.zoom * 1.25, r.width / 2, r.height / 2);
-    });
-    dom.btnZoomOut.addEventListener('click', () => {
-      const r = dom.canvasViewport.getBoundingClientRect();
-      zoomAtScreenPoint(state.zoom / 1.25, r.width / 2, r.height / 2);
-    });
-    dom.btnZoomReset.addEventListener('click', () => {
-      const r = dom.canvasViewport.getBoundingClientRect();
-      zoomAtScreenPoint(1.0, r.width / 2, r.height / 2);
-    });
+    if (dom.btnZoomIn) {
+      dom.btnZoomIn.addEventListener('click', () => {
+        const r = dom.canvasViewport.getBoundingClientRect();
+        zoomAtScreenPoint(state.zoom * 1.25, r.width / 2, r.height / 2);
+      });
+    }
+    if (dom.btnZoomOut) {
+      dom.btnZoomOut.addEventListener('click', () => {
+        const r = dom.canvasViewport.getBoundingClientRect();
+        zoomAtScreenPoint(state.zoom / 1.25, r.width / 2, r.height / 2);
+      });
+    }
+    if (dom.btnZoomReset) {
+      dom.btnZoomReset.addEventListener('click', () => {
+        const r = dom.canvasViewport.getBoundingClientRect();
+        zoomAtScreenPoint(1.0, r.width / 2, r.height / 2);
+      });
+    }
     if (dom.btnExtendCanvas) {
       dom.btnExtendCanvas.addEventListener('click', () => {
         const p = getActivePage();
         if (p) p.viewMode = 'infinite';
         const r = dom.canvasViewport.getBoundingClientRect();
-        zoomAtScreenPoint(Math.max(0.22, state.zoom * 0.62), r.width / 2, r.height / 2);
+        zoomAtScreenPoint(Math.max(0.35, state.zoom * 0.62), r.width / 2, r.height / 2);
         updateBreadcrumbs();
         showToast('Page infinie étendue ! Déplacez-vous librement ou pincez pour zoomer.');
       });
     }
-    dom.btnFitPage.addEventListener('click', fitPageToViewport);
+    if (dom.btnFitPage) {
+      dom.btnFitPage.addEventListener('click', fitPageToViewport);
+    }
 
     dom.btnNewNotebook.addEventListener('click', () => {
       dom.inputNotebookName.value = '';
