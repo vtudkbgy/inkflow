@@ -11,7 +11,7 @@
 </head>
 <body>
   <div class="app-shell" id="appShell">
-    <!-- ==================== BARRE LATÉRALE RÉTRACTABLE (CAHIERS & PAGES) ==================== -->
+    <!-- ==================== BARRE LATÉRALE RÉTRACTABLE (CAHIERS & PAGES — GOODNOTES 6) ==================== -->
     <aside class="sidebar collapsed" id="leftSidebar" aria-label="Gestion des cahiers et des pages">
       <div class="sidebar-header">
         <div class="brand">
@@ -24,8 +24,8 @@
           </div>
         </div>
         <button class="icon-btn-tiny" id="btnCloseSidebar" title="Réduire la barre latérale (Ctrl+B)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
             <path d="M9 3v18"></path>
             <path d="M15 9l-3 3 3 3"></path>
           </svg>
@@ -39,17 +39,23 @@
 
       <div class="sidebar-section" id="sectionNotebooks">
         <div class="section-header-row">
-          <span class="section-label">Bibliothèque</span>
-          <div style="display:flex;gap:4px;">
-            <button class="btn-small-action" id="btnNewFolder" title="Créer un dossier personnalisé Goodnotes">+ Dossier</button>
-            <button class="btn-small-action" id="btnNewNotebook" title="Clic : Nouveau cahier • Double-clic : Note rapide instantanée">+ Cahier</button>
+          <span class="section-label">Documents</span>
+          <div class="gn-header-actions">
+            <button class="btn-small-action gn-btn-new-folder" id="btnNewFolder" title="Créer un dossier personnalisé Goodnotes">+ Dossier</button>
+            <button class="btn-small-action gn-btn-new-notebook" id="btnNewNotebook" title="Clic : Nouveau cahier • Double-clic : Note rapide instantanée">+ Cahier</button>
           </div>
         </div>
         <div class="gn-library-controls">
-          <input type="search" id="sidebarSearchInput" class="gn-search-input" placeholder="Rechercher dossiers, cahiers..." aria-label="Rechercher dans la bibliothèque" />
-          <div class="gn-filter-pills">
+          <div class="gn-search-wrap">
+            <svg class="gn-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="m20 20-3.8-3.8"></path>
+            </svg>
+            <input type="search" id="sidebarSearchInput" class="gn-search-input" placeholder="Rechercher dossiers, cahiers..." aria-label="Rechercher dans la bibliothèque" />
+          </div>
+          <div class="gn-filter-pills" role="group" aria-label="Filtres de bibliothèque">
             <button class="gn-filter-pill active" id="btnFilterAllDocs" data-filter="all">Tous</button>
-            <button class="gn-filter-pill" id="btnFilterFavDocs" data-filter="favorites">★ Favoris</button>
+            <button class="gn-filter-pill" id="btnFilterFavDocs" data-filter="favorites">⭐ Favoris</button>
             <button class="gn-filter-pill" id="btnFilterRecentDocs" data-filter="recents">🕒 Récents</button>
             <button class="gn-filter-pill" id="btnFilterTrashDocs" data-filter="trash">🗑 Corbeille</button>
           </div>
@@ -60,17 +66,34 @@
               <option value="name_desc">Tri : Nom (Z–A)</option>
               <option value="type">Tri : Type (Dossiers / PDF)</option>
             </select>
-            <button class="icon-btn-tiny" id="btnToggleLibraryView" title="Basculer l'affichage Liste / Grille">⊞</button>
+            <button class="gn-sort-toggle-btn" id="btnSortDocs" data-sort="date" title="Trier par date ou par nom" aria-label="Trier par date ou par nom">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m3 8 4-4 4 4"></path>
+                <path d="M7 4v16"></path>
+                <path d="M13 8h8"></path>
+                <path d="M13 12h6"></path>
+                <path d="M13 16h4"></path>
+              </svg>
+              <span id="btnSortDocsLabel">Date</span>
+            </button>
+            <button class="icon-btn-tiny gn-view-toggle-btn" id="btnToggleLibraryView" title="Basculer l'affichage Liste / Grille" aria-label="Basculer l'affichage Liste / Grille">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+                <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+                <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+                <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+              </svg>
+            </button>
           </div>
         </div>
         <div class="gn-trash-bar hidden" id="trashActionBar">
           <span id="trashCountLabel">Corbeille</span>
           <button class="btn-small-action" id="btnEmptyTrash" style="color:var(--danger);">Vider</button>
         </div>
-        <div class="gn-folder-breadcrumb hidden" id="folderBreadcrumb"></div>
+        <nav class="gn-folder-breadcrumb hidden" id="folderBreadcrumb" aria-label="Chemin du dossier"></nav>
         <div class="pdf-sidebar-bar">
           <button class="btn-small-action btn-pdf-import" id="btnImportPdfSidebar" title="Importer un fichier PDF local (nouveau cahier ou cahier actuel)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
               <polyline points="14 2 14 8 20 8"></polyline>
               <path d="M12 18v-6"></path>
@@ -79,7 +102,12 @@
             <span>Importer un PDF</span>
           </button>
           <button class="btn-small-action btn-pdf-export" id="btnExportPdfSidebar" title="Exporter le cahier annoté en fichier .pdf (pdf-lib)">
-            <span>⬇ Exporter en PDF</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Exporter PDF</span>
           </button>
         </div>
         <div class="notebook-list" id="notebookList"></div>
@@ -88,10 +116,10 @@
       <div class="sidebar-section hidden" id="sectionPages">
         <div class="section-header-row">
           <span class="section-label" id="activeNotebookPagesLabel">Pages du cahier</span>
-          <div style="display:flex;gap:4px;">
-            <button class="btn-small-action" id="btnFilterBookmarkedPages" title="Afficher uniquement les pages marquées d'un signet">🔖</button>
+          <div class="gn-header-actions">
+            <button class="btn-small-action gn-btn-bookmark-filter" id="btnFilterBookmarkedPages" title="Afficher uniquement les pages marquées d'un signet">🔖</button>
             <button class="btn-small-action btn-pdf-import" id="btnImportPdfPages" title="Importer des pages PDF dans ce cahier ou un nouveau cahier">+ PDF</button>
-            <button class="btn-small-action" id="btnNewPageSidebar" title="Ajouter une nouvelle page">+ Page</button>
+            <button class="btn-small-action gn-btn-new-page" id="btnNewPageSidebar" title="Ajouter une nouvelle page">+ Page</button>
           </div>
         </div>
         <div class="gn-pages-subtabs" id="pagesSubTabs">

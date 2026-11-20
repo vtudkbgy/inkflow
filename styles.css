@@ -85,7 +85,7 @@ html, body {
   overflow: hidden;
 }
 
-/* ==================== LEFT RETRACTABLE SIDEBAR ==================== */
+/* ==================== LEFT RETRACTABLE SIDEBAR (GOODNOTES 6) ==================== */
 .sidebar {
   position: absolute;
   left: 0;
@@ -103,7 +103,8 @@ html, body {
   transform: translate3d(0, 0, 0);
   will-change: transform;
   contain: layout style paint;
-  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.24s var(--ease-gn-smooth, cubic-bezier(0.22, 1, 0.36, 1)),
+              box-shadow 0.24s var(--ease-gn-smooth, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 .sidebar.collapsed {
@@ -116,7 +117,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: 13px 15px;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -134,7 +135,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.28);
+  box-shadow: 0 4px 10px rgba(0, 114, 206, 0.26);
   flex-shrink: 0;
 }
 
@@ -163,7 +164,7 @@ html, body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px;
-  padding: 8px 12px;
+  padding: 7px 12px;
   background: var(--surface-subtle);
   border-bottom: 1px solid var(--border-color);
 }
@@ -175,13 +176,16 @@ html, body {
   font-size: 12px;
   font-weight: 600;
   padding: 7px 10px;
-  border-radius: var(--radius-sm);
+  border-radius: 9px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: all 0.15s ease;
+  transition: background 0.18s var(--ease-gn-smooth, cubic-bezier(0.22, 1, 0.36, 1)),
+              color 0.16s ease,
+              box-shadow 0.18s ease,
+              transform 0.2s var(--ease-gn-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 }
 
 .sidebar-tab:hover {
@@ -189,10 +193,14 @@ html, body {
   background: var(--surface-hover);
 }
 
+.sidebar-tab:active {
+  transform: scale(0.97);
+}
+
 .sidebar-tab.active {
   background: var(--surface-panel-solid);
   color: var(--accent-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .sidebar-section {
@@ -201,7 +209,7 @@ html, body {
   padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 9px;
 }
 
 .sidebar-section.hidden {
@@ -212,22 +220,32 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 4px;
+  padding: 0 2px;
+  gap: 6px;
+}
+
+.gn-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .section-label {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.055em;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .btn-small-action {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
+  gap: 4px;
+  padding: 5px 9px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background: var(--surface-panel-solid);
@@ -235,18 +253,34 @@ html, body {
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.16s ease,
+              color 0.16s ease,
+              border-color 0.16s ease,
+              transform 0.2s var(--ease-gn-spring, cubic-bezier(0.34, 1.56, 0.64, 1)),
+              box-shadow 0.18s ease;
 }
 
 .btn-small-action:hover:not(:disabled) {
   background: var(--accent-primary);
   color: #fff;
   border-color: var(--accent-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 114, 206, 0.22);
+}
+
+.btn-small-action:active:not(:disabled) {
+  transform: translateY(0) scale(0.96);
 }
 
 .btn-small-action:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.btn-small-action.active {
+  background: var(--accent-primary-soft);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
 }
 
 .btn-ai-magic {
@@ -261,41 +295,160 @@ html, body {
   border-color: transparent;
 }
 
-/* Notebook List */
+/* ==================== GOODNOTES 6 NOTEBOOK LIST & 3D COVERS ==================== */
 .notebook-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .notebook-card {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   padding: 9px 10px;
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
   background: var(--surface-subtle);
   cursor: pointer;
-  transition: all 0.15s ease;
   position: relative;
+  transition: transform 0.2s var(--ease-gn-smooth, cubic-bezier(0.22, 1, 0.36, 1)),
+              background 0.16s ease,
+              border-color 0.16s ease,
+              box-shadow 0.2s ease,
+              opacity 0.16s ease;
 }
 
 .notebook-card:hover {
-  background: var(--surface-hover);
+  background: var(--surface-panel-solid);
+  border-color: rgba(0, 114, 206, 0.34);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px -4px rgba(15, 23, 42, 0.13);
 }
 
 .notebook-card.active {
   background: var(--accent-primary-soft);
-  border-color: rgba(37, 99, 235, 0.35);
+  border-color: rgba(0, 114, 206, 0.48);
+  box-shadow: 0 0 0 2px rgba(0, 114, 206, 0.12), 0 4px 12px -4px rgba(0, 114, 206, 0.18);
 }
 
+.notebook-card.dragging {
+  opacity: 0.45;
+  transform: scale(0.97);
+  box-shadow: none;
+}
+
+/* Realistic Goodnotes 6 Mini 3D Notebook Cover */
+.notebook-cover-thumb {
+  position: relative;
+  width: 34px;
+  height: 44px;
+  border-radius: 3px 6px 6px 3px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background-color: #0072ce;
+  background-image: linear-gradient(155deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.02) 48%, rgba(0, 0, 0, 0.16) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset -1px 0 0 rgba(0, 0, 0, 0.14),
+    2px 2px 0 rgba(255, 255, 255, 0.85),
+    3px 3px 0 rgba(15, 23, 42, 0.12),
+    0 4px 9px rgba(15, 23, 42, 0.16);
+  transition: transform 0.22s var(--ease-gn-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+
+[data-theme="dark"] .notebook-cover-thumb {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset -1px 0 0 rgba(0, 0, 0, 0.28),
+    2px 2px 0 rgba(255, 255, 255, 0.18),
+    3px 3px 0 rgba(0, 0, 0, 0.42),
+    0 5px 10px rgba(0, 0, 0, 0.38);
+}
+
+.notebook-card:hover .notebook-cover-thumb {
+  transform: translateY(-1px) scale(1.03);
+}
+
+/* Spine groove shadow along left edge of cover */
+.notebook-cover-thumb::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.32) 0%,
+    rgba(0, 0, 0, 0.14) 55%,
+    rgba(0, 0, 0, 0.26) 72%,
+    rgba(255, 255, 255, 0.34) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Subtle white Goodnotes cover title label strip */
+.notebook-cover-label {
+  position: absolute;
+  left: 10px;
+  right: 4px;
+  top: 10px;
+  height: 9px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.90);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.notebook-cover-label::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 4px;
+  top: 3.5px;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(15, 23, 42, 0.22);
+}
+
+.notebook-cover-pdf-pill {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: rgba(220, 38, 38, 0.92);
+  color: #ffffff;
+  line-height: 1.1;
+  z-index: 2;
+}
+
+/* Backward-compatible .notebook-spine (standalone or nested inside .notebook-cover-thumb) */
 .notebook-spine {
   width: 12px;
-  height: 36px;
-  border-radius: 3px;
+  height: 38px;
+  border-radius: 3px 4px 4px 3px;
   flex-shrink: 0;
-  box-shadow: inset -2px 0 0 rgba(0, 0, 0, 0.18);
+  box-shadow: inset -2px 0 0 rgba(0, 0, 0, 0.22), inset 2px 0 0 rgba(255, 255, 255, 0.22);
+}
+
+.notebook-cover-thumb > .notebook-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  height: 100%;
+  border-radius: 3px 0 0 3px;
+  background: rgba(0, 0, 0, 0.16);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.26);
+  z-index: 1;
 }
 
 .notebook-info {
@@ -305,7 +458,8 @@ html, body {
 
 .notebook-name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12.5px;
+  line-height: 1.25;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -313,39 +467,73 @@ html, body {
 }
 
 .notebook-meta {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  line-height: 1.25;
+}
+
+.nb-paper-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 600;
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  line-height: 1.2;
+}
+
+.nb-date-meta {
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .notebook-actions {
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 1px;
   opacity: 0;
   transition: opacity 0.15s ease;
+  flex-shrink: 0;
 }
 
 .notebook-card:hover .notebook-actions,
-.notebook-card.active .notebook-actions {
+.notebook-card:focus-within .notebook-actions,
+.notebook-card.active .notebook-actions,
+.gn-folder-card:hover .notebook-actions,
+.gn-folder-card:focus-within .notebook-actions {
   opacity: 1;
 }
 
 .icon-btn-tiny {
   width: 24px;
   height: 24px;
-  border-radius: 5px;
+  border-radius: 6px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, transform 0.18s var(--ease-gn-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 }
 
 .icon-btn-tiny:hover {
   background: var(--surface-active);
   color: var(--text-primary);
+  transform: scale(1.06);
+}
+
+.icon-btn-tiny:active {
+  transform: scale(0.92);
 }
 
 .icon-btn-tiny.danger:hover {
@@ -353,7 +541,7 @@ html, body {
   color: var(--danger);
 }
 
-/* Page Thumbnails Grid */
+/* ==================== GOODNOTES 6 PAGE THUMBNAILS GRID ==================== */
 .pages-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -363,37 +551,49 @@ html, body {
 .page-thumb-card {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 6px;
-  border-radius: var(--radius-md);
+  gap: 6px;
+  padding: 7px;
+  border-radius: 12px;
   border: 1.5px solid var(--border-color);
   background: var(--surface-subtle);
   cursor: pointer;
-  transition: all 0.15s ease;
   position: relative;
+  transition: transform 0.22s var(--ease-gn-smooth, cubic-bezier(0.22, 1, 0.36, 1)),
+              border-color 0.16s ease,
+              box-shadow 0.2s ease,
+              background 0.16s ease;
 }
 
 .page-thumb-card:hover {
-  border-color: var(--border-strong);
-  transform: translateY(-1px);
+  border-color: rgba(0, 114, 206, 0.42);
+  background: var(--surface-panel-solid);
+  transform: translateY(-2px);
+  box-shadow: 0 7px 16px -6px rgba(15, 23, 42, 0.16);
 }
 
 .page-thumb-card.active {
   border-color: var(--accent-primary);
   background: var(--accent-primary-soft);
+  box-shadow: 0 0 0 2px var(--accent-primary-soft), 0 5px 14px -4px rgba(0, 114, 206, 0.22);
 }
 
 .page-thumb-preview {
   width: 100%;
   aspect-ratio: 1 / 1.414;
   background: #ffffff;
-  border-radius: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 5px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.10), 0 1px 2px rgba(15, 23, 42, 0.06);
   overflow: hidden;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+[data-theme="dark"] .page-thumb-preview {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.38);
 }
 
 .page-thumb-preview img {
@@ -403,11 +603,46 @@ html, body {
   display: block;
 }
 
+/* Goodnotes 6 Red Bookmark Ribbon Badge */
+.gn-bookmark-ribbon {
+  position: absolute;
+  top: -1px;
+  right: 7px;
+  width: 15px;
+  height: 22px;
+  background: linear-gradient(180deg, #f43f5e 0%, #e11d48 56%, #be123c 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 76%, 0 100%);
+  filter: drop-shadow(0 2px 3px rgba(190, 18, 60, 0.38));
+  pointer-events: none;
+  z-index: 3;
+  transform-origin: top center;
+  animation: gnRibbonPop 0.26s var(--ease-gn-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+
+@keyframes gnRibbonPop {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scaleY(0.45);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+.page-thumb-card.bookmarked {
+  border-color: rgba(225, 29, 72, 0.34);
+}
+
+.page-thumb-card.bookmarked.active {
+  border-color: var(--accent-primary);
+}
+
 .page-thumb-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 2px;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 1px;
 }
 
 .page-thumb-number {
@@ -417,11 +652,25 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 78px;
+  max-width: 100%;
 }
 
 .page-thumb-card.active .page-thumb-number {
   color: var(--accent-primary);
+}
+
+.page-thumb-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1px;
+}
+
+.page-thumb-footer .icon-btn-tiny {
+  width: 21px;
+  height: 21px;
+  font-size: 11px;
+  border-radius: 5px;
 }
 
 .sidebar-footer {
@@ -2014,28 +2263,53 @@ html, body {
 
 
 
-/* ==================== GOODNOTES LIBRARY, FOLDERS, ZOOM WINDOW, IMAGES & GOOGLE DRIVE ==================== */
+/* ==================== GOODNOTES 6 LIBRARY, FOLDERS, BREADCRUMB & PAGES ==================== */
 .gn-library-controls {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+
+.gn-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.gn-search-icon {
+  position: absolute;
+  left: 11px;
+  color: var(--text-muted);
+  pointer-events: none;
+  transition: color 0.16s ease;
+}
+
+.gn-search-wrap:focus-within .gn-search-icon {
+  color: var(--accent-primary);
 }
 
 .gn-search-input {
   width: 100%;
-  padding: 6px 10px;
+  padding: 7px 12px 7px 31px;
   font-size: 12px;
-  border-radius: 9px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border-color);
   background: var(--surface-subtle);
   color: var(--text-primary);
   outline: none;
+  transition: border-color 0.16s ease, box-shadow 0.18s ease, background 0.16s ease;
+}
+
+.gn-search-input::placeholder {
+  color: var(--text-muted);
 }
 
 .gn-search-input:focus {
+  background: var(--surface-panel-solid);
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px var(--accent-primary-soft);
+  box-shadow: 0 0 0 3px var(--accent-primary-soft);
 }
 
 .gn-filter-pills {
@@ -2048,26 +2322,35 @@ html, body {
   padding: 5px 4px;
   font-size: 10.5px;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border-color);
-  background: transparent;
+  background: var(--surface-subtle);
   color: var(--text-secondary);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: all 0.14s ease;
+  transition: background 0.16s ease,
+              color 0.16s ease,
+              border-color 0.16s ease,
+              transform 0.2s var(--ease-gn-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 }
 
 .gn-filter-pill:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.gn-filter-pill:active {
+  transform: scale(0.95);
 }
 
 .gn-filter-pill.active {
   background: var(--accent-primary-soft);
   color: var(--accent-primary);
   border-color: var(--accent-primary);
+  box-shadow: 0 1px 4px rgba(0, 114, 206, 0.16);
 }
 
 .gn-sort-bar {
@@ -2078,15 +2361,76 @@ html, body {
 
 .gn-sort-select {
   flex: 1;
-  padding: 4px 8px;
+  min-width: 0;
+  padding: 5px 8px;
   font-size: 11px;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: 9px;
   border: 1px solid var(--border-color);
   background: var(--surface-subtle);
   color: var(--text-secondary);
   outline: none;
   cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.gn-sort-select:hover,
+.gn-sort-select:focus {
+  border-color: var(--accent-primary);
+  background: var(--surface-panel-solid);
+  color: var(--text-primary);
+}
+
+.gn-sort-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  border: 1px solid var(--border-color);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.16s ease,
+              color 0.16s ease,
+              border-color 0.16s ease,
+              transform 0.2s var(--ease-gn-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+
+.gn-sort-toggle-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.gn-sort-toggle-btn:active {
+  transform: scale(0.95);
+}
+
+.gn-sort-toggle-btn[data-sort="name"],
+.gn-sort-toggle-btn.active {
+  background: var(--accent-primary-soft);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.gn-view-toggle-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  border: 1px solid var(--border-color);
+  background: var(--surface-subtle);
+  flex-shrink: 0;
+}
+
+.gn-view-toggle-btn.active {
+  background: var(--accent-primary-soft);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
 }
 
 .gn-trash-bar {
@@ -2094,7 +2438,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px;
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--danger-soft);
   border: 1px solid rgba(216, 52, 44, 0.28);
   font-size: 11px;
@@ -2106,24 +2450,78 @@ html, body {
   display: none !important;
 }
 
+/* Goodnotes 6 Grid Mode for Library */
 .notebook-list.gn-library-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 9px;
 }
 
 .notebook-list.gn-library-grid .notebook-card,
 .notebook-list.gn-library-grid .gn-folder-card {
   flex-direction: column;
   align-items: flex-start;
-  padding: 10px;
-  gap: 6px;
+  padding: 9px;
+  gap: 7px;
 }
 
-.notebook-list.gn-library-grid .notebook-spine {
+.notebook-list.gn-library-grid .notebook-cover-thumb {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 3.6;
+  border-radius: 4px 9px 9px 4px;
+}
+
+.notebook-list.gn-library-grid .notebook-cover-thumb::before,
+.notebook-list.gn-library-grid .notebook-cover-thumb > .notebook-spine {
+  width: 10px;
+  height: 100%;
+  border-radius: 4px 0 0 4px;
+}
+
+.notebook-list.gn-library-grid .notebook-cover-label {
+  left: 16px;
+  right: 10px;
+  top: 22%;
+  height: 16px;
+  border-radius: 3px;
+}
+
+.notebook-list.gn-library-grid .notebook-cover-label::after {
+  left: 6px;
+  right: 8px;
+  top: 6px;
+  height: 3px;
+}
+
+.notebook-list.gn-library-grid .notebook-card > .notebook-spine {
   width: 100%;
   height: 10px;
   border-radius: 4px;
+}
+
+.notebook-list.gn-library-grid .gn-folder-icon {
+  width: 58px;
+  height: 44px;
+  margin-top: 7px;
+  border-radius: 4px 9px 9px 9px;
+}
+
+.notebook-list.gn-library-grid .gn-folder-icon::before {
+  top: -7px;
+  width: 24px;
+  height: 8px;
+  border-radius: 6px 6px 0 0;
+}
+
+.notebook-list.gn-library-grid .notebook-info {
+  width: 100%;
+}
+
+.notebook-list.gn-library-grid .notebook-actions {
+  width: 100%;
+  justify-content: flex-end;
+  opacity: 0.85;
 }
 
 .gn-folder-symbols-grid {
@@ -2163,7 +2561,7 @@ html, body {
   gap: 4px;
   background: var(--surface-subtle);
   padding: 3px;
-  border-radius: 9px;
+  border-radius: 10px;
   border: 1px solid var(--border-color);
 }
 
@@ -2174,15 +2572,15 @@ html, body {
   font-size: 11px;
   font-weight: 600;
   padding: 5px 6px;
-  border-radius: 6px;
+  border-radius: 7px;
   cursor: pointer;
-  transition: all 0.14s ease;
+  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .gn-subtab-btn.active {
   background: var(--surface-panel-solid);
   color: var(--accent-primary);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.10);
 }
 
 .gn-outline-wrap {
@@ -2207,16 +2605,17 @@ html, body {
   justify-content: space-between;
   gap: 8px;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: 9px;
   background: var(--surface-subtle);
   border: 1px solid var(--border-color);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
-  transition: all 0.14s ease;
+  transition: all 0.15s ease;
 }
 
-.gn-outline-item:hover {
+.gn-outline-item:hover,
+.gn-outline-item.active {
   border-color: var(--accent-primary);
   background: var(--accent-primary-soft);
 }
@@ -2234,61 +2633,158 @@ html, body {
   box-shadow: 3px 0 0 0 var(--accent-primary);
 }
 
+/* Goodnotes 6 Interactive Folder Path Breadcrumb */
 .gn-folder-breadcrumb {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 5px 8px;
-  margin-bottom: 8px;
-  border-radius: 8px;
+  gap: 3px;
+  padding: 6px 9px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
   background: var(--surface-subtle);
   font-size: 11px;
   color: var(--text-secondary);
 }
 
+.gn-folder-breadcrumb.hidden {
+  display: none !important;
+}
+
+.gn-crumb-sep {
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 11px;
+  opacity: 0.7;
+  user-select: none;
+}
+
 .gn-crumb-btn {
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--accent-primary);
   font-weight: 600;
   font-size: 11px;
   cursor: pointer;
-  padding: 1px 3px;
-  border-radius: 4px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: background 0.15s ease,
+              border-color 0.15s ease,
+              transform 0.2s var(--ease-gn-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 }
 
 .gn-crumb-btn:hover {
   background: var(--accent-primary-soft);
 }
 
+.gn-crumb-btn.drag-over {
+  border: 1px dashed var(--accent-primary);
+  background: var(--accent-primary-soft);
+  transform: scale(1.05);
+  box-shadow: 0 0 0 2px var(--accent-primary-soft);
+}
+
+.gn-crumb-count {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--surface-panel-solid);
+  border: 1px solid var(--border-color);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+/* Goodnotes 6 Colorful 3D Folder Cards */
 .gn-folder-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  gap: 11px;
+  padding: 9px 10px;
+  border-radius: 12px;
   border: 1px solid var(--border-color);
   background: var(--surface-subtle);
   cursor: pointer;
-  transition: background 0.14s ease, border-color 0.14s ease;
+  position: relative;
+  transition: transform 0.22s var(--ease-gn-smooth, cubic-bezier(0.22, 1, 0.36, 1)),
+              background 0.16s ease,
+              border-color 0.16s ease,
+              box-shadow 0.2s ease;
 }
 
 .gn-folder-card:hover {
-  border-color: var(--accent-primary);
-  background: var(--accent-primary-soft);
+  border-color: rgba(0, 114, 206, 0.44);
+  background: var(--surface-panel-solid);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px -4px rgba(15, 23, 42, 0.13);
 }
 
+.gn-folder-card.drag-over {
+  transform: scale(1.025);
+  border-color: var(--accent-primary);
+  background: var(--accent-primary-soft);
+  box-shadow: 0 0 0 3px var(--accent-primary-soft), 0 8px 18px -4px rgba(0, 114, 206, 0.26);
+  transition: transform 0.24s var(--ease-gn-spring, cubic-bezier(0.34, 1.56, 0.64, 1)),
+              border-color 0.14s ease,
+              box-shadow 0.18s ease,
+              background 0.14s ease;
+}
+
+/* Authentic Goodnotes Folder Tab Silhouette */
 .gn-folder-icon {
-  width: 28px;
-  height: 24px;
-  border-radius: 6px;
+  position: relative;
+  width: 38px;
+  height: 30px;
+  margin-top: 5px;
+  border-radius: 3px 7px 7px 7px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #ffffff;
   font-size: 13px;
   flex-shrink: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.15),
+    0 3px 8px rgba(15, 23, 42, 0.15);
+  transition: transform 0.22s var(--ease-gn-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+
+.gn-folder-icon::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -5px;
+  width: 17px;
+  height: 6px;
+  background: inherit;
+  border-radius: 5px 5px 0 0;
+  filter: brightness(0.90);
+  pointer-events: none;
+}
+
+.gn-folder-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 48%, rgba(0, 0, 0, 0.08) 100%);
+  pointer-events: none;
+}
+
+.gn-folder-icon > svg {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
+}
+
+.gn-folder-card:hover .gn-folder-icon {
+  transform: translateY(-1px) scale(1.04);
+}
+
+.gn-folder-card.drag-over .gn-folder-icon {
+  transform: scale(1.08) rotate(-2deg);
 }
 
 .icon-btn-tiny.starred {

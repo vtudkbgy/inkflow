@@ -1923,6 +1923,7 @@
     currentFolderId: null,
     sidebarFilter: 'all',
     sidebarSearch: '',
+    sidebarSort: 'date',
     notebookSortBy: 'date_desc',
     libraryViewMode: 'list',
     pagesSubTab: 'pages',
@@ -1941,10 +1942,25 @@
     highlighterAutoStraighten: false,
     penColor: '#1e293b',
     highlighterColor: '#facc15',
+    shapeColor: '#1d4ed8',
     tapeColor: '#f59e0b',
+    laserColor: '#ef4444',
+    textColor: '#1e293b',
     penSize: 5,
     highlighterSize: 22,
+    shapeSize: 4,
     eraserSize: 18,
+    tapeSize: 26,
+    laserSize: 6,
+    toolMemory: {
+      pen: { color: '#1e293b', size: 5, colorSlots: ['#1e293b', '#1d4ed8', '#dc2626'], sizeSlots: [2.5, 5, 12] },
+      highlighter: { color: '#facc15', size: 22, colorSlots: ['#facc15', '#4ade80', '#f472b6'], sizeSlots: [12, 22, 34] },
+      shape: { color: '#1d4ed8', size: 4, colorSlots: ['#1d4ed8', '#1e293b', '#dc2626'], sizeSlots: [2, 4, 8] },
+      eraser: { color: '#94a3b8', size: 18, colorSlots: [], sizeSlots: [10, 18, 32] },
+      tape: { color: '#f59e0b', size: 26, colorSlots: ['#f59e0b', '#38bdf8', '#a855f7'], sizeSlots: [18, 26, 36] },
+      laser: { color: '#ef4444', size: 6, colorSlots: ['#ef4444', '#3b82f6', '#22c55e'], sizeSlots: [4, 6, 10] },
+      text: { color: '#1e293b', size: 16, colorSlots: ['#1e293b', '#1d4ed8', '#dc2626'], sizeSlots: [14, 16, 22] }
+    },
     smoothing: 0.65,
     pressureMode: 'dynamic',
     eraserMode: 'stroke',
@@ -2025,6 +2041,134 @@
     const savedAutoShape = localStorage.getItem('plume_auto_shape_enabled');
     if (savedAutoShape === 'false') state.autoShapeEnabled = false;
   } catch (_) {}
+
+  const TOOL_PREFS_STORAGE_KEY = 'inkflow_tool_prefs_v1';
+
+  function getActiveToolColor(tool = state.tool) {
+    if (tool === 'highlighter') return state.highlighterColor;
+    if (tool === 'shape') return state.shapeColor || state.penColor;
+    if (tool === 'tape') return state.tapeColor || '#f59e0b';
+    if (tool === 'laser') return state.laserColor || '#ef4444';
+    if (tool === 'text') return state.textColor || state.penColor;
+    if (tool === 'eraser') return '#94a3b8';
+    return state.penColor;
+  }
+
+  function getActiveToolSize(tool = state.tool) {
+    if (tool === 'highlighter') return state.highlighterSize;
+    if (tool === 'eraser') return state.eraserSize;
+    if (tool === 'shape') return state.shapeSize || state.penSize;
+    if (tool === 'tape') return state.tapeSize || state.highlighterSize || 26;
+    if (tool === 'laser') return state.laserSize || 6;
+    return state.penSize;
+  }
+
+  function syncCanonicalToToolMemory(tool) {
+    const mem = state.toolMemory && state.toolMemory[tool];
+    if (!mem) return;
+    mem.color = getActiveToolColor(tool);
+    mem.size = getActiveToolSize(tool);
+  }
+
+  function applyToolMemoryToCanonical(tool) {
+    const mem = state.toolMemory && state.toolMemory[tool];
+    if (!mem) return;
+    if (tool === 'pen') {
+      if (mem.color) state.penColor = mem.color;
+      if (Number.isFinite(mem.size)) state.penSize = mem.size;
+    } else if (tool === 'highlighter') {
+      if (mem.color) state.highlighterColor = mem.color;
+      if (Number.isFinite(mem.size)) state.highlighterSize = mem.size;
+    } else if (tool === 'shape') {
+      if (mem.color) state.shapeColor = mem.color;
+      if (Number.isFinite(mem.size)) state.shapeSize = mem.size;
+    } else if (tool === 'eraser') {
+      if (Number.isFinite(mem.size)) state.eraserSize = mem.size;
+    } else if (tool === 'tape') {
+      if (mem.color) state.tapeColor = mem.color;
+      if (Number.isFinite(mem.size)) state.tapeSize = mem.size;
+    } else if (tool === 'laser') {
+      if (mem.color) state.laserColor = mem.color;
+      if (Number.isFinite(mem.size)) state.laserSize = mem.size;
+    } else if (tool === 'text') {
+      if (mem.color) state.textColor = mem.color;
+    }
+  }
+
+  function saveToolMemoryToStorage() {
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      ['pen', 'highlighter', 'shape', 'eraser', 'tape', 'laser', 'text'].forEach(syncCanonicalToToolMemory);
+      localStorage.setItem(TOOL_PREFS_STORAGE_KEY, JSON.stringify(state.toolMemory));
+    } catch (_) {}
+  }
+
+  function loadToolMemoryFromStorage() {
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      const raw = localStorage.getItem(TOOL_PREFS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return;
+      ['pen', 'highlighter', 'shape', 'eraser', 'tape', 'laser', 'text'].forEach((t) => {
+        const entry = parsed[t];
+        if (!entry || typeof entry !== 'object') return;
+        const target = state.toolMemory[t];
+        if (!target) return;
+        if (typeof entry.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(entry.color)) {
+          target.color = entry.color;
+        }
+        if (typeof entry.size === 'number' && Number.isFinite(entry.size) && entry.size >= 1 && entry.size <= 64) {
+          target.size = entry.size;
+        }
+        if (Array.isArray(entry.colorSlots) && entry.colorSlots.length > 0) {
+          target.colorSlots = entry.colorSlots.filter((c) => typeof c === 'string').slice(0, 6);
+        }
+        if (Array.isArray(entry.sizeSlots) && entry.sizeSlots.length === 3) {
+          const validSizes = entry.sizeSlots.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n >= 1 && n <= 64);
+          if (validSizes.length === 3) target.sizeSlots = validSizes;
+        }
+        applyToolMemoryToCanonical(t);
+      });
+    } catch (_) {}
+  }
+
+  function setToolColor(tool, hexColor) {
+    if (!hexColor) return;
+    if (tool === 'highlighter') state.highlighterColor = hexColor;
+    else if (tool === 'shape') state.shapeColor = hexColor;
+    else if (tool === 'tape') state.tapeColor = hexColor;
+    else if (tool === 'laser') state.laserColor = hexColor;
+    else if (tool === 'text') state.textColor = hexColor;
+    else state.penColor = hexColor;
+    const mem = state.toolMemory && state.toolMemory[tool];
+    if (mem) {
+      mem.color = hexColor;
+      if (Array.isArray(mem.colorSlots)) {
+        const lower = String(hexColor).toLowerCase();
+        if (!mem.colorSlots.some((c) => String(c).toLowerCase() === lower)) {
+          mem.colorSlots = [hexColor, ...mem.colorSlots.slice(0, 2)];
+        }
+      }
+    }
+    saveToolMemoryToStorage();
+  }
+
+  function setToolSize(tool, sizeVal) {
+    const n = Number(sizeVal);
+    if (!Number.isFinite(n) || n <= 0) return;
+    if (tool === 'highlighter') state.highlighterSize = n;
+    else if (tool === 'eraser') state.eraserSize = n;
+    else if (tool === 'shape') state.shapeSize = n;
+    else if (tool === 'tape') state.tapeSize = n;
+    else if (tool === 'laser') state.laserSize = n;
+    else state.penSize = n;
+    const mem = state.toolMemory && state.toolMemory[tool];
+    if (mem) mem.size = n;
+    saveToolMemoryToStorage();
+  }
+
+  loadToolMemoryFromStorage();
 
   const strokePathCache = new WeakMap();
   function getCachedStrokePath(stroke) {
@@ -4311,6 +4455,8 @@
     state.laserTrail = pts;
     if (pts.length === 0) return;
 
+    const laserHex = state.laserColor || '#ef4444';
+    const laserBaseWidth = Math.max(4, Number(state.laserSize) || 6) * 1.25;
     targetCtx.save();
     targetCtx.lineCap = 'round';
     targetCtx.lineJoin = 'round';
@@ -4318,8 +4464,8 @@
       const p0 = pts[i - 1];
       const p1 = pts[i];
       const ageRatio = Math.max(0, 1 - (now - p1.t) / maxAge);
-      targetCtx.strokeStyle = `rgba(239, 68, 68, ${(ageRatio * 0.88).toFixed(3)})`;
-      targetCtx.lineWidth = Math.max(2, (8 * ageRatio) / Math.max(0.4, state.zoom));
+      targetCtx.strokeStyle = hexToRgba(laserHex, Number((ageRatio * 0.88).toFixed(3)));
+      targetCtx.lineWidth = Math.max(2, (laserBaseWidth * ageRatio) / Math.max(0.4, state.zoom));
       targetCtx.beginPath();
       targetCtx.moveTo(p0.x, p0.y);
       targetCtx.lineTo(p1.x, p1.y);
@@ -4327,8 +4473,8 @@
     }
     const tip = pts[pts.length - 1];
     const tipAge = Math.max(0, 1 - (now - tip.t) / maxAge);
-    const r = (6.5 * tipAge + 2) / Math.max(0.4, state.zoom);
-    targetCtx.fillStyle = `rgba(239, 68, 68, ${(tipAge * 0.32).toFixed(3)})`;
+    const r = ((laserBaseWidth * 0.82) * tipAge + 2) / Math.max(0.4, state.zoom);
+    targetCtx.fillStyle = hexToRgba(laserHex, Number((tipAge * 0.32).toFixed(3)));
     targetCtx.beginPath();
     targetCtx.arc(tip.x, tip.y, r * 2.2, 0, Math.PI * 2);
     targetCtx.fill();
@@ -4823,11 +4969,11 @@
   function selectRadialColor(hex) {
     const entry = RADIAL_WHEEL_COLORS.find((c) => c.hex.toLowerCase() === String(hex).toLowerCase());
     const targetTool = state.temporaryLassoOverride ? (state.previousToolBeforeLasso || 'pen') : state.tool;
-    if (targetTool === 'highlighter') state.highlighterColor = hex;
-    else state.penColor = hex;
+    setToolColor(targetTool, hex);
     if (hasAnyLassoSelection()) recolorLassoSelection(hex);
     closeRadialColorWheel(true);
     updateToolbarActiveState();
+    triggerToolOptionsPulse();
     requestRender();
     showToast(`Couleur : ${entry ? entry.label : hex}`);
   }
@@ -5126,7 +5272,7 @@
         y1: worldPt.y,
         x2: worldPt.x,
         y2: worldPt.y,
-        thickness: Math.max(18, state.highlighterSize || 26),
+        thickness: Math.max(14, state.tapeSize || state.highlighterSize || 26),
         color: state.tapeColor || '#f59e0b',
         revealed: false
       };
@@ -5145,8 +5291,8 @@
         y1: worldPt.y,
         x2: worldPt.x,
         y2: worldPt.y,
-        color: state.penColor,
-        size: Math.max(2, state.penSize),
+        color: state.shapeColor || state.penColor,
+        size: Math.max(2, state.shapeSize || state.penSize),
         filled: state.shapeFilled
       };
       if (hadLassoSelection) requestRender();
@@ -6880,6 +7026,25 @@
     return Boolean(pageId && pageSaveTimers.has(pageId));
   }
 
+  const thumbnailImageCache = new Map();
+
+  function getCachedThumbnailImage(imgItem) {
+    if (!imgItem || !imgItem.src || typeof Image === 'undefined') return null;
+    const key = imgItem.id || imgItem.src.slice(0, 64);
+    let cached = thumbnailImageCache.get(key);
+    if (!cached) {
+      if (thumbnailImageCache.size > 32) {
+        const oldestKey = thumbnailImageCache.keys().next().value;
+        if (oldestKey) thumbnailImageCache.delete(oldestKey);
+      }
+      const el = new Image();
+      el.src = imgItem.src;
+      cached = el;
+      thumbnailImageCache.set(key, cached);
+    }
+    return (cached && cached.complete && cached.naturalWidth > 0) ? cached : null;
+  }
+
   function generatePageThumbnail(page) {
     const tc = document.createElement('canvas');
     const sc = 0.16;
@@ -6894,9 +7059,18 @@
       drawLockedPdfBackground(tCtx, page, true);
     }
     const isDark = !page?.pdfId && (page.paperTone === 'dark' || page.paperTone === 'blueprint');
+    (page.images || []).forEach((imgItem) => {
+      const imgEl = getCachedThumbnailImage(imgItem);
+      if (imgEl && typeof tCtx.drawImage === 'function') {
+        try {
+          tCtx.drawImage(imgEl, imgItem.x || 0, imgItem.y || 0, imgItem.width || 240, imgItem.height || 160);
+        } catch (_) {}
+      }
+    });
     (page.strokes || []).forEach((s) => { if (s.tool === 'highlighter') drawSingleStroke(tCtx, s, isDark, false); });
     (page.shapes || []).forEach((sh) => drawGeometricShape(tCtx, sh, false, isDark));
     (page.strokes || []).forEach((s) => { if (s.tool !== 'highlighter') drawSingleStroke(tCtx, s, isDark, false); });
+    (page.tapes || []).forEach((tp) => { if (!tp.revealed) drawTapeItem(tCtx, tp, false); });
     drawTextBlocksOnCanvas(tCtx, page.texts);
     const dataUrl = tc.toDataURL('image/png', 0.7);
     releaseCanvasMemory(tc);
@@ -7058,9 +7232,130 @@
     return deletedCount;
   }
 
+  const PAPER_TYPE_LABELS = {
+    blank: 'Vierge',
+    lined: 'Ligné',
+    grid: 'Quadrillé',
+    dotted: 'Pointillé',
+    seyes: 'Seyès',
+    millimeter: 'Millimétré',
+    isometric: 'Isométrique',
+    cornell: 'Cornell',
+    music: 'Portée',
+    planner: 'Agenda'
+  };
+
+  function formatCompactDate(ts) {
+    if (!ts || !Number.isFinite(Number(ts))) return '';
+    try {
+      const d = new Date(Number(ts));
+      if (Number.isNaN(d.getTime())) return '';
+      const now = new Date();
+      const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+      if (sameDay) return "Aujourd'hui";
+      const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      if (d.getFullYear() === yesterday.getFullYear() && d.getMonth() === yesterday.getMonth() && d.getDate() === yesterday.getDate()) {
+        return 'Hier';
+      }
+      return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function getFolderItemCounts(folderId) {
+    const folders = state.folders || [];
+    const notebooks = state.notebooks || [];
+    const visited = new Set();
+    let subfolders = 0;
+    let notebookCount = 0;
+
+    function visit(fid) {
+      if (!fid || visited.has(fid)) return;
+      visited.add(fid);
+      for (let i = 0; i < notebooks.length; i++) {
+        const nb = notebooks[i];
+        if (!nb.trashedAt && nb.folderId === fid) notebookCount++;
+      }
+      for (let i = 0; i < folders.length; i++) {
+        const sub = folders[i];
+        if (sub.parentId === fid && !visited.has(sub.id)) {
+          subfolders++;
+          visit(sub.id);
+        }
+      }
+    }
+
+    visit(folderId);
+    return {
+      notebooks: notebookCount,
+      subfolders,
+      total: notebookCount + subfolders
+    };
+  }
+
+  function formatFolderItemCountLabel(counts) {
+    if (!counts || counts.total <= 0) return '0 élément';
+    const parts = [];
+    if (counts.notebooks > 0) parts.push(`${counts.notebooks} cahier${counts.notebooks > 1 ? 's' : ''}`);
+    if (counts.subfolders > 0) parts.push(`${counts.subfolders} sous-dossier${counts.subfolders > 1 ? 's' : ''}`);
+    return parts.join(' • ') || `${counts.total} élément${counts.total > 1 ? 's' : ''}`;
+  }
+
+  let draggedNotebookId = null;
+
+  function clearLibraryDragOverClasses() {
+    if (dom.notebookList && typeof dom.notebookList.querySelectorAll === 'function') {
+      dom.notebookList.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    }
+    const crumbEl = document.getElementById('folderBreadcrumb');
+    if (crumbEl && typeof crumbEl.querySelectorAll === 'function') {
+      crumbEl.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    }
+  }
+
+  function moveNotebookToFolder(nbId, targetFolderId) {
+    if (!nbId) return false;
+    const nb = (state.notebooks || []).find((n) => n.id === nbId && !n.trashedAt);
+    if (!nb) return false;
+    const nextFolderId = targetFolderId || null;
+    if ((nb.folderId || null) === nextFolderId) return false;
+    nb.folderId = nextFolderId;
+    nb.updatedAt = Date.now();
+    db.saveNotebook(nb);
+    renderNotebooksSidebar();
+    const targetFolder = nextFolderId ? (state.folders || []).find((f) => f.id === nextFolderId) : null;
+    const destLabel = targetFolder ? `« ${targetFolder.name} »` : 'Documents';
+    showToast(`« ${nb.title} » déplacé dans ${destLabel}`);
+    return true;
+  }
+
+  function syncSortControlsUi() {
+    const sortBy = state.notebookSortBy || 'date_desc';
+    const isNameSort = sortBy === 'name_asc' || sortBy === 'name_desc' || state.sidebarSort === 'name';
+    state.sidebarSort = isNameSort ? 'name' : 'date';
+    const sortSelect = document.getElementById('notebookSortSelect');
+    if (sortSelect && sortSelect.value !== sortBy) {
+      sortSelect.value = sortBy;
+    }
+    const btnSortDocs = document.getElementById('btnSortDocs');
+    if (btnSortDocs) {
+      btnSortDocs.dataset.sort = state.sidebarSort;
+      btnSortDocs.classList.toggle('active', state.sidebarSort === 'name');
+      btnSortDocs.title = state.sidebarSort === 'name'
+        ? 'Tri alphabétique actif — Cliquer pour trier par date'
+        : 'Tri par date actif — Cliquer pour trier par nom';
+    }
+    const btnSortDocsLabel = document.getElementById('btnSortDocsLabel');
+    if (btnSortDocsLabel) {
+      btnSortDocsLabel.textContent = state.sidebarSort === 'name' ? 'Nom' : 'Date';
+    }
+  }
+
   function renderNotebooksSidebar() {
     dom.notebookList.innerHTML = '';
     dom.notebookList.classList.toggle('gn-library-grid', state.libraryViewMode === 'grid');
+    syncSortControlsUi();
 
     const search = (state.sidebarSearch || '').trim().toLowerCase();
     const filter = state.sidebarFilter || 'all';
@@ -7079,43 +7374,23 @@
       }
     }
 
-    // Fil d'Ariane Goodnotes (Documents > Dossier > Sous-dossier)
-    const crumbEl = document.getElementById('folderBreadcrumb');
-    if (crumbEl) {
-      if (state.currentFolderId && !showGlobal) {
-        crumbEl.classList.remove('hidden');
-        const chain = getFolderPath(state.currentFolderId);
-        crumbEl.innerHTML = `<button class="gn-crumb-btn" data-folder-nav="">📁 Documents</button>` +
-          chain.map((f) => `<span>›</span><button class="gn-crumb-btn" data-folder-nav="${f.id}">${escapeHtml(f.name)}</button>`).join('');
-        crumbEl.querySelectorAll('[data-folder-nav]').forEach((b) => {
-          b.addEventListener('click', () => {
-            state.currentFolderId = b.dataset.folderNav || null;
-            renderNotebooksSidebar();
-          });
-        });
-      } else {
-        crumbEl.classList.add('hidden');
-        crumbEl.innerHTML = '';
-      }
-    }
-
-    const sortBy = state.notebookSortBy || 'date_desc';
+    const sortBy = state.notebookSortBy || (state.sidebarSort === 'name' ? 'name_asc' : 'date_desc');
     const sortFoldersFn = (a, b) => {
-      if (sortBy === 'name_asc') return (a.name || '').localeCompare(b.name || '', 'fr');
-      if (sortBy === 'name_desc') return (b.name || '').localeCompare(a.name || '', 'fr');
+      if (sortBy === 'name_asc') return (a.name || '').localeCompare(b.name || '', 'fr', { sensitivity: 'base' });
+      if (sortBy === 'name_desc') return (b.name || '').localeCompare(a.name || '', 'fr', { sensitivity: 'base' });
       return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
     };
     const sortNotebooksFn = (a, b) => {
       if (recentsOnly || sortBy === 'date_desc') {
         return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
       }
-      if (sortBy === 'name_asc') return (a.title || '').localeCompare(b.title || '', 'fr');
-      if (sortBy === 'name_desc') return (b.title || '').localeCompare(a.title || '', 'fr');
+      if (sortBy === 'name_asc') return (a.title || '').localeCompare(b.title || '', 'fr', { sensitivity: 'base' });
+      if (sortBy === 'name_desc') return (b.title || '').localeCompare(a.title || '', 'fr', { sensitivity: 'base' });
       if (sortBy === 'type') {
         const aPdf = a.isPdfNotebook || a.pdfId ? 1 : 0;
         const bPdf = b.isPdfNotebook || b.pdfId ? 1 : 0;
         if (bPdf !== aPdf) return bPdf - aPdf;
-        return (a.title || '').localeCompare(b.title || '', 'fr');
+        return (a.title || '').localeCompare(b.title || '', 'fr', { sensitivity: 'base' });
       }
       return 0;
     };
@@ -7128,17 +7403,71 @@
       return true;
     }).sort(sortFoldersFn);
 
+    // 2. Cahiers
+    const nonTrashedCount = state.notebooks.filter((n) => !n.trashedAt).length;
+    const visibleNotebooks = state.notebooks.filter((nb) => {
+      const isTrashed = Boolean(nb.trashedAt);
+      if (trashOnly) return isTrashed;
+      if (isTrashed) return false;
+      if (favOnly && !nb.starred) return false;
+      if (search) return (nb.title || '').toLowerCase().includes(search);
+      if (!showGlobal) return (nb.folderId || null) === (state.currentFolderId || null);
+      return true;
+    }).sort(sortNotebooksFn);
+
+    // Fil d'Ariane Goodnotes (Documents > Dossier > Sous-dossier) + Cible Drag & Drop vers parent/racine
+    const crumbEl = document.getElementById('folderBreadcrumb');
+    if (crumbEl) {
+      if (state.currentFolderId && !showGlobal) {
+        crumbEl.classList.remove('hidden');
+        const chain = getFolderPath(state.currentFolderId);
+        const currentTotal = visibleFolders.length + visibleNotebooks.length;
+        crumbEl.innerHTML = `<button class="gn-crumb-btn" data-folder-nav="">📁 Documents</button>` +
+          chain.map((f) => `<span class="gn-crumb-sep">›</span><button class="gn-crumb-btn" data-folder-nav="${f.id}">${escapeHtml(f.name)}</button>`).join('') +
+          `<span class="gn-crumb-count">${currentTotal}</span>`;
+        crumbEl.querySelectorAll('[data-folder-nav]').forEach((b) => {
+          b.addEventListener('click', () => {
+            state.currentFolderId = b.dataset.folderNav || null;
+            renderNotebooksSidebar();
+          });
+          b.addEventListener('dragover', (ev) => {
+            if (!draggedNotebookId && !(ev.dataTransfer && ev.dataTransfer.types && Array.from(ev.dataTransfer.types).includes('text/inkflow-notebook'))) return;
+            ev.preventDefault();
+            if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+            b.classList.add('drag-over');
+          });
+          b.addEventListener('dragleave', () => {
+            b.classList.remove('drag-over');
+          });
+          b.addEventListener('drop', (ev) => {
+            ev.preventDefault();
+            b.classList.remove('drag-over');
+            let nbId = draggedNotebookId;
+            if (!nbId && ev.dataTransfer && typeof ev.dataTransfer.getData === 'function') {
+              try { nbId = ev.dataTransfer.getData('text/inkflow-notebook') || ev.dataTransfer.getData('text/plain'); } catch (_) {}
+            }
+            draggedNotebookId = null;
+            clearLibraryDragOverClasses();
+            if (nbId) moveNotebookToFolder(nbId, b.dataset.folderNav || null);
+          });
+        });
+      } else {
+        crumbEl.classList.add('hidden');
+        crumbEl.innerHTML = '';
+      }
+    }
+
     visibleFolders.forEach((folder) => {
-      const childCount =
-        (state.folders || []).filter((x) => x.parentId === folder.id).length +
-        state.notebooks.filter((nb) => !nb.trashedAt && nb.folderId === folder.id).length;
+      const counts = getFolderItemCounts(folder.id);
+      const countLabel = formatFolderItemCountLabel(counts);
       const fCard = document.createElement('div');
       fCard.className = 'gn-folder-card';
+      fCard.dataset.folderId = folder.id;
       fCard.innerHTML = `
         <div class="gn-folder-icon" style="background:${folder.color || '#0072ce'};color:#ffffff;">${getFolderIconSvg(folder.icon || 'folder')}</div>
         <div class="notebook-info">
           <div class="notebook-name">${escapeHtml(folder.name)}</div>
-          <div class="notebook-meta">${childCount} élément${childCount > 1 ? 's' : ''}</div>
+          <div class="notebook-meta">${countLabel}</div>
         </div>
         <div class="notebook-actions">
           <button class="icon-btn-tiny${folder.starred ? ' starred' : ''}" data-folder-action="star" title="Favori">${folder.starred ? '★' : '☆'}</button>
@@ -7146,6 +7475,27 @@
           <button class="icon-btn-tiny danger" data-folder-action="delete" title="Supprimer le dossier">✕</button>
         </div>
       `;
+      fCard.addEventListener('dragover', (ev) => {
+        if (!draggedNotebookId && !(ev.dataTransfer && ev.dataTransfer.types && Array.from(ev.dataTransfer.types).includes('text/inkflow-notebook'))) return;
+        ev.preventDefault();
+        if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+        fCard.classList.add('drag-over');
+      });
+      fCard.addEventListener('dragleave', (ev) => {
+        if (ev.relatedTarget && typeof fCard.contains === 'function' && fCard.contains(ev.relatedTarget)) return;
+        fCard.classList.remove('drag-over');
+      });
+      fCard.addEventListener('drop', (ev) => {
+        ev.preventDefault();
+        fCard.classList.remove('drag-over');
+        let nbId = draggedNotebookId;
+        if (!nbId && ev.dataTransfer && typeof ev.dataTransfer.getData === 'function') {
+          try { nbId = ev.dataTransfer.getData('text/inkflow-notebook') || ev.dataTransfer.getData('text/plain'); } catch (_) {}
+        }
+        draggedNotebookId = null;
+        clearLibraryDragOverClasses();
+        if (nbId) moveNotebookToFolder(nbId, folder.id);
+      });
       fCard.addEventListener('click', (ev) => {
         const btn = ev.target.closest('[data-folder-action]');
         if (btn) {
@@ -7180,30 +7530,27 @@
       dom.notebookList.appendChild(fCard);
     });
 
-    // 2. Cahiers
-    const nonTrashedCount = state.notebooks.filter((n) => !n.trashedAt).length;
-    const visibleNotebooks = state.notebooks.filter((nb) => {
-      const isTrashed = Boolean(nb.trashedAt);
-      if (trashOnly) return isTrashed;
-      if (isTrashed) return false;
-      if (favOnly && !nb.starred) return false;
-      if (search) return (nb.title || '').toLowerCase().includes(search);
-      if (!showGlobal) return (nb.folderId || null) === (state.currentFolderId || null);
-      return true;
-    }).sort(sortNotebooksFn);
-
     visibleNotebooks.forEach((nb) => {
       const pages = state.pagesByNotebook.get(nb.id) || [];
       const hasPdf = Boolean(nb.isPdfNotebook || nb.pdfId || pages.some((p) => p.pdfId));
       const isActive = nb.id === state.activeNotebookId;
+      const firstPaperType = pages[0] && pages[0].paperType ? pages[0].paperType : 'grid';
+      const paperLabel = hasPdf ? 'PDF' : (PAPER_TYPE_LABELS[firstPaperType] || 'Quadrillé');
+      const dateStr = formatCompactDate(nb.updatedAt || nb.createdAt);
       const card = document.createElement('div');
       card.className = `notebook-card${isActive ? ' active' : ''}`;
+      card.dataset.notebookId = nb.id;
+
       if (trashOnly) {
         card.innerHTML = `
-          <div class="notebook-spine" style="background:${nb.coverColor || '#64748b'};opacity:0.65;"></div>
+          <div class="notebook-cover-thumb" style="background-color:${nb.coverColor || '#64748b'};opacity:0.65;">
+            <div class="notebook-spine"></div>
+            <span class="notebook-cover-label"></span>
+            ${hasPdf ? '<span class="notebook-cover-pdf-pill">PDF</span>' : ''}
+          </div>
           <div class="notebook-info">
             <div class="notebook-name">${escapeHtml(nb.title)}${hasPdf ? '<span class="pdf-badge-tag">PDF</span>' : ''}</div>
-            <div class="notebook-meta">${pages.length} page${pages.length > 1 ? 's' : ''} • Corbeille</div>
+            <div class="notebook-meta"><span>${pages.length} p.</span><span class="nb-paper-badge">Corbeille</span></div>
           </div>
           <div class="notebook-actions">
             <button class="icon-btn-tiny" data-action="restore-nb" title="Restaurer ce cahier">↺</button>
@@ -7211,11 +7558,20 @@
           </div>
         `;
       } else {
+        card.setAttribute('draggable', 'true');
         card.innerHTML = `
-          <div class="notebook-spine" style="background:${nb.coverColor || '#1d4ed8'}"></div>
+          <div class="notebook-cover-thumb" style="background-color:${nb.coverColor || '#0072ce'}">
+            <div class="notebook-spine"></div>
+            <span class="notebook-cover-label"></span>
+            ${hasPdf ? '<span class="notebook-cover-pdf-pill">PDF</span>' : ''}
+          </div>
           <div class="notebook-info">
             <div class="notebook-name">${escapeHtml(nb.title)}${hasPdf ? '<span class="pdf-badge-tag">PDF</span>' : ''}</div>
-            <div class="notebook-meta">${pages.length} page${pages.length > 1 ? 's' : ''}</div>
+            <div class="notebook-meta">
+              <span>${pages.length} page${pages.length > 1 ? 's' : ''}</span>
+              <span class="nb-paper-badge">${escapeHtml(paperLabel)}</span>
+              ${dateStr ? `<span class="nb-date-meta">${escapeHtml(dateStr)}</span>` : ''}
+            </div>
           </div>
           <div class="notebook-actions">
             <button class="icon-btn-tiny${nb.starred ? ' starred' : ''}" data-action="star-nb" title="Favori">${nb.starred ? '★' : '☆'}</button>
@@ -7224,6 +7580,22 @@
             ${nonTrashedCount > 1 ? `<button class="icon-btn-tiny danger" data-action="delete-nb" title="Mettre à la corbeille">✕</button>` : ''}
           </div>
         `;
+        card.addEventListener('dragstart', (ev) => {
+          draggedNotebookId = nb.id;
+          card.classList.add('dragging');
+          if (ev.dataTransfer) {
+            ev.dataTransfer.effectAllowed = 'move';
+            try {
+              ev.dataTransfer.setData('text/inkflow-notebook', nb.id);
+              ev.dataTransfer.setData('text/plain', nb.id);
+            } catch (_) {}
+          }
+        });
+        card.addEventListener('dragend', () => {
+          draggedNotebookId = null;
+          card.classList.remove('dragging');
+          clearLibraryDragOverClasses();
+        });
       }
       card.addEventListener('click', (ev) => {
         const btn = ev.target.closest('[data-action]');
@@ -7404,16 +7776,17 @@
         }
       }
       const card = document.createElement('div');
-      card.className = `page-thumb-card${p.id === state.activePageId ? ' active' : ''}`;
+      card.className = `page-thumb-card${p.id === state.activePageId ? ' active' : ''}${p.bookmarked ? ' bookmarked' : ''}`;
       card.setAttribute('draggable', 'true');
       card.dataset.pageIndex = String(realIdx);
       const pdfBadge = p.pdfId ? `<span class="pdf-badge-tag">PDF p.${p.pdfPageNumber || realIdx + 1}</span>` : '';
       const rotBadge = p.rotation ? `<span class="pdf-badge-tag">${p.rotation}°</span>` : '';
+      const bookmarkRibbon = p.bookmarked ? '<span class="gn-bookmark-ribbon" aria-hidden="true"></span>' : '';
       card.innerHTML = `
-        <div class="page-thumb-preview"><img data-thumb-page-id="${p.id}" loading="lazy" src="${p.thumbnail}" alt="Page ${realIdx + 1}" /></div>
+        <div class="page-thumb-preview">${bookmarkRibbon}<img data-thumb-page-id="${p.id}" loading="lazy" src="${p.thumbnail}" alt="Page ${realIdx + 1}" /></div>
         <div class="page-thumb-footer">
           <span class="page-thumb-number">${realIdx + 1}. ${escapeHtml(p.title.replace(/^\d+\.\s*/, ''))}${pdfBadge}${rotBadge}</span>
-          <div style="display:flex;gap:2px;">
+          <div class="page-thumb-actions">
             <button class="icon-btn-tiny${p.bookmarked ? ' starred' : ''}" data-page-action="bookmark" title="Signet Goodnotes">${p.bookmarked ? '🔖' : '☆'}</button>
             <button class="icon-btn-tiny" data-page-action="rotate" title="Pivoter de 90°">↻</button>
             <button class="icon-btn-tiny" data-page-action="rename" title="Renommer">✎</button>
