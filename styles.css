@@ -3596,3 +3596,284 @@ html, body {
 .gn-ios-switch input:checked + .gn-ios-slider::before {
   transform: translateX(18px);
 }
+
+/* ==================== GOODNOTES 6 STROKE SETTINGS POPOVER ("RÉGLAGES DU TRAIT") ==================== */
+.gn-stroke-popover.hidden,
+.gn-line-style-grid.hidden {
+  display: none !important;
+}
+
+.gn-thick-btn.popover-open {
+  background: #cfe7f5;
+  box-shadow: 0 0 0 1.5px rgba(0, 114, 206, 0.28);
+}
+
+[data-theme="dark"] .gn-thick-btn.popover-open {
+  background: #294c7f;
+  box-shadow: 0 0 0 1.5px rgba(124, 196, 250, 0.32);
+}
+
+.gn-thick-line.is-dashed {
+  background: repeating-linear-gradient(90deg, #27272a 0 4px, transparent 4px 7px);
+}
+
+.gn-thick-line.is-dotted {
+  background: repeating-linear-gradient(90deg, #27272a 0 2px, transparent 2px 5px);
+}
+
+[data-theme="dark"] .gn-thick-line.is-dashed {
+  background: repeating-linear-gradient(90deg, #f4f4f5 0 4px, transparent 4px 7px);
+}
+
+[data-theme="dark"] .gn-thick-line.is-dotted {
+  background: repeating-linear-gradient(90deg, #f4f4f5 0 2px, transparent 2px 5px);
+}
+
+.gn-stroke-popover {
+  pointer-events: auto;
+  position: relative;
+  width: 332px;
+  padding: 18px 18px 22px;
+  border-radius: 20px;
+  background: #f5f5f7;
+  color: #111827;
+  border: 1px solid rgba(30, 27, 27, 0.11);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.08);
+  animation: gnSubBarFadeIn 0.2s cubic-bezier(0.34, 1.4, 0.64, 1);
+  transform-origin: top center;
+}
+
+[data-theme="dark"] .gn-stroke-popover {
+  background: #23262f;
+  color: #f4f4f5;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.56);
+}
+
+.gn-stroke-popover-caret {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  margin-left: -7px;
+  width: 14px;
+  height: 14px;
+  background: inherit;
+  border-left: 1px solid rgba(30, 27, 27, 0.11);
+  border-top: 1px solid rgba(30, 27, 27, 0.11);
+  transform: rotate(45deg);
+  pointer-events: none;
+  transition: left 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-theme="dark"] .gn-stroke-popover-caret {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.gn-stroke-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.gn-stroke-title {
+  font-size: 17.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: inherit;
+}
+
+.gn-stroke-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gn-stroke-mm {
+  font-size: 14px;
+  font-weight: 500;
+  color: #71717a;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-theme="dark"] .gn-stroke-mm {
+  color: #a1a1aa;
+}
+
+.gn-stroke-reset-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: #18181b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+[data-theme="dark"] .gn-stroke-reset-btn {
+  color: #f4f4f5;
+}
+
+.gn-stroke-reset-btn:hover {
+  background: rgba(15, 23, 42, 0.07);
+}
+
+[data-theme="dark"] .gn-stroke-reset-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.gn-stroke-reset-btn:active {
+  transform: rotate(-55deg) scale(0.92);
+}
+
+.gn-line-style-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.gn-line-style-card {
+  border: none;
+  background: transparent;
+  border-radius: 16px;
+  padding: 22px 8px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 500;
+  color: #18181b;
+  cursor: pointer;
+  transition: background 0.18s ease, box-shadow 0.2s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+[data-theme="dark"] .gn-line-style-card {
+  color: #e4e4e7;
+}
+
+.gn-line-style-card:hover {
+  background: rgba(255, 255, 255, 0.58);
+}
+
+[data-theme="dark"] .gn-line-style-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gn-line-style-card:active {
+  transform: scale(0.96);
+}
+
+.gn-line-style-card.active {
+  background: #ffffff;
+  color: #111827;
+  font-weight: 500;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+[data-theme="dark"] .gn-line-style-card.active {
+  background: #323644;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.34);
+}
+
+.gn-stroke-section-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #6b7280;
+  margin-bottom: 14px;
+}
+
+[data-theme="dark"] .gn-stroke-section-label {
+  color: #a1a1aa;
+}
+
+/* Signature GoodNotes Tapered Wedge Slider */
+.gn-wedge-slider-wrap {
+  position: relative;
+  width: 100%;
+  height: 30px;
+  display: flex;
+  align-items: center;
+}
+
+.gn-wedge-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 100%;
+  height: 20px;
+  fill: #57565a;
+  pointer-events: none;
+}
+
+[data-theme="dark"] .gn-wedge-track {
+  fill: #9ca3af;
+}
+
+.gn-wedge-range {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 30px;
+  margin: 0;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+
+.gn-wedge-range::-webkit-slider-runnable-track {
+  height: 30px;
+  background: transparent;
+}
+
+.gn-wedge-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #3b72d6 0 42%, #ffffff 43% 100%);
+  border: 1.5px solid rgba(15, 23, 42, 0.14);
+  box-shadow: 0 2px 7px rgba(15, 23, 42, 0.24);
+  cursor: pointer;
+  transition: transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.16s ease;
+}
+
+.gn-wedge-range::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 3px 10px rgba(59, 114, 214, 0.34);
+}
+
+.gn-wedge-range::-webkit-slider-thumb:active {
+  transform: scale(1.14);
+}
+
+.gn-wedge-range::-moz-range-track {
+  height: 30px;
+  background: transparent;
+  border: none;
+}
+
+.gn-wedge-range::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #3b72d6 0 42%, #ffffff 43% 100%);
+  border: 1.5px solid rgba(15, 23, 42, 0.14);
+  box-shadow: 0 2px 7px rgba(15, 23, 42, 0.24);
+  cursor: pointer;
+}

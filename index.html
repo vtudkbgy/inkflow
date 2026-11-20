@@ -193,7 +193,7 @@
 
           <!-- ZONE CENTRALE : Palette d'outils GoodNotes (icônes pures, re-cliquer pour les options) -->
           <div class="gn-bar-group gn-bar-center">
-            <button class="tool-btn gn-tool-icon active" data-tool="pen" id="toolPen" title="Stylo (P) — Re-cliquer pour les options">
+            <button class="tool-btn gn-tool-icon active" data-tool="pen" id="toolPen" title="Stylo, Surligneur & Ruban (P) — Re-cliquer pour la barre d'outils">
               <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 2.5L7.2 12.2a1.8 1.8 0 0 0 .35 2.05L9.5 16.2h5l1.95-1.95a1.8 1.8 0 0 0 .35-2.05L12 2.5z" fill="currentColor" fill-opacity="0.14"></path>
                 <line x1="12" y1="2.5" x2="12" y2="10.2"></line>
@@ -203,17 +203,6 @@
               </svg>
               <span class="gn-sr-label">Stylo</span>
               <span class="color-indicator" id="penColorDot" style="background:#1e293b"></span>
-            </button>
-
-            <button class="tool-btn gn-tool-icon" data-tool="highlighter" id="toolHighlighter" title="Surligneur translucide (H) — Re-cliquer pour les options">
-              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M14.8 3.2l6 6a1.4 1.4 0 0 1 0 2l-7.2 7.2-6.8-6.8 6-6a1.4 1.4 0 0 1 2 0z" fill="currentColor" fill-opacity="0.14"></path>
-                <path d="M6.8 11.6l-2.6 4.8a1 1 0 0 0 .2 1.2l1.8 1.8a1 1 0 0 0 1.2.2l4.8-2.6"></path>
-                <line x1="12.2" y1="5.8" x2="18.2" y2="11.8"></line>
-                <path d="M3.5 21h14" stroke-width="2.4" stroke-opacity="0.45"></path>
-              </svg>
-              <span class="gn-sr-label">Surligneur</span>
-              <span class="color-indicator" id="hlColorDot" style="background:#facc15"></span>
             </button>
 
             <button class="tool-btn gn-tool-icon" data-tool="eraser" id="toolEraser" title="Gomme vectorielle (E) — Re-cliquer pour les options">
@@ -244,16 +233,6 @@
               <span class="gn-sr-label">Formes</span>
             </button>
 
-            <button class="tool-btn gn-tool-icon" data-tool="tape" id="toolTape" title="Ruban d'étude GoodNotes (R) — Re-cliquer pour les options">
-              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M3.2 8.2L4.8 9.8 3.2 12 4.8 14.2 3.2 15.8h17.6L19.2 14.2 20.8 12 19.2 9.8 20.8 8.2H3.2z" fill="currentColor" fill-opacity="0.16"></path>
-                <line x1="7.5" y1="8.2" x2="10.5" y2="15.8"></line>
-                <line x1="11.8" y1="8.2" x2="14.8" y2="15.8"></line>
-                <line x1="16.1" y1="8.2" x2="18.2" y2="13.4"></line>
-              </svg>
-              <span class="gn-sr-label">Ruban</span>
-            </button>
-
             <button class="tool-btn gn-tool-icon" data-tool="text" id="toolText" title="Zone de texte clavier (T) — Re-cliquer pour les options">
               <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="4" y="4" width="16" height="16" rx="2.2" stroke-opacity="0.55" fill="currentColor" fill-opacity="0.06"></rect>
@@ -264,14 +243,6 @@
                 <path d="M8.5 8.8h7M12 8.8v7.2M10.2 16h3.6" stroke-width="2"></path>
               </svg>
               <span class="gn-sr-label">Texte</span>
-            </button>
-
-            <button class="tool-btn gn-tool-icon" id="btnOpenLatexModal" title="Équation mathématique LaTeX (M)">
-              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="3" y="3" width="18" height="18" rx="5" fill="currentColor" fill-opacity="0.12" stroke-opacity="0.45"></rect>
-                <path d="M16.2 7.5H8.3l4.6 4.5-4.6 4.5h7.9" stroke-width="2"></path>
-              </svg>
-              <span class="gn-sr-label">LaTeX</span>
             </button>
 
             <button class="tool-btn gn-tool-icon" id="btnInsertImage" title="Insérer une image / sticker (Ctrl+V)">
@@ -530,11 +501,11 @@
 
           <div class="gn-subbar-divider"></div>
 
-          <!-- 3 épaisseurs rapides GoodNotes -->
+          <!-- 3 épaisseurs rapides GoodNotes (cliquer pour ouvrir Réglages Du Trait) -->
           <div class="gn-subbar-thickness" id="gnSubBarThickness">
-            <button class="gn-thick-btn" data-gn-size="2.5" title="Fin (2.5 px)"><span class="gn-thick-line" style="height:1.5px;"></span></button>
-            <button class="gn-thick-btn active" data-gn-size="5" title="Moyen (5.0 px)"><span class="gn-thick-line" style="height:2.6px;"></span></button>
-            <button class="gn-thick-btn" data-gn-size="11" title="Épais (11.0 px)"><span class="gn-thick-line" style="height:4.2px;"></span></button>
+            <button class="gn-thick-btn" data-gn-slot="0" data-gn-size="2.5" title="Fin — Cliquer pour régler le trait"><span class="gn-thick-line" style="height:1.5px;"></span></button>
+            <button class="gn-thick-btn active" data-gn-slot="1" data-gn-size="5" title="Moyen — Cliquer pour régler le trait"><span class="gn-thick-line" style="height:2.8px;"></span></button>
+            <button class="gn-thick-btn" data-gn-slot="2" data-gn-size="12" title="Épais — Cliquer pour régler le trait"><span class="gn-thick-line" style="height:4.5px;"></span></button>
           </div>
 
           <!-- 3 couleurs rapides + bouton Ajouter couleur -->
@@ -689,6 +660,60 @@
                 <p class="gn-setting-desc">Entourez n'importe quelle zone pour la sélectionner et la déplacer</p>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- POPOVER RÉGLAGES DU TRAIT (STYLE GOODNOTES 6 — CONTINU / TIRETS / POINTILLÉS + CURSEUR CONIQUE) -->
+        <div class="gn-stroke-popover hidden" id="gnStrokePopover" role="dialog" aria-label="Réglages Du Trait">
+          <div class="gn-stroke-popover-caret" id="gnStrokePopoverCaret"></div>
+
+          <div class="gn-stroke-header">
+            <span class="gn-stroke-title">Réglages Du Trait</span>
+            <div class="gn-stroke-header-right">
+              <span class="gn-stroke-mm" id="gnStrokeMmReadout">0.50 mm</span>
+              <button class="gn-stroke-reset-btn" id="btnGnStrokeReset" type="button" title="Réinitialiser l'épaisseur et le style par défaut" aria-label="Réinitialiser le trait">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9"></path>
+                  <polyline points="4.5 4.2 4.5 9 9.3 9"></polyline>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="gn-line-style-grid" id="gnStrokeLineStyleGrid">
+            <button class="gn-line-style-card active" data-gn-linestyle="solid" type="button">
+              <svg width="28" height="14" viewBox="0 0 28 14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                <line x1="4" y1="7" x2="24" y2="7"></line>
+              </svg>
+              <span>Continu</span>
+            </button>
+            <button class="gn-line-style-card" data-gn-linestyle="dashed" type="button">
+              <svg width="28" height="14" viewBox="0 0 28 14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                <line x1="3.5" y1="7" x2="8" y2="7"></line>
+                <line x1="11.8" y1="7" x2="16.2" y2="7"></line>
+                <line x1="20" y1="7" x2="24.5" y2="7"></line>
+              </svg>
+              <span>Tirets</span>
+            </button>
+            <button class="gn-line-style-card" data-gn-linestyle="dotted" type="button">
+              <svg width="28" height="14" viewBox="0 0 28 14" fill="currentColor" stroke="none" aria-hidden="true">
+                <circle cx="4" cy="7" r="1.45"></circle>
+                <circle cx="9" cy="7" r="1.45"></circle>
+                <circle cx="14" cy="7" r="1.45"></circle>
+                <circle cx="19" cy="7" r="1.45"></circle>
+                <circle cx="24" cy="7" r="1.45"></circle>
+              </svg>
+              <span>Pointillés</span>
+            </button>
+          </div>
+
+          <div class="gn-stroke-section-label" id="gnStrokeThicknessLabel">Épaisseur Du Stylo</div>
+
+          <div class="gn-wedge-slider-wrap">
+            <svg class="gn-wedge-track" viewBox="0 0 280 22" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M 3 10.2 L 272 3.2 A 7.8 7.8 0 0 1 272 18.8 L 3 11.8 A 0.8 0.8 0 0 1 3 10.2 Z"></path>
+            </svg>
+            <input type="range" class="gn-wedge-range" id="gnStrokeSizeSlider" min="1" max="20" step="0.5" value="5" aria-label="Épaisseur du trait" />
           </div>
         </div>
       </header>
