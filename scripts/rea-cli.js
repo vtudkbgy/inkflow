@@ -23,7 +23,12 @@ if (fs.existsSync(localReaScript)) {
   const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
   const res = spawnSync(npxCmd, ['-y', 'rea-agents@latest', ...args], {
     cwd: rootDir,
-    stdio: 'inherit'
+    stdio: 'inherit',
+    shell: process.platform === 'win32'
   });
+  if (res.error) {
+    console.error(res.error);
+    process.exit(1);
+  }
   process.exit(res.status ?? 0);
 }
