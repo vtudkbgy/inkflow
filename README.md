@@ -43,7 +43,7 @@ cd inkflow
 # 2. Installer les dépendances npm
 npm install
 
-# 3. Lancer les tests automatisés (8/8) + vérification WebView2
+# 3. Lancer les tests automatisés (9/9) + vérification WebView2
 npm test
 npm run verify:webview2
 

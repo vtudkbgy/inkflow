@@ -11,6 +11,6 @@
 
 ## Vérifications effectuées
 
-- [ ] `npm test` passe (8/8 tests unitaires & benchmarks 60/120 FPS)
+- [ ] `npm test` passe (9/9 tests unitaires & benchmarks 60/120 FPS)
 - [ ] `npm run verify:webview2` passe (4/4 vérifications)
 - [ ] Aucun lien CDN externe ajouté (100 % hors-ligne préservé)

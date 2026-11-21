@@ -18910,8 +18910,39 @@
     if (btnApply) btnApply.addEventListener('click', applyGnTemplateLibrarySelection);
   }
 
+  // ============================================================================
+  // MODE HORS-LIGNE (VERSION NAVIGATEUR) : ENREGISTREMENT DU SERVICE WORKER sw.js
+  // ============================================================================
+  // Uniquement servi en http(s) dans un navigateur : jamais sous Tauri (WebView2,
+  // tauri.localhost ou devUrl) ni sous Electron (file://), qui embarquent déjà
+  // leurs fichiers. Renvoie true si l'enregistrement est programmé.
+  function registerOfflineServiceWorker(env = window) {
+    try {
+      const nav = env && env.navigator;
+      const loc = env && env.location;
+      if (!nav || !nav.serviceWorker || typeof nav.serviceWorker.register !== 'function') return false;
+      if (!loc || (loc.protocol !== 'http:' && loc.protocol !== 'https:')) return false;
+      if (env.__TAURI__ || env.__TAURI_INTERNALS__) return false;
+      const hostname = String(loc.hostname || String(loc.host || '').split(':')[0]).toLowerCase();
+      if (hostname === 'tauri.localhost' || hostname.endsWith('.tauri.localhost')) return false;
+      if (env.isSecureContext === false) return false;
+
+      const register = () => {
+        nav.serviceWorker.register('./sw.js').catch((err) => {
+          console.warn('[InkFlow] Service worker hors-ligne non enregistré :', err);
+        });
+      };
+      if (env.document && env.document.readyState === 'complete') register();
+      else env.addEventListener('load', register, { once: true });
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
   if (typeof window !== 'undefined') {
     window.__plumeStudioApi = {
+      registerOfflineServiceWorker,
       importPdfFromBuffer,
       stagePdfBufferForImport,
       validateAndOpenPdfDocument,
@@ -19019,4 +19050,5 @@
   fitPageToViewport();
   requestRender();
   loadFromIndexedDB();
+  registerOfflineServiceWorker();
 })();

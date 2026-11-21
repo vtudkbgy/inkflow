@@ -23,7 +23,7 @@ jobs:
       - name: Installer les dépendances
         run: npm ci
 
-      - name: Exécuter la suite de tests unitaires (8/8)
+      - name: Exécuter la suite de tests unitaires (9/9)
         run: npm test
 
       - name: Vérifier l'intégration WebView2 / PDF.js / Stylet

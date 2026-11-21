@@ -420,6 +420,125 @@ function createAppSandbox() {
   return sandbox;
 }
 
+/**
+ * Exécute `sw.js` dans un bac à sable isolé avec un Cache Storage et un réseau simulés.
+ * `network.online` bascule le réseau ; `network.files` contient les fichiers servis.
+ */
+function createServiceWorkerSandbox() {
+  const rootDir = path.resolve(__dirname, '..');
+  const swCode = fs.readFileSync(path.join(rootDir, 'sw.js'), 'utf8');
+  const origin = 'http://localhost:5173';
+  const listeners = {};
+  const stores = new Map();
+  const network = { online: true, files: new Map(), redirected: new Set(), partial: new Set(), requests: [] };
+
+  const toUrl = (input) => new URL(typeof input === 'string' ? input : input.url, `${origin}/sw.js`).href;
+  const stripSearch = (href) => href.split('?')[0];
+
+  function openStore(name) {
+    if (!stores.has(name)) stores.set(name, new Map());
+    const entries = stores.get(name);
+    return {
+      entries,
+      async add(request) {
+        const response = await fakeFetch(request);
+        if (!response.ok) throw new TypeError(`Échec du cache pour ${toUrl(request)}`);
+        entries.set(toUrl(request), response);
+      },
+      async addAll(requests) {
+        for (const request of requests) await this.add(request);
+      },
+      async put(request, response) {
+        entries.set(toUrl(request), response);
+      },
+      async match(request, opts = {}) {
+        const href = toUrl(request);
+        if (entries.has(href)) return entries.get(href).clone();
+        if (opts.ignoreSearch) {
+          for (const [key, value] of entries) {
+            if (stripSearch(key) === stripSearch(href)) return value.clone();
+          }
+        }
+        return undefined;
+      }
+    };
+  }
+
+  const caches = {
+    open: async (name) => openStore(name),
+    keys: async () => Array.from(stores.keys()),
+    delete: async (name) => stores.delete(name),
+    match: async (request, opts) => {
+      for (const name of stores.keys()) {
+        const hit = await openStore(name).match(request, opts);
+        if (hit) return hit;
+      }
+      return undefined;
+    }
+  };
+
+  async function fakeFetch(input) {
+    const href = toUrl(input);
+    network.requests.push(href);
+    if (!network.online) throw new TypeError('Failed to fetch');
+    const pathname = new URL(href).pathname;
+    const key = pathname === '/' ? '/index.html' : pathname;
+    if (!network.files.has(key)) return new Response('Not found', { status: 404 });
+    const status = network.partial.has(pathname) ? 206 : 200;
+    const res = new Response(network.files.get(key), { status });
+    Object.defineProperty(res, 'type', { value: 'basic' });
+    // Simule un serveur qui redirige ce chemin (ex. `serve` : /index.html → /)
+    Object.defineProperty(res, 'redirected', { value: network.redirected.has(pathname) });
+    return res;
+  }
+
+  // Comme dans un vrai service worker, une URL relative se résout par rapport à l'emplacement de sw.js.
+  class SwRequest extends Request {
+    constructor(input, init) {
+      super(typeof input === 'string' ? new URL(input, `${origin}/sw.js`).href : input, init);
+    }
+  }
+
+  const sandbox = {
+    console,
+    URL,
+    Request: SwRequest,
+    Response,
+    Promise,
+    caches,
+    fetch: fakeFetch,
+    location: new URL(`${origin}/sw.js`),
+    clients: { claim: async () => { sandbox.__claimed = true; } },
+    skipWaiting: () => { sandbox.__skipped = true; },
+    addEventListener: (type, fn) => { listeners[type] = fn; }
+  };
+  sandbox.self = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(swCode, sandbox);
+
+  async function dispatchExtendable(type, extra = {}) {
+    const waits = [];
+    let responded = null;
+    const event = {
+      ...extra,
+      waitUntil: (p) => waits.push(p),
+      respondWith: (p) => { responded = p; }
+    };
+    listeners[type](event);
+    const response = responded ? await responded : null;
+    await Promise.all(waits);
+    return { response, intercepted: Boolean(responded) };
+  }
+
+  const fetchEvent = (url, init = {}, mode = 'cors') => {
+    const request = new Request(new URL(url, origin).href, init);
+    Object.defineProperty(request, 'mode', { value: mode });
+    return dispatchExtendable('fetch', { request });
+  };
+
+  return { sandbox, stores, network, origin, dispatchExtendable, fetchEvent };
+}
+
 async function runTests() {
   console.log('======================================================================');
   console.log('🧪 SUITE DE TESTS UNITAIRES & AUDIT QUALITÉ — PLUME STUDIO PRO');
@@ -1379,6 +1498,135 @@ async function runTests() {
     await api.cleanupAppResources();
 
     return `Cahier de 50 pages PDF : ouverture = pages [${statsAtOpen.renderedPageNumbers.join(', ')}], saut page 25 = pages [${statsAtPage25.renderedPageNumbers.join(', ')}], page 50 = pages [${statsAtPage50.renderedPageNumbers.join(', ')}] en RAM.`;
+  });
+
+  // ------------------------------------------------------------------------
+  // TEST 9 : Mode hors-ligne de la version navigateur (service worker)
+  // ------------------------------------------------------------------------
+  await runStep('Test 9 : Mode hors-ligne navigateur (service worker réseau d’abord, cache en secours, jamais sous Tauri/Electron)', async () => {
+    // 1. Enregistrement : uniquement dans un navigateur servi en http(s)
+    const makeEnv = ({ protocol = 'http:', hostname = 'localhost', sw = true, tauri = false, secure = true, ready = 'complete', reject = false } = {}) => {
+      const registered = [];
+      const listeners = {};
+      const env = {
+        navigator: sw ? {
+          serviceWorker: {
+            register: (url) => {
+              registered.push(url);
+              return reject ? Promise.reject(new Error('refus simulé')) : Promise.resolve({ scope: '/' });
+            }
+          }
+        } : {},
+        location: { protocol, hostname, host: hostname },
+        isSecureContext: secure,
+        document: { readyState: ready },
+        addEventListener: (type, fn) => { listeners[type] = fn; }
+      };
+      if (tauri) env.__TAURI__ = {};
+      return { env, registered, listeners };
+    };
+
+    const browser = makeEnv();
+    assert.equal(api.registerOfflineServiceWorker(browser.env), true, 'Le navigateur (http://localhost) doit enregistrer le service worker');
+    assert.deepEqual(browser.registered, ['./sw.js']);
+
+    const loading = makeEnv({ ready: 'loading' });
+    assert.equal(api.registerOfflineServiceWorker(loading.env), true);
+    assert.deepEqual(loading.registered, [], 'Pendant le chargement, l’enregistrement doit attendre l’événement load');
+    loading.listeners.load();
+    assert.deepEqual(loading.registered, ['./sw.js']);
+
+    const https = makeEnv({ protocol: 'https:', hostname: 'notes.example.org' });
+    assert.equal(api.registerOfflineServiceWorker(https.env), true);
+
+    const refused = makeEnv({ reject: true });
+    assert.equal(api.registerOfflineServiceWorker(refused.env), true, 'Un refus du navigateur ne doit pas lever d’exception');
+    await new Promise((r) => setTimeout(r, 0));
+
+    const skipped = {
+      'Tauri (global __TAURI__)': makeEnv({ tauri: true }),
+      'Tauri (tauri.localhost)': makeEnv({ hostname: 'tauri.localhost' }),
+      'Electron (file://)': makeEnv({ protocol: 'file:', hostname: '' }),
+      'navigateur sans service worker': makeEnv({ sw: false }),
+      'contexte non sécurisé (http sur IP du réseau)': makeEnv({ hostname: '192.168.1.20', secure: false })
+    };
+    for (const [label, ctx] of Object.entries(skipped)) {
+      assert.equal(api.registerOfflineServiceWorker(ctx.env), false, `Pas de service worker attendu pour : ${label}`);
+      assert.deepEqual(ctx.registered, [], `Aucun enregistrement attendu pour : ${label}`);
+    }
+    assert.equal(api.registerOfflineServiceWorker(), false, 'Le bac à sable des tests (tauri.localhost) ne doit rien enregistrer');
+
+    // 2. Comportement de sw.js
+    const swEnv = createServiceWorkerSandbox();
+    const { network, stores, fetchEvent, dispatchExtendable } = swEnv;
+    const readText = async (res) => (res ? res.text() : null);
+    network.files.set('/index.html', '<html>InkFlow v1</html>');
+    network.files.set('/styles.css', 'body{}');
+    network.files.set('/app.js', 'app v1');
+    network.files.set('/manifest.json', '{}');
+    network.files.set('/assets/inkflow-logo.png', 'png');
+    network.files.set('/vendor/pdf.min.js', 'pdf');
+    network.files.set('/vendor/pdf.worker.min.js', 'worker');
+    // vendor/pdf-lib.min.js volontairement absent : l'installation doit quand même réussir
+
+    stores.set('inkflow-v3', new Map());
+    stores.set('autre-app-cache', new Map());
+
+    await dispatchExtendable('install');
+    assert.equal(swEnv.sandbox.__skipped, true, 'skipWaiting doit être appelé à l’installation');
+    const shellStoreName = Array.from(stores.keys()).find((k) => k.startsWith('inkflow-') && k !== 'inkflow-v3');
+    assert.ok(shellStoreName, 'Un cache InkFlow versionné doit être créé');
+    const shellStore = stores.get(shellStoreName);
+    assert.equal(shellStore.size, 8, `8 fichiers attendus en cache (fichier absent ignoré), reçu ${shellStore.size}`);
+
+    await dispatchExtendable('activate');
+    assert.equal(stores.has('inkflow-v3'), false, 'L’ancien cache InkFlow doit être supprimé');
+    assert.equal(stores.has('autre-app-cache'), true, 'Les caches d’autres applications ne doivent pas être touchés');
+    assert.equal(swEnv.sandbox.__claimed, true);
+
+    // En ligne : la version du serveur prime et rafraîchit le cache
+    network.files.set('/app.js', 'app v2');
+    const online = await fetchEvent('/app.js');
+    assert.equal(await readText(online.response), 'app v2', 'En ligne, la version du serveur doit être servie (pas de version figée)');
+    assert.equal(await shellStore.get(`${swEnv.origin}/app.js`).clone().text(), 'app v2', 'Le cache doit être rafraîchi');
+
+    // Hors-ligne : la dernière copie en cache est servie
+    network.online = false;
+    assert.equal(await readText((await fetchEvent('/app.js')).response), 'app v2');
+    assert.equal(await readText((await fetchEvent('/app.js?v=42')).response), 'app v2', 'Les paramètres d’URL ne doivent pas empêcher le secours hors-ligne');
+    assert.equal(await readText((await fetchEvent('/', {}, 'navigate')).response), '<html>InkFlow v1</html>');
+    assert.equal(await readText((await fetchEvent('/index.html?source=pwa', {}, 'navigate')).response), '<html>InkFlow v1</html>');
+    await assert.rejects(fetchEvent('/inconnu.js'), 'Une ressource jamais vue doit échouer normalement hors-ligne');
+
+    // Les variantes d'URL (?v=…) ne multiplient pas les entrées du cache
+    network.online = true;
+    await fetchEvent('/app.js?v=43');
+    await fetchEvent('/app.js?t=99');
+    assert.equal(shellStore.size, 8, `Les paramètres d’URL ne doivent pas ajouter d’entrées (reçu ${shellStore.size})`);
+
+    // Réponses partielles (206) jamais mises en cache
+    network.files.set('/vendor/gros.bin', 'morceau');
+    network.partial.add('/vendor/gros.bin');
+    await fetchEvent('/vendor/gros.bin');
+    assert.equal(shellStore.has(`${swEnv.origin}/vendor/gros.bin`), false, 'Une réponse 206 ne doit pas être mise en cache');
+
+    // Serveur qui redirige /index.html vers / (comme `serve`, utilisé par `npm start`)
+    const redirectEnv = createServiceWorkerSandbox();
+    for (const [file, body] of network.files) redirectEnv.network.files.set(file, body);
+    redirectEnv.network.redirected.add('/index.html');
+    await redirectEnv.dispatchExtendable('install');
+    await redirectEnv.dispatchExtendable('activate');
+    const redirectStore = Array.from(redirectEnv.stores.values())[0];
+    assert.equal(redirectStore.has(`${redirectEnv.origin}/index.html`), false, 'Une réponse redirigée ne doit jamais être mise en cache');
+    assert.equal(redirectStore.has(`${redirectEnv.origin}/`), true);
+    redirectEnv.network.online = false;
+    assert.equal(await readText((await redirectEnv.fetchEvent('/index.html', {}, 'navigate')).response), '<html>InkFlow v1</html>', 'Hors-ligne, /index.html (start_url du manifeste) doit être servi via la copie de /');
+
+    // Requêtes ignorées : POST et autres origines
+    assert.equal((await fetchEvent('/api', { method: 'POST', body: 'x' })).intercepted, false, 'Les POST ne doivent pas être interceptés');
+    assert.equal((await fetchEvent('https://cdn.example.com/lib.js')).intercepted, false, 'Les autres origines ne doivent pas être interceptées');
+
+    return 'Enregistré en http(s) uniquement (ignoré sous Tauri, Electron, sans support ou hors contexte sûr) ; réseau d’abord, cache rafraîchi, secours hors-ligne (y compris avec paramètres d’URL) vérifiés.';
   });
 
   console.log('======================================================================');
