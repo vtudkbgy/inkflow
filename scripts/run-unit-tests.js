@@ -975,6 +975,67 @@ async function runTests() {
     api.handlePointerMove({ pointerId: 915, pointerType: 'pen', button: 0, buttons: 0, clientX: 145, clientY: 165, pressure: 0, getCoalescedEvents: () => [], preventDefault() {} });
     assert.equal(colorDotEl.style.display, 'none', 'Le point coloré doit être masqué lorsque la gomme est active');
 
+    // Vérification Griffonner pour effacer : 0 faux positif en écriture cursive & suppression chirurgicale (sans effacer ce qu'il y a autour)
+    st.scribbleToErase = true;
+    st.scribbleEraseShapesAndHl = true;
+    const scribTestPage = {
+      id: 'pg_scribble_test',
+      notebookId: pg.notebookId,
+      strokes: [
+        // Mot cible à l'intérieur d'un cadre (y=300, x=300..360)
+        { id: 'st_typo', tool: 'pen', size: 4, color: '#111827', points: [{ x: 300, y: 300 }, { x: 320, y: 292 }, { x: 340, y: 308 }, { x: 360, y: 300 }] },
+        // Mot voisin juste à droite (x=378..430) — NE DOIT PAS être effacé
+        { id: 'st_neighbor', tool: 'pen', size: 4, color: '#111827', points: [{ x: 378, y: 300 }, { x: 405, y: 294 }, { x: 430, y: 304 }] },
+        // Longue diagonale voisine dont la boîte englobante chevauche (260,240)->(420,260) — NE DOIT PAS être effacée
+        { id: 'st_diag_nearby', tool: 'pen', size: 4, color: '#111827', points: [{ x: 250, y: 245 }, { x: 420, y: 255 }] }
+      ],
+      shapes: [
+        // Cadre rectangle entourant tout (240..460, 230..360) — NE DOIT PAS être effacé quand on griffonne à l'intérieur !
+        { id: 'sh_outer_box', type: 'rect', x1: 240, y1: 230, x2: 460, y2: 360, size: 3, color: '#2563eb' }
+      ],
+      texts: [],
+      tapes: [],
+      images: []
+    };
+    // 1) Écriture cursive "mmmm" progressant gauche->droite juste à côté du mot voisin : NE DOIT JAMAIS effacer !
+    const cursivePts = [];
+    for (let k = 0; k <= 24; k++) {
+      cursivePts.push({ x: 375 + k * 2.4, y: 318 - Math.abs(Math.sin(k * 0.9)) * 14 });
+    }
+    assert.equal(
+      api.detectAndApplyScribbleToErase({ id: 'st_cursive_m', tool: 'pen', size: 4, points: cursivePts }, scribTestPage),
+      false,
+      'Une écriture cursive "mmmm" à côté d’autres traits ne doit jamais déclencher le griffonnage'
+    );
+    assert.equal(scribTestPage.strokes.length, 3, 'Aucun trait ne doit être effacé par une écriture cursive');
+
+    // 2) Vrai griffonnage va-et-vient (→ ← → ←) directement sur st_typo : efface UNIQUEMENT st_typo, garde st_neighbor, st_diag_nearby et sh_outer_box !
+    const realScribblePts = [];
+    const passes = [
+      [296, 294, 364, 296],
+      [364, 296, 296, 300],
+      [296, 300, 364, 303],
+      [364, 303, 296, 306],
+      [296, 306, 362, 308]
+    ];
+    for (const [x1, y1, x2, y2] of passes) {
+      for (let s = 0; s <= 6; s++) {
+        const t = s / 6;
+        realScribblePts.push({ x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t });
+      }
+    }
+    assert.equal(
+      api.detectAndApplyScribbleToErase({ id: 'st_real_scrib', tool: 'pen', size: 4, points: realScribblePts }, scribTestPage),
+      true,
+      'Un vrai griffonnage va-et-vient sur un mot doit effacer le mot ciblé'
+    );
+    assert.equal(
+      scribTestPage.strokes.map((s) => s.id).join(','),
+      'st_neighbor,st_diag_nearby',
+      'Seul st_typo doit être effacé : les mots/traits voisins doivent rester intacts'
+    );
+    assert.equal(scribTestPage.shapes.length, 1, 'Le cadre englobant sh_outer_box ne doit PAS être effacé lorsqu’on griffonne à l’intérieur');
+
     // Outil Formes principal (GoodNotes ShapeTool : forceSnap garanti — tout tracé devient une forme géométrique propre)
     st.tool = 'shape';
     st.shapeType = 'auto';

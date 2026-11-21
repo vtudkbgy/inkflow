@@ -3137,6 +3137,15 @@
       const pp = JSON.parse(savedPencilRaw);
       if (pp && typeof pp.pencilDrawAndHold === 'boolean') state.pencilDrawAndHold = pp.pencilDrawAndHold;
     }
+    const savedPenGesturesRaw = localStorage.getItem('inkflow_pen_gestures_v1');
+    if (savedPenGesturesRaw) {
+      const gp = JSON.parse(savedPenGesturesRaw);
+      if (gp && typeof gp === 'object') {
+        if (typeof gp.scribbleToErase === 'boolean') state.scribbleToErase = gp.scribbleToErase;
+        if (typeof gp.scribbleEraseShapesAndHl === 'boolean') state.scribbleEraseShapesAndHl = gp.scribbleEraseShapesAndHl;
+        if (typeof gp.circleToLasso === 'boolean') state.circleToLasso = gp.circleToLasso;
+      }
+    }
     const savedHlRaw = localStorage.getItem(HIGHLIGHTER_PREFS_STORAGE_KEY);
     if (savedHlRaw) {
       const hp = JSON.parse(savedHlRaw);
@@ -8899,50 +8908,222 @@
     }
   }
 
+  function scribbleSegmentsIntersect(a1, a2, b1, b2) {
+    const d1x = a2.x - a1.x, d1y = a2.y - a1.y;
+    const d2x = b2.x - b1.x, d2y = b2.y - b1.y;
+    const denom = d1x * d2y - d1y * d2x;
+    if (Math.abs(denom) < 1e-6) return false;
+    const dx = b1.x - a1.x, dy = b1.y - a1.y;
+    const t = (dx * d2y - dy * d2x) / denom;
+    const u = (dx * d1y - dy * d1x) / denom;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+  }
+
+  function decimateStrokeForGeometry(pts, minDist) {
+    if (!pts || pts.length === 0) return [];
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const last = out[out.length - 1];
+      if (Math.hypot(pts[i].x - last.x, pts[i].y - last.y) >= minDist || i === pts.length - 1) {
+        out.push(pts[i]);
+      }
+    }
+    return out;
+  }
+
+  function countAxisReversals(projVals, minSwing) {
+    if (!projVals || projVals.length < 3) return 0;
+    let dir = 0; // +1 croissant, -1 décroissant
+    let extreme = projVals[0];
+    let reversals = 0;
+    for (let i = 1; i < projVals.length; i++) {
+      const v = projVals[i];
+      if (dir === 0) {
+        if (v - extreme >= minSwing) {
+          dir = 1;
+          extreme = v;
+        } else if (extreme - v >= minSwing) {
+          dir = -1;
+          extreme = v;
+        }
+      } else if (dir === 1) {
+        if (v > extreme) {
+          extreme = v;
+        } else if (extreme - v >= minSwing) {
+          reversals++;
+          dir = -1;
+          extreme = v;
+        }
+      } else {
+        if (v < extreme) {
+          extreme = v;
+        } else if (v - extreme >= minSwing) {
+          reversals++;
+          dir = 1;
+          extreme = v;
+        }
+      }
+    }
+    return reversals;
+  }
+
+  function measureScribbleOverlapWithStroke(scribPts, scribSize, targetStroke) {
+    const tRaw = targetStroke && targetStroke.points;
+    if (!tRaw || tRaw.length === 0) return { intersections: 0, closeHits: 0, touchedRatio: 0, isHit: false };
+    const tPts = decimateStrokeForGeometry(tRaw, 5);
+    const hitRadius = Math.max(5.5, ((scribSize || 5) + (targetStroke.size || 5)) * 0.65);
+
+    // Cas particulier : point isolé (ex : point sur un i, virgule, point final)
+    if (tPts.length === 1) {
+      const tp = tPts[0];
+      let closeHits = 0;
+      for (let i = 1; i < scribPts.length; i++) {
+        if (pointToSegmentDist(tp, scribPts[i - 1], scribPts[i]) <= hitRadius + 2) {
+          closeHits++;
+        }
+      }
+      return { intersections: closeHits >= 2 ? 1 : 0, closeHits, touchedRatio: closeHits > 0 ? 1 : 0, isHit: closeHits >= 2 };
+    }
+
+    let intersections = 0;
+    let closeHits = 0;
+    const touchedTargetIndices = new Set();
+
+    for (let i = 1; i < scribPts.length; i++) {
+      const a1 = scribPts[i - 1];
+      const a2 = scribPts[i];
+      const aMinX = Math.min(a1.x, a2.x) - hitRadius;
+      const aMaxX = Math.max(a1.x, a2.x) + hitRadius;
+      const aMinY = Math.min(a1.y, a2.y) - hitRadius;
+      const aMaxY = Math.max(a1.y, a2.y) + hitRadius;
+
+      let segClose = false;
+      for (let j = 1; j < tPts.length; j++) {
+        const b1 = tPts[j - 1];
+        const b2 = tPts[j];
+        if (Math.max(b1.x, b2.x) < aMinX || Math.min(b1.x, b2.x) > aMaxX || Math.max(b1.y, b2.y) < aMinY || Math.min(b1.y, b2.y) > aMaxY) {
+          continue;
+        }
+        if (scribbleSegmentsIntersect(a1, a2, b1, b2)) {
+          intersections++;
+          touchedTargetIndices.add(j - 1);
+          touchedTargetIndices.add(j);
+          segClose = true;
+        } else if (
+          pointToSegmentDist(a2, b1, b2) <= hitRadius ||
+          pointToSegmentDist(b2, a1, a2) <= hitRadius
+        ) {
+          touchedTargetIndices.add(j);
+          segClose = true;
+        }
+      }
+      if (segClose) closeHits++;
+    }
+
+    const touchedRatio = touchedTargetIndices.size / Math.max(1, tPts.length);
+    const isShortStroke = tPts.length <= 4;
+    const isHit =
+      intersections >= 2 ||
+      (intersections >= 1 && (closeHits >= 3 || touchedRatio >= 0.28)) ||
+      (isShortStroke && closeHits >= 2 && touchedRatio >= 0.5);
+
+    return { intersections, closeHits, touchedRatio, isHit };
+  }
+
   function detectAndApplyScribbleToErase(stroke, page) {
     if (!state.scribbleToErase || !stroke || stroke.tool !== 'pen' || !page) return false;
     const pts = stroke.points || [];
-    if (pts.length < 10) return false;
+    if (pts.length < 12) return false;
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     let pathLen = 0;
-    const dirSamples = [pts[0]];
+    let sumX = 0, sumY = 0;
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
       if (p.x < minX) minX = p.x;
       if (p.y < minY) minY = p.y;
       if (p.x > maxX) maxX = p.x;
       if (p.y > maxY) maxY = p.y;
+      sumX += p.x;
+      sumY += p.y;
       if (i > 0) {
         pathLen += Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y);
-        const lastSample = dirSamples[dirSamples.length - 1];
-        if (Math.hypot(p.x - lastSample.x, p.y - lastSample.y) >= 8) {
-          dirSamples.push(p);
-        }
       }
     }
     const diag = Math.hypot(maxX - minX, maxY - minY);
-    if (diag < 16 || pathLen < 65 || pathLen / diag < 2.25) return false;
+    // Rejette immédiatement les petites lettres, traits simples et mots cursifs peu repliés
+    if (diag < 24 || pathLen < 105 || pathLen / diag < 2.85) return false;
 
-    let reversals = 0;
+    // 1. Axe principal (PCA 2D) et axe secondaire du geste pour distinguer un vrai va-et-vient d'une écriture cursive gauche→droite
+    const meanX = sumX / pts.length;
+    const meanY = sumY / pts.length;
+    let cxx = 0, cxy = 0, cyy = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const dx = pts[i].x - meanX;
+      const dy = pts[i].y - meanY;
+      cxx += dx * dx;
+      cxy += dx * dy;
+      cyy += dy * dy;
+    }
+    const pcaAngle = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+    const ax = Math.cos(pcaAngle);
+    const ay = Math.sin(pcaAngle);
+    const bx = -ay;
+    const by = ax;
+
+    const projU = new Array(pts.length);
+    const projV = new Array(pts.length);
+    let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const dx = pts[i].x - meanX;
+      const dy = pts[i].y - meanY;
+      const u = dx * ax + dy * ay;
+      const v = dx * bx + dy * by;
+      projU[i] = u;
+      projV[i] = v;
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+    const spanU = maxU - minU;
+    const spanV = maxV - minV;
+
+    // Compte les vrais allers-retours d'amplitude significative sur l'axe principal et l'axe secondaire
+    const principalReversals = countAxisReversals(projU, Math.max(12, spanU * 0.32));
+    const secondaryReversals = countAxisReversals(projV, Math.max(10, spanV * 0.48));
+
+    // 2. Compte les vrais virages en épingle serrés (angle > 125°, dot < -0.57) sur segments significatifs
+    const stepMin = Math.max(6, Math.min(12, diag * 0.08));
+    const dirSamples = decimateStrokeForGeometry(pts, stepMin);
+    let sharpHairpins = 0;
     for (let i = 2; i < dirSamples.length; i++) {
       const ux = dirSamples[i - 1].x - dirSamples[i - 2].x;
       const uy = dirSamples[i - 1].y - dirSamples[i - 2].y;
       const vx = dirSamples[i].x - dirSamples[i - 1].x;
       const vy = dirSamples[i].y - dirSamples[i - 1].y;
       const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
-      if (lu > 4 && lv > 4) {
+      if (lu >= 5 && lv >= 5) {
         const dot = (ux * vx + uy * vy) / (lu * lv);
-        if (dot < -0.25) reversals++;
+        if (dot < -0.57) sharpHairpins++;
       }
     }
-    if (reversals < 3) return false;
 
-    const pad = Math.max(8, (stroke.size || 5) * 1.4);
-    const box = { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+    // Motif A : vrai griffonnage va-et-vient sur le même emplacement (horizontal, vertical ou diagonal)
+    const isBackAndForthScribble = principalReversals >= 3 && sharpHairpins >= 2 && pathLen / diag >= 2.85;
+    // Motif B : rature en dents de scie serrées traversant un mot (exige ensuite des intersections réelles denses)
+    const isDenseZigZagScrub = secondaryReversals >= 4 && sharpHairpins >= 4 && pathLen / diag >= 3.15;
+
+    if (!isBackAndForthScribble && !isDenseZigZagScrub) return false;
+
+    // 3. Test géométrique CHIRURGICAL (intersections réelles avec le tracé, jamais par simple boîte englobante large)
+    const scribGeomPts = decimateStrokeForGeometry(pts, 5);
+    const tightPad = Math.max(5, (stroke.size || 5) * 0.85);
+    const box = { minX: minX - tightPad, minY: minY - tightPad, maxX: maxX + tightPad, maxY: maxY + tightPad };
     const boxesOverlap = (a, b) => a && b && a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY;
 
     let erasedCount = 0;
+    let totalRealCrossings = 0;
     const includeShapesAndHl = Boolean(state.scribbleEraseShapesAndHl);
     const keptStrokes = [];
     for (let i = 0; i < (page.strokes || []).length; i++) {
@@ -8952,8 +9133,14 @@
         continue;
       }
       const sb = getCachedStrokeBounds(s);
-      if (boxesOverlap(box, sb)) {
+      if (!boxesOverlap(box, sb)) {
+        keptStrokes.push(s);
+        continue;
+      }
+      const overlap = measureScribbleOverlapWithStroke(scribGeomPts, stroke.size || 5, s);
+      if (overlap.isHit) {
         erasedCount++;
+        totalRealCrossings += Math.max(1, overlap.intersections);
       } else {
         keptStrokes.push(s);
       }
@@ -8961,17 +9148,30 @@
 
     let keptShapes = page.shapes || [];
     if (includeShapesAndHl && keptShapes.length > 0) {
+      const shapeHitRadius = Math.max(6, (stroke.size || 5) * 1.1);
       keptShapes = keptShapes.filter((sh) => {
         const sb = getShapeBoundingBox(sh);
-        if (boxesOverlap(box, sb)) {
+        if (!boxesOverlap(box, sb)) return true;
+        // Ne supprime une forme que si le griffonnage croise RÉELLEMENT son contour (jamais en griffonnant à l'intérieur d'un cadre)
+        let borderHits = 0;
+        for (let k = 0; k < scribGeomPts.length; k++) {
+          if (isPointNearShape(sh, scribGeomPts[k].x, scribGeomPts[k].y, shapeHitRadius)) {
+            borderHits++;
+            if (borderHits >= 3) break;
+          }
+        }
+        if (borderHits >= 3) {
           erasedCount++;
+          totalRealCrossings += borderHits;
           return false;
         }
         return true;
       });
     }
 
-    if (erasedCount === 0) return false;
+    // Pour le motif B (zig-zag progressif), exige au moins 3 vrais croisements d'encre pour ne jamais confondre avec de l'écriture
+    if (erasedCount === 0 || (!isBackAndForthScribble && totalRealCrossings < 3)) return false;
+
     page.strokes = keptStrokes;
     page.shapes = keptShapes;
     invalidateStaticInkCache();
@@ -12578,7 +12778,7 @@
         <div class="page-thumb-footer">
           <span class="page-thumb-number">${realIdx + 1}. ${escapeHtml(p.title.replace(/^\d+\.\s*/, ''))}${pdfBadge}${rotBadge}</span>
           <div class="page-thumb-actions">
-            <button class="icon-btn-tiny${p.bookmarked ? ' starred' : ''}" data-page-action="bookmark" title="Signet Goodnotes">${p.bookmarked ? '🔖' : '☆'}</button>
+            <button class="icon-btn-tiny${p.bookmarked ? ' starred' : ''}" data-page-action="bookmark" title="Signet">${p.bookmarked ? '🔖' : '☆'}</button>
             <button class="icon-btn-tiny" data-page-action="rotate" title="Pivoter de 90°">↻</button>
             <button class="icon-btn-tiny" data-page-action="rename" title="Renommer">✎</button>
             <button class="icon-btn-tiny" data-page-action="dup" title="Dupliquer">⧉</button>
@@ -14929,12 +15129,21 @@
       });
     }
 
+    const savePenGesturesPrefs = () => {
+      try {
+        localStorage.setItem('inkflow_pen_gestures_v1', JSON.stringify({
+          scribbleToErase: Boolean(state.scribbleToErase),
+          scribbleEraseShapesAndHl: Boolean(state.scribbleEraseShapesAndHl),
+          circleToLasso: Boolean(state.circleToLasso)
+        }));
+      } catch (_) {}
+    };
     const scribSw = document.getElementById('gnScribbleEraseSwitch');
-    if (scribSw) scribSw.addEventListener('change', (e) => { state.scribbleToErase = e.target.checked; });
+    if (scribSw) scribSw.addEventListener('change', (e) => { state.scribbleToErase = e.target.checked; savePenGesturesPrefs(); });
     const scribShSw = document.getElementById('gnScribbleEraseShapesHlSwitch');
-    if (scribShSw) scribShSw.addEventListener('change', (e) => { state.scribbleEraseShapesAndHl = e.target.checked; });
+    if (scribShSw) scribShSw.addEventListener('change', (e) => { state.scribbleEraseShapesAndHl = e.target.checked; savePenGesturesPrefs(); });
     const lassoSw = document.getElementById('gnCircleLassoSwitch');
-    if (lassoSw) lassoSw.addEventListener('change', (e) => { state.circleToLasso = e.target.checked; });
+    if (lassoSw) lassoSw.addEventListener('change', (e) => { state.circleToLasso = e.target.checked; savePenGesturesPrefs(); });
 
     // Événements de la sous-barre flottante Formes GoodNotes (#gnShapeSubBar)
     const shapeBar = document.getElementById('gnShapeSubBar');
@@ -16590,7 +16799,7 @@
     state.editingFolderId = existingFolder ? existingFolder.id : null;
     state.folderModalColor = existingFolder ? (existingFolder.color || '#0072ce') : '#0072ce';
     state.folderModalIcon = existingFolder ? (existingFolder.icon || 'folder') : 'folder';
-    if (titleEl) titleEl.textContent = existingFolder ? 'Personnaliser le dossier' : 'Nouveau dossier GoodNotes';
+    if (titleEl) titleEl.textContent = existingFolder ? 'Personnaliser le dossier' : 'Nouveau dossier';
     nameInput.value = existingFolder ? existingFolder.name : 'Nouveau dossier';
 
     document.querySelectorAll('#folderColorSwatches [data-folder-color]').forEach((sw) => {
@@ -17947,7 +18156,7 @@
   const GN_CUSTOM_TEMPLATES_STORAGE_KEY = 'inkflow_gn_custom_templates_v1';
 
   const GN_PAGE_SIZE_PRESETS = [
-    { id: 'goodnotes_standard', label: 'Goodnotes Standard', width: 834, height: 1079, meta: '834 × 1079' },
+    { id: 'goodnotes_standard', label: 'Standard', width: 834, height: 1079, meta: '834 × 1079' },
     { id: 'a4', label: 'A4', width: 1091, height: 1543, meta: '210 × 297 mm' },
     { id: 'a5', label: 'A5', width: 769, height: 1091, meta: '148 × 210 mm' },
     { id: 'a6', label: 'A6', width: 546, height: 769, meta: '105 × 148 mm' },
@@ -18600,7 +18809,7 @@
       const actBtn = document.createElement('button');
       actBtn.type = 'button';
       actBtn.className = 'gn-tpl-infinite-banner-btn';
-      actBtn.textContent = isAlreadyInf ? 'Revenir au format Goodnotes Standard' : 'Passer en Page infinie';
+      actBtn.textContent = isAlreadyInf ? 'Revenir au format Standard' : 'Passer en Page infinie';
       actBtn.addEventListener('click', () => {
         st.sizeId = isAlreadyInf ? 'goodnotes_standard' : 'infinite';
         renderGnTemplateLibraryModal();
@@ -19036,6 +19245,7 @@
       cloneStrokeFast,
       clonePageContent,
       applyEraserAtPoint,
+      detectAndApplyScribbleToErase,
       getState: () => state,
       db
     };
