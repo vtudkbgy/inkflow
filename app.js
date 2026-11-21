@@ -2948,6 +2948,10 @@
     shapeStartArrow: 'none',
     shapeEndArrow: 'none',
     shapeHoverConnection: null,
+    selectedShapeId: null,
+    shapeEditDrag: null,
+    pendingShapeTapCandidateId: null,
+    pendingShapeTapStartScreen: null,
     instantShapeMode: false,
     autoShapeEnabled: true,
     scribbleToErase: true,
@@ -3435,6 +3439,7 @@
     eraserCursor: document.getElementById('eraserCursor'),
     colorDotCursor: document.getElementById('colorDotCursor'),
     lassoFloatingActions: document.getElementById('lassoFloatingActions'),
+    shapeEditFloatingBar: document.getElementById('shapeEditFloatingBar'),
     btnQuickDupLasso: document.getElementById('btnQuickDupLasso'),
     btnQuickRecogLasso: document.getElementById('btnQuickRecogLasso'),
     btnQuickDelLasso: document.getElementById('btnQuickDelLasso'),
@@ -3690,6 +3695,11 @@
     if (dom.eraserCursor) dom.eraserCursor.style.display = 'none';
     if (dom.colorDotCursor) dom.colorDotCursor.style.display = 'none';
     state.shapeHoverConnection = null;
+    state.selectedShapeId = null;
+    state.shapeEditDrag = null;
+    state.pendingShapeTapCandidateId = null;
+    state.pendingShapeTapStartScreen = null;
+    if (dom.shapeEditFloatingBar) dom.shapeEditFloatingBar.classList.add('hidden');
     if (state.temporaryEraserOverride) {
       state.temporaryEraserOverride = false;
       state.tool = state.previousToolBeforeEraser || 'pen';
@@ -6432,6 +6442,430 @@
     return changed;
   }
 
+  // ============================================================================
+  // ÉDITION INTERACTIVE DE FORME SÉLECTIONNÉE (GoodNotes ShapeTool Editing :
+  // clic pour sélectionner, poignées redimensionnement/sommets/rotation/extrémités,
+  // conversion de type, remplissage, épaisseur, couleur, dupliquer, supprimer)
+  // ============================================================================
+
+  function getSelectedShape(page = getActivePage()) {
+    if (!state.selectedShapeId || !page || !Array.isArray(page.shapes)) return null;
+    const found = page.shapes.find((s) => s && s.id === state.selectedShapeId);
+    if (!found) {
+      state.selectedShapeId = null;
+      if (dom.shapeEditFloatingBar) dom.shapeEditFloatingBar.classList.add('hidden');
+      return null;
+    }
+    return found;
+  }
+
+  function clearSelectedShape(rerender = true) {
+    const had = Boolean(state.selectedShapeId || state.shapeEditDrag);
+    state.selectedShapeId = null;
+    state.shapeEditDrag = null;
+    state.pendingShapeTapCandidateId = null;
+    state.pendingShapeTapStartScreen = null;
+    if (dom.shapeEditFloatingBar) dom.shapeEditFloatingBar.classList.add('hidden');
+    if (had && rerender) renderActiveCanvasOnly();
+  }
+
+  function selectShapeForEditing(shapeId) {
+    const page = getActivePage();
+    if (!page || !Array.isArray(page.shapes)) return null;
+    const sh = page.shapes.find((s) => s && s.id === shapeId);
+    if (!sh) return null;
+    clearLassoSelection();
+    state.selectedShapeId = sh.id;
+    state.shapeEditDrag = null;
+    state.shapeHoverConnection = null;
+    updateShapeEditFloatingBar();
+    renderActiveCanvasOnly();
+    return sh;
+  }
+
+  function isPointOnOrInsideShape(sh, wx, wy, pad = 12) {
+    if (!sh) return false;
+    if (isPointNearShape(sh, wx, wy, pad)) return true;
+    if (sh.type === 'ellipse') {
+      const { cx, cy, hw, hh, angle } = getClosedShapeLocalFrame(sh);
+      const dx = wx - cx, dy = wy - cy;
+      const cosA = Math.cos(-angle), sinA = Math.sin(-angle);
+      const lx = dx * cosA - dy * sinA;
+      const ly = dx * sinA + dy * cosA;
+      return Math.hypot(lx / Math.max(1, hw), ly / Math.max(1, hh)) <= 1.05;
+    }
+    if (sh.type === 'rect' || sh.type === 'roundedRect') {
+      const { cx, cy, hw, hh, angle } = getClosedShapeLocalFrame(sh);
+      const dx = wx - cx, dy = wy - cy;
+      const cosA = Math.cos(-angle), sinA = Math.sin(-angle);
+      const lx = dx * cosA - dy * sinA;
+      const ly = dx * sinA + dy * cosA;
+      return Math.abs(lx) <= hw + pad * 0.4 && Math.abs(ly) <= hh + pad * 0.4;
+    }
+    if (sh.type === 'triangle' || sh.type === 'diamond' || sh.type === 'polygon') {
+      const verts = getClosedShapePolygonVertices(sh);
+      return Boolean(verts && verts.length >= 3 && pointInPolygon(wx, wy, verts));
+    }
+    return false;
+  }
+
+  function findShapeAtPoint(page, wx, wy) {
+    if (!page || !Array.isArray(page.shapes) || page.shapes.length === 0) return null;
+    const pad = Math.max(10, 12 / Math.max(0.4, state.zoom || 1));
+    for (let i = page.shapes.length - 1; i >= 0; i--) {
+      if (isPointOnOrInsideShape(page.shapes[i], wx, wy, pad)) return page.shapes[i];
+    }
+    return null;
+  }
+
+  function getShapeEditHandles(sh) {
+    if (!sh) return [];
+    const z = Math.max(0.35, state.zoom || 1);
+    if (sh.type === 'line' || sh.type === 'arrow' || sh.type === 'elbowArrow' || sh.type === 'curvedArrow') {
+      return [
+        { id: 'p1', kind: 'endpoint', x: sh.x1, y: sh.y1 },
+        { id: 'p2', kind: 'endpoint', x: sh.x2, y: sh.y2 }
+      ];
+    }
+    if (sh.type === 'triangle' || sh.type === 'diamond' || sh.type === 'polygon' || sh.type === 'polyline' || sh.type === 'arc') {
+      const verts = getShapeVertices(sh) || [];
+      return verts.map((v, idx) => ({ id: `v:${idx}`, kind: 'vertex', index: idx, x: v.x, y: v.y }));
+    }
+    // rect, roundedRect, ellipse -> 8 poignées de redimensionnement + poignée de rotation en haut
+    const { cx, cy, hw, hh, angle } = getClosedShapeLocalFrame(sh);
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    const toW = (lx, ly) => ({ x: cx + lx * cosA - ly * sinA, y: cy + lx * sinA + ly * cosA });
+    const handles = [
+      { id: 'nw', kind: 'resize', sx: -1, sy: -1, ...toW(-hw, -hh) },
+      { id: 'n', kind: 'resize', sx: 0, sy: -1, ...toW(0, -hh) },
+      { id: 'ne', kind: 'resize', sx: 1, sy: -1, ...toW(hw, -hh) },
+      { id: 'e', kind: 'resize', sx: 1, sy: 0, ...toW(hw, 0) },
+      { id: 'se', kind: 'resize', sx: 1, sy: 1, ...toW(hw, hh) },
+      { id: 's', kind: 'resize', sx: 0, sy: 1, ...toW(0, hh) },
+      { id: 'sw', kind: 'resize', sx: -1, sy: 1, ...toW(-hw, hh) },
+      { id: 'w', kind: 'resize', sx: -1, sy: 0, ...toW(-hw, 0) }
+    ];
+    if (sh.type === 'rect' || sh.type === 'ellipse') {
+      handles.push({ id: 'rotate', kind: 'rotate', ...toW(0, -(hh + 26 / z)) });
+    }
+    return handles;
+  }
+
+  function hitTestShapeEditHandle(sh, wx, wy) {
+    if (!sh) return null;
+    const hitR = Math.max(11, 14 / Math.max(0.4, state.zoom || 1));
+    const handles = getShapeEditHandles(sh);
+    let best = null, bestD = hitR;
+    for (let i = 0; i < handles.length; i++) {
+      const d = Math.hypot(wx - handles[i].x, wy - handles[i].y);
+      if (d <= bestD) { bestD = d; best = handles[i]; }
+    }
+    return best;
+  }
+
+  function drawShapeEditingOverlay(targetCtx, sh) {
+    if (!sh) return;
+    const z = Math.max(0.35, state.zoom || 1);
+    const handles = getShapeEditHandles(sh);
+    targetCtx.save();
+
+    // Cadre de sélection bleu GoodNotes (#0072ce)
+    targetCtx.strokeStyle = '#0072ce';
+    targetCtx.lineWidth = 1.4 / z;
+    targetCtx.setLineDash([4 / z, 3 / z]);
+    if (sh.type === 'rect' || sh.type === 'roundedRect' || sh.type === 'ellipse') {
+      const { cx, cy, hw, hh, angle } = getClosedShapeLocalFrame(sh);
+      targetCtx.save();
+      targetCtx.translate(cx, cy);
+      if (angle) targetCtx.rotate(angle);
+      targetCtx.strokeRect(-hw, -hh, hw * 2, hh * 2);
+      if (sh.type === 'rect' || sh.type === 'ellipse') {
+        targetCtx.setLineDash([]);
+        targetCtx.beginPath();
+        targetCtx.moveTo(0, -hh);
+        targetCtx.lineTo(0, -(hh + 26 / z));
+        targetCtx.stroke();
+      }
+      targetCtx.restore();
+    } else if (sh.type === 'arc') {
+      const verts = getShapeVertices(sh) || [];
+      if (verts.length >= 4) {
+        targetCtx.beginPath();
+        targetCtx.moveTo(verts[0].x, verts[0].y);
+        targetCtx.lineTo(verts[1].x, verts[1].y);
+        targetCtx.moveTo(verts[3].x, verts[3].y);
+        targetCtx.lineTo(verts[2].x, verts[2].y);
+        targetCtx.stroke();
+      }
+    } else if (sh.type === 'triangle' || sh.type === 'diamond' || sh.type === 'polygon') {
+      const bb = getShapeBoundingBox(sh);
+      targetCtx.strokeRect(bb.minX - 4 / z, bb.minY - 4 / z, (bb.maxX - bb.minX) + 8 / z, (bb.maxY - bb.minY) + 8 / z);
+    }
+
+    // Poignées blanches cerclées bleu GoodNotes
+    targetCtx.setLineDash([]);
+    const r = 5.2 / z;
+    const rotR = 6.0 / z;
+    for (let i = 0; i < handles.length; i++) {
+      const h = handles[i];
+      targetCtx.beginPath();
+      targetCtx.arc(h.x, h.y, h.kind === 'rotate' ? rotR : r, 0, Math.PI * 2);
+      targetCtx.fillStyle = h.kind === 'rotate' ? '#0072ce' : '#ffffff';
+      targetCtx.fill();
+      targetCtx.lineWidth = 1.8 / z;
+      targetCtx.strokeStyle = h.kind === 'rotate' ? '#ffffff' : '#0072ce';
+      targetCtx.stroke();
+    }
+    targetCtx.restore();
+  }
+
+  function updateShapeEditFloatingBar() {
+    const bar = dom.shapeEditFloatingBar;
+    if (!bar) return;
+    const sh = getSelectedShape();
+    if (!sh) {
+      bar.classList.add('hidden');
+      return;
+    }
+    const isClosed = isConnectableTargetShape(sh);
+    const closedGrp = document.getElementById('shapeEditClosedTypes');
+    const openGrp = document.getElementById('shapeEditOpenTypes');
+    const fillBtn = document.getElementById('btnShapeEditFill');
+    const sizeLbl = document.getElementById('shapeEditSizeLabel');
+    const customCol = document.getElementById('shapeEditCustomColor');
+
+    if (closedGrp) closedGrp.classList.toggle('hidden', !isClosed);
+    if (openGrp) openGrp.classList.toggle('hidden', isClosed);
+    if (fillBtn) {
+      fillBtn.style.display = isClosed ? '' : 'none';
+      fillBtn.classList.toggle('active', Boolean(sh.filled));
+    }
+    if (sizeLbl) sizeLbl.textContent = `${Math.round((sh.size || 3) * 10) / 10}px`;
+    if (customCol && sh.color && /^#[0-9a-f]{6}$/i.test(sh.color)) customCol.value = sh.color;
+
+    bar.querySelectorAll('[data-shape-convert]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.shapeConvert === sh.type);
+    });
+    const curCol = String(sh.color || '#111827').toLowerCase();
+    bar.querySelectorAll('[data-shape-color]').forEach((sw) => {
+      sw.classList.toggle('active', String(sw.dataset.shapeColor || '').toLowerCase() === curCol);
+    });
+
+    const bb = getShapeBoundingBox(sh);
+    const vpRect = dom.canvasViewport.getBoundingClientRect();
+    const topMidX = ((bb.minX + bb.maxX) * 0.5) * state.zoom + state.panX;
+    const topY = bb.minY * state.zoom + state.panY;
+    const botY = bb.maxY * state.zoom + state.panY;
+    const clampedX = Math.max(185, Math.min(Math.max(185, vpRect.width - 185), topMidX));
+    let barY = topY - 18;
+    if (barY < 74) {
+      barY = Math.min(vpRect.height - 20, botY + 52);
+    }
+    bar.style.left = `${clampedX}px`;
+    bar.style.top = `${barY}px`;
+    bar.classList.remove('hidden');
+  }
+
+  function convertSelectedShapeType(newType) {
+    const page = getActivePage();
+    const sh = getSelectedShape(page);
+    if (!page || !sh || !newType || sh.type === newType) return false;
+    pushHistorySnapshot(page);
+    const bb = getShapeBoundingBox(sh);
+    const isTargetClosed = newType === 'ellipse' || newType === 'rect' || newType === 'roundedRect' || newType === 'triangle' || newType === 'diamond';
+    if (isTargetClosed) {
+      sh.type = newType;
+      sh.x1 = bb.minX; sh.y1 = bb.minY; sh.x2 = bb.maxX; sh.y2 = bb.maxY;
+      if (newType === 'triangle') {
+        sh.angle = 0;
+        sh.vertices = [
+          { x: (bb.minX + bb.maxX) * 0.5, y: bb.minY },
+          { x: bb.maxX, y: bb.maxY },
+          { x: bb.minX, y: bb.maxY }
+        ];
+      } else if (newType === 'diamond') {
+        sh.angle = 0;
+        const cx = (bb.minX + bb.maxX) * 0.5, cy = (bb.minY + bb.maxY) * 0.5;
+        sh.vertices = [
+          { x: cx, y: bb.minY },
+          { x: bb.maxX, y: cy },
+          { x: cx, y: bb.maxY },
+          { x: bb.minX, y: cy }
+        ];
+      } else {
+        delete sh.vertices;
+        if (newType === 'roundedRect') sh.angle = 0;
+      }
+      updateConnectedShapesForPage(page, new Set([sh.id]));
+    } else {
+      const verts = Array.isArray(sh.vertices) && sh.vertices.length >= 2 ? sh.vertices : null;
+      const sx = verts ? verts[0].x : sh.x1;
+      const sy = verts ? verts[0].y : sh.y1;
+      const ex = verts ? verts[verts.length - 1].x : sh.x2;
+      const ey = verts ? verts[verts.length - 1].y : sh.y2;
+      sh.type = newType;
+      sh.x1 = sx; sh.y1 = sy; sh.x2 = ex; sh.y2 = ey;
+      sh.filled = false;
+      delete sh.vertices;
+      delete sh.angle;
+    }
+    invalidateStaticInkCache();
+    renderScene();
+    renderActiveCanvasOnly();
+    updateShapeEditFloatingBar();
+    scheduleSaveActivePage(page);
+    return true;
+  }
+
+  function applyShapeEditDrag(sh, orig, drag, worldPt, page) {
+    if (!sh || !orig || !drag) return;
+    const dx = worldPt.x - drag.startWorld.x;
+    const dy = worldPt.y - drag.startWorld.y;
+
+    if (drag.mode === 'move') {
+      sh.x1 = orig.x1 + dx; sh.y1 = orig.y1 + dy;
+      sh.x2 = orig.x2 + dx; sh.y2 = orig.y2 + dy;
+      if (Array.isArray(orig.vertices)) {
+        sh.vertices = orig.vertices.map((v) => ({ x: v.x + dx, y: v.y + dy }));
+      }
+      if (isConnectorShape(sh)) {
+        delete sh.startConnection;
+        delete sh.endConnection;
+      }
+      updateConnectedShapesForPage(page, new Set([sh.id]));
+      return;
+    }
+
+    if (drag.mode === 'rotate') {
+      const { cx, cy } = getClosedShapeLocalFrame(orig);
+      let ang = Math.atan2(worldPt.y - cy, worldPt.x - cx) + Math.PI / 2;
+      const step = Math.PI / 4;
+      const nearest = Math.round(ang / step) * step;
+      if (Math.abs(ang - nearest) < (4 * Math.PI) / 180) ang = nearest;
+      sh.angle = ang;
+      updateConnectedShapesForPage(page, new Set([sh.id]));
+      return;
+    }
+
+    if (drag.mode === 'resize') {
+      const { cx, cy, hw, hh, angle } = getClosedShapeLocalFrame(orig);
+      const cosNeg = Math.cos(-angle), sinNeg = Math.sin(-angle);
+      const cosPos = Math.cos(angle), sinPos = Math.sin(angle);
+      const ldx = dx * cosNeg - dy * sinNeg;
+      const ldy = dx * sinNeg + dy * cosNeg;
+      let left = -hw, right = hw, top = -hh, bottom = hh;
+      if (drag.sx < 0) left = Math.min(right - 12, left + ldx);
+      if (drag.sx > 0) right = Math.max(left + 12, right + ldx);
+      if (drag.sy < 0) top = Math.min(bottom - 12, top + ldy);
+      if (drag.sy > 0) bottom = Math.max(top + 12, bottom + ldy);
+      const nCxLocal = (left + right) * 0.5;
+      const nCyLocal = (top + bottom) * 0.5;
+      const nHw = Math.max(6, (right - left) * 0.5);
+      const nHh = Math.max(6, (bottom - top) * 0.5);
+      const nCx = cx + nCxLocal * cosPos - nCyLocal * sinPos;
+      const nCy = cy + nCxLocal * sinPos + nCyLocal * cosPos;
+      sh.x1 = nCx - nHw; sh.y1 = nCy - nHh;
+      sh.x2 = nCx + nHw; sh.y2 = nCy + nHh;
+      updateConnectedShapesForPage(page, new Set([sh.id]));
+      return;
+    }
+
+    if (drag.mode === 'vertex') {
+      const baseVerts = Array.isArray(orig.vertices) ? orig.vertices : (getShapeVertices(orig) || []);
+      if (baseVerts.length === 0) return;
+      const nextVerts = baseVerts.map((v) => ({ x: v.x, y: v.y }));
+      const idx = drag.index;
+      let targetPt = { x: worldPt.x, y: worldPt.y };
+      const isOpenEnd = (sh.type === 'polyline' || sh.type === 'arc') && (idx === 0 || idx === nextVerts.length - 1);
+      if (isOpenEnd && page && page.shapes) {
+        const otherPt = idx === 0 ? nextVerts[1] : nextVerts[nextVerts.length - 2];
+        const snap = findShapeConnectionSnap(targetPt, page.shapes, { fromPt: otherPt, excludeShapeId: sh.id });
+        if (snap) {
+          targetPt = { x: snap.x, y: snap.y };
+          if (idx === 0) sh.startConnection = snap.connection || undefined;
+          else sh.endConnection = snap.connection || undefined;
+          state.shapeHoverConnection = { targetShape: snap.targetShape, snapPoint: targetPt, connection: snap.connection || null };
+        } else {
+          if (idx === 0) delete sh.startConnection;
+          else delete sh.endConnection;
+          updateShapeConnectionHover(targetPt, otherPt, page);
+        }
+      }
+      nextVerts[idx] = targetPt;
+      sh.vertices = nextVerts;
+      const bb = getShapeBoundingBox(sh);
+      sh.x1 = bb.minX; sh.y1 = bb.minY; sh.x2 = bb.maxX; sh.y2 = bb.maxY;
+      updateConnectedShapesForPage(page, new Set([sh.id]));
+      return;
+    }
+
+    if (drag.mode === 'endpoint') {
+      const isStart = drag.handleId === 'p1';
+      const otherPt = isStart ? { x: sh.x2, y: sh.y2 } : { x: sh.x1, y: sh.y1 };
+      const snap = page && page.shapes
+        ? findShapeConnectionSnap(worldPt, page.shapes, { fromPt: otherPt, excludeShapeId: sh.id })
+        : null;
+      let nx = worldPt.x, ny = worldPt.y;
+      if (snap) {
+        nx = snap.x; ny = snap.y;
+        if (isStart) sh.startConnection = snap.connection || undefined;
+        else sh.endConnection = snap.connection || undefined;
+        state.shapeHoverConnection = { targetShape: snap.targetShape, snapPoint: { x: nx, y: ny }, connection: snap.connection || null };
+      } else {
+        if (isStart) delete sh.startConnection;
+        else delete sh.endConnection;
+        if (sh.type === 'line' || sh.type === 'arrow') {
+          const snapped45 = snapLineEndpoint45(otherPt.x, otherPt.y, nx, ny, 4.0);
+          nx = snapped45.x; ny = snapped45.y;
+        }
+        updateShapeConnectionHover({ x: nx, y: ny }, otherPt, page);
+      }
+      if (isStart) { sh.x1 = nx; sh.y1 = ny; }
+      else { sh.x2 = nx; sh.y2 = ny; }
+    }
+  }
+
+  function duplicateSelectedShape() {
+    const page = getActivePage();
+    const sh = getSelectedShape(page);
+    if (!page || !sh) return null;
+    pushHistorySnapshot(page);
+    const off = 24;
+    const copy = {
+      ...sh,
+      id: createUid('sh'),
+      x1: sh.x1 + off, y1: sh.y1 + off, x2: sh.x2 + off, y2: sh.y2 + off,
+      vertices: Array.isArray(sh.vertices) ? sh.vertices.map((v) => ({ x: v.x + off, y: v.y + off })) : undefined
+    };
+    delete copy.startConnection;
+    delete copy.endConnection;
+    page.shapes.push(copy);
+    state.selectedShapeId = copy.id;
+    invalidateStaticInkCache();
+    renderScene();
+    renderActiveCanvasOnly();
+    updateShapeEditFloatingBar();
+    scheduleSaveActivePage(page);
+    showToast('Forme dupliquée');
+    return copy;
+  }
+
+  function deleteSelectedShape() {
+    const page = getActivePage();
+    const sh = getSelectedShape(page);
+    if (!page || !sh) return false;
+    pushHistorySnapshot(page);
+    page.shapes = page.shapes.filter((s) => s.id !== sh.id);
+    updateConnectedShapesForPage(page);
+    clearSelectedShape(false);
+    invalidateStaticInkCache();
+    renderScene();
+    renderActiveCanvasOnly();
+    scheduleSaveActivePage(page);
+    showToast('Forme supprimée');
+    return true;
+  }
+
   function renderActiveCanvasOnly() {
     if (!activeCtx || !dom.activeInkCanvas) {
       renderScene();
@@ -6456,20 +6890,22 @@
     const isDark = page.paperTone === 'dark' || page.paperTone === 'blueprint';
     const effectiveDark = page.pdfId ? false : isDark;
     const hasShapeConnGuide = Boolean(state.tool === 'shape' && state.shapeHoverConnection);
+    const selectedShape = state.selectedShapeId ? getSelectedShape(page) : null;
 
     // Cas 1 : Tracé libre au stylo ou surligneur -> rendu incrémental O(1) uniquement des nouveaux points
-    if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape && !state.currentShape && !hasShapeConnGuide && state.lassoPolygon.length === 0 && !state.currentTape && state.laserTrail.length === 0) {
+    if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape && !state.currentShape && !hasShapeConnGuide && !selectedShape && state.lassoPolygon.length === 0 && !state.currentTape && state.laserTrail.length === 0) {
       renderIncrementalStrokeTail(state.currentStroke, dpr, rect, effectiveDark);
       renderPerfStats.activeRenderCount++;
       renderPerfStats.lastActiveRenderMs = performance.now() - t0;
       return;
     }
 
-    // Cas 2 : Forme géométrique, Guides de connexion GoodNotes, Ruban d'étude, Pointeur Laser ou Lasso
+    // Cas 2 : Forme géométrique, Édition de forme, Guides de connexion GoodNotes, Ruban d'étude, Pointeur Laser ou Lasso
     const hasOverlay = Boolean(
       state.currentStroke ||
       state.currentShape ||
       hasShapeConnGuide ||
+      selectedShape ||
       state.currentTape ||
       state.laserTrail.length > 0 ||
       state.lassoPolygon.length > 1 ||
@@ -6478,6 +6914,7 @@
     if (!hasOverlay) {
       clearActiveCanvas();
       updateLassoFloatingBarPosition();
+      updateShapeEditFloatingBar();
       renderPerfStats.activeRenderCount++;
       renderPerfStats.lastActiveRenderMs = performance.now() - t0;
       return;
@@ -6493,6 +6930,9 @@
 
     if (hasShapeConnGuide) {
       drawShapeConnectionGuides(activeCtx);
+    }
+    if (selectedShape) {
+      drawShapeEditingOverlay(activeCtx, selectedShape);
     }
     if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape) {
       drawSingleStroke(activeCtx, state.currentStroke, effectiveDark, false);
@@ -6511,6 +6951,7 @@
     activeCanvasDirty = true;
 
     updateLassoFloatingBarPosition();
+    updateShapeEditFloatingBar();
     renderPerfStats.activeRenderCount++;
     renderPerfStats.lastActiveRenderMs = performance.now() - t0;
   }
@@ -7436,6 +7877,7 @@
     if (e.target && e.target.closest && (
       e.target.closest('.world-text-card') ||
       e.target.closest('.lasso-floating-actions') ||
+      e.target.closest('.shape-edit-bar') ||
       e.target.closest('.radial-color-wheel')
     )) {
       return;
@@ -7575,6 +8017,61 @@
 
     // Annule le minuteur de sauvegarde différée (500 ms) si un nouveau trait commence pour ne jamais bloquer le Main Thread pendant l'écriture
     cancelPendingPageSave(page.id);
+
+    // Édition interactive de forme sélectionnée (GoodNotes ShapeTool Editing : poignées + déplacement + clic sur forme)
+    state.pendingShapeTapCandidateId = null;
+    state.pendingShapeTapStartScreen = null;
+    if (state.tool === 'shape') {
+      const curSelSh = getSelectedShape(page);
+      if (curSelSh) {
+        const hitHandle = hitTestShapeEditHandle(curSelSh, worldPt.x, worldPt.y);
+        if (hitHandle) {
+          pushHistorySnapshot(page);
+          state.activePointerId = e.pointerId;
+          state.isDrawing = true;
+          state.shapeEditDrag = {
+            mode: hitHandle.kind,
+            handleId: hitHandle.id,
+            sx: hitHandle.sx || 0,
+            sy: hitHandle.sy || 0,
+            index: hitHandle.index,
+            startWorld: { x: worldPt.x, y: worldPt.y },
+            origShape: {
+              ...curSelSh,
+              vertices: Array.isArray(curSelSh.vertices) ? curSelSh.vertices.map((v) => ({ x: v.x, y: v.y })) : undefined
+            }
+          };
+          try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+          renderActiveCanvasOnly();
+          return;
+        }
+        if (isPointOnOrInsideShape(curSelSh, worldPt.x, worldPt.y)) {
+          pushHistorySnapshot(page);
+          state.activePointerId = e.pointerId;
+          state.isDrawing = true;
+          state.shapeEditDrag = {
+            mode: 'move',
+            handleId: 'body',
+            startWorld: { x: worldPt.x, y: worldPt.y },
+            origShape: {
+              ...curSelSh,
+              vertices: Array.isArray(curSelSh.vertices) ? curSelSh.vertices.map((v) => ({ x: v.x, y: v.y })) : undefined
+            }
+          };
+          try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+          renderActiveCanvasOnly();
+          return;
+        }
+        clearSelectedShape(false);
+      }
+      const tapHit = findShapeAtPoint(page, worldPt.x, worldPt.y);
+      if (tapHit) {
+        state.pendingShapeTapCandidateId = tapHit.id;
+        state.pendingShapeTapStartScreen = { x: e.clientX, y: e.clientY };
+      }
+    } else if (state.selectedShapeId) {
+      clearSelectedShape(false);
+    }
 
     state.activePointerId = e.pointerId;
     state.isDrawing = true;
@@ -7812,6 +8309,18 @@
     if (!coalesced || coalesced.length === 0) coalesced = [e];
 
     const activePageForMove = getActivePage();
+    if (state.shapeEditDrag) {
+      const selSh = getSelectedShape(activePageForMove);
+      if (selSh && activePageForMove) {
+        const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
+        applyShapeEditDrag(selSh, state.shapeEditDrag.origShape, state.shapeEditDrag, wPt, activePageForMove);
+        invalidateStaticInkCache();
+        renderScene();
+        renderActiveCanvasOnly();
+        updateShapeEditFloatingBar();
+      }
+      return;
+    }
     if (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) {
       if (!state.currentStroke && !state.drawingPausedOutsidePage) return;
 
@@ -8155,12 +8664,59 @@
     if (!state.isDrawing) return;
     if (state.activePointerId !== null && e.pointerId !== undefined && e.pointerId !== state.activePointerId) return;
 
+    if (state.shapeEditDrag) {
+      const pageForEdit = getActivePage();
+      state.shapeEditDrag = null;
+      state.shapeHoverConnection = null;
+      state.isDrawing = false;
+      state.activePointerId = null;
+      try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (pageForEdit) {
+        invalidateStaticInkCache();
+        scheduleSaveActivePage(pageForEdit);
+      }
+      renderScene();
+      renderActiveCanvasOnly();
+      updateShapeEditFloatingBar();
+      return;
+    }
+
     state.isDrawing = false;
     state.drawingPausedOutsidePage = false;
     state.lastOutsideRawPt = null;
     state.activePointerId = null;
     state.shapeHoverConnection = null;
+    const tapCandidateId = state.pendingShapeTapCandidateId;
+    const tapStartScreen = state.pendingShapeTapStartScreen;
+    state.pendingShapeTapCandidateId = null;
+    state.pendingShapeTapStartScreen = null;
     try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+
+    // Clic / Tap rapide sur une forme existante en outil Formes -> ouvre le mode édition (poignées + barre flottante)
+    if (state.tool === 'shape' && tapCandidateId && tapStartScreen) {
+      const moveScreenDist = Math.hypot((e.clientX ?? tapStartScreen.x) - tapStartScreen.x, (e.clientY ?? tapStartScreen.y) - tapStartScreen.y);
+      let maxStrokeSpan = 0;
+      if (state.currentStroke && state.currentStroke.points && state.currentStroke.points.length > 1) {
+        const p0 = state.currentStroke.points[0];
+        for (const pt of state.currentStroke.points) {
+          const d = Math.hypot(pt.x - p0.x, pt.y - p0.y);
+          if (d > maxStrokeSpan) maxStrokeSpan = d;
+        }
+      }
+      if (moveScreenDist < 9 && maxStrokeSpan < 9) {
+        state.currentStroke = null;
+        state.currentShape = null;
+        state.currentStrokeSnappedFromAutoShape = false;
+        const pgTap = getActivePage();
+        if (pgTap && pgTap.id) {
+          const histTap = getPageHistory(pgTap.id);
+          if (histTap.undoStack.length > 0) histTap.undoStack.pop();
+          updateUndoRedoButtons();
+        }
+        selectShapeForEditing(tapCandidateId);
+        return;
+      }
+    }
 
     let mergedDirectlyIntoStatic = false;
     const page = getActivePage();

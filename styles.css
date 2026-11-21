@@ -2137,6 +2137,137 @@ html, body {
   display: none !important;
 }
 
+/* Barre flottante d'édition de forme sélectionnée (GoodNotes ShapeTool Editing) */
+.shape-edit-bar {
+  position: absolute;
+  z-index: 38;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-panel-solid);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-popover);
+  transform: translate(-50%, -100%);
+  pointer-events: auto;
+  backdrop-filter: blur(18px);
+  animation: subDockPopIn 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+  white-space: nowrap;
+}
+
+.shape-edit-bar.hidden {
+  display: none !important;
+}
+
+.shape-edit-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.shape-edit-group.hidden {
+  display: none !important;
+}
+
+.shape-edit-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border-subtle);
+  margin: 0 2px;
+}
+
+.shape-edit-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+
+.shape-edit-btn:hover {
+  background: var(--surface-hover);
+  transform: scale(1.06);
+}
+
+.shape-edit-btn.active {
+  background: rgba(0, 114, 206, 0.14);
+  border-color: rgba(0, 114, 206, 0.45);
+  color: #0072ce;
+}
+
+.shape-edit-btn.danger:hover {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
+.shape-edit-size-label {
+  min-width: 30px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.shape-edit-swatch {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.18);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  padding: 0;
+}
+
+.shape-edit-swatch:hover {
+  transform: scale(1.16);
+}
+
+.shape-edit-swatch.active {
+  box-shadow: 0 0 0 2px #0072ce;
+  transform: scale(1.14);
+}
+
+.shape-edit-color-picker {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.2);
+}
+
+.shape-edit-color-picker input[type="color"] {
+  position: absolute;
+  inset: -4px;
+  opacity: 0;
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+}
+
+.shape-edit-color-wheel {
+  width: 100%;
+  height: 100%;
+  background: conic-gradient(#ef4444, #f59e0b, #22c55e, #3b82f6, #a855f7, #ef4444);
+  pointer-events: none;
+}
+
 .lasso-fab-btn {
   width: 28px;
   height: 28px;

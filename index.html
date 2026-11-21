@@ -350,18 +350,16 @@
 
         <!-- POPOVER D'OPTIONS D'OUTIL (MASQUÉ PAR DÉFAUT, S'OUVRE UNIQUEMENT AU CLIC) -->
         <div class="sub-dock hidden" id="toolOptionsDock">
-          <div class="swatch-group" id="colorPaletteGroup">
-            <button class="color-swatch active" data-color="#1e293b" style="background:#1e293b" title="Noir encre"></button>
-            <button class="color-swatch" data-color="#1d4ed8" style="background:#1d4ed8" title="Bleu royal"></button>
-            <button class="color-swatch" data-color="#0284c7" style="background:#0284c7" title="Bleu azur"></button>
-            <button class="color-swatch" data-color="#dc2626" style="background:#dc2626" title="Rouge carmin"></button>
-            <button class="color-swatch" data-color="#15803d" style="background:#15803d" title="Vert forêt"></button>
-            <button class="color-swatch" data-color="#d97706" style="background:#d97706" title="Ambre"></button>
-            <button class="color-swatch" data-color="#7c3aed" style="background:#7c3aed" title="Violet"></button>
-            <button class="color-swatch" data-color="#facc15" style="background:#facc15" title="Jaune fluo"></button>
-            <div class="color-picker-wrap" title="Couleur personnalisée">
-              <input type="color" id="customColorPicker" value="#1e293b" />
-            </div>
+          <div class="swatch-group gn-subbar-colors" id="colorPaletteGroup">
+            <div class="gn-color-slots-list" id="dockColorSlotsList"></div>
+            <button class="gn-add-color-btn" id="dockAddColorBtn" type="button" title="Ajouter une couleur sélectionnable" aria-label="Ajouter une couleur">
+              <svg class="gn-add-dashed-svg" width="30" height="30" viewBox="0 0 30 30" fill="none" aria-hidden="true">
+                <circle cx="14" cy="16" r="10.2" stroke="currentColor" stroke-width="2" stroke-dasharray="4.2 3.2" stroke-linecap="round"></circle>
+                <circle class="gn-add-badge-bg" cx="22.5" cy="7.5" r="6.2" fill="currentColor"></circle>
+                <path class="gn-add-badge-plus" d="M22.5 4.7V10.3M19.7 7.5H25.3" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"></path>
+              </svg>
+            </button>
+            <input type="color" id="customColorPicker" value="#1e293b" class="gn-sr-color-input" aria-hidden="true" tabindex="-1" />
           </div>
 
           <div class="dock-divider" id="dividerAfterColor"></div>
@@ -561,19 +559,15 @@
             <button class="gn-thick-btn" data-gn-slot="2" data-gn-size="12" title="Épais — Cliquer pour régler le trait"><span class="gn-thick-line" style="height:4.5px;"></span><span class="gn-thick-pencil-preview" aria-hidden="true"></span></button>
           </div>
 
-          <!-- 3 couleurs rapides + bouton Ajouter couleur -->
+          <!-- Couleurs rapides dynamiques + bouton Ajouter couleur (style GoodNotes 6) -->
           <div class="gn-subbar-colors" id="gnSubBarColors">
-            <button class="gn-color-circle active" data-gn-color-slot="0" data-gn-color="#111827" style="background:#111827" title="Couleur 1">
-              <svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            </button>
-            <button class="gn-color-circle" data-gn-color-slot="1" data-gn-color="#3b82f6" style="background:#3b82f6" title="Couleur 2">
-              <svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            </button>
-            <button class="gn-color-circle" data-gn-color-slot="2" data-gn-color="#dc2626" style="background:#dc2626" title="Couleur 3">
-              <svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            </button>
-            <button class="gn-add-color-btn" id="gnSubAddColorBtn" title="Choisir une couleur personnalisée">
-              <span class="gn-add-plus">+</span>
+            <div class="gn-color-slots-list" id="gnSubBarColorSlots"></div>
+            <button class="gn-add-color-btn" id="gnSubAddColorBtn" type="button" title="Ajouter une couleur sélectionnable" aria-label="Ajouter une couleur">
+              <svg class="gn-add-dashed-svg" width="30" height="30" viewBox="0 0 30 30" fill="none" aria-hidden="true">
+                <circle cx="14" cy="16" r="10.2" stroke="currentColor" stroke-width="2" stroke-dasharray="4.2 3.2" stroke-linecap="round"></circle>
+                <circle class="gn-add-badge-bg" cx="22.5" cy="7.5" r="6.2" fill="currentColor"></circle>
+                <path class="gn-add-badge-plus" d="M22.5 4.7V10.3M19.7 7.5H25.3" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"></path>
+              </svg>
             </button>
           </div>
         </div>
@@ -880,16 +874,23 @@
 
           <div class="gn-subbar-divider"></div>
 
-          <!-- Épaisseur empilée (3 niveaux) + Pastille couleur active -->
+          <!-- Épaisseur empilée (3 niveaux) + Couleurs dynamiques + bouton Ajouter couleur -->
           <div class="gn-shapebar-group">
             <button class="gn-shape-thick-btn" id="gnShapeThicknessBtn" type="button" title="Réglages Du Trait (style, épaisseur, coins, pointes des flèches)">
               <span class="gn-shape-bar gn-shape-bar-1 active"></span>
               <span class="gn-shape-bar gn-shape-bar-2"></span>
               <span class="gn-shape-bar gn-shape-bar-3"></span>
             </button>
-            <button class="gn-color-circle active" id="gnShapeColorBtn" style="background:#111827" title="Couleur de la forme">
-              <svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            </button>
+            <div class="gn-subbar-colors" id="gnShapeSubBarColors">
+              <div class="gn-color-slots-list" id="gnShapeColorSlots"></div>
+              <button class="gn-add-color-btn" id="gnShapeAddColorBtn" type="button" title="Ajouter une couleur de forme" aria-label="Ajouter une couleur de forme">
+                <svg class="gn-add-dashed-svg" width="30" height="30" viewBox="0 0 30 30" fill="none" aria-hidden="true">
+                  <circle cx="14" cy="16" r="10.2" stroke="currentColor" stroke-width="2" stroke-dasharray="4.2 3.2" stroke-linecap="round"></circle>
+                  <circle class="gn-add-badge-bg" cx="22.5" cy="7.5" r="6.2" fill="currentColor"></circle>
+                  <path class="gn-add-badge-plus" d="M22.5 4.7V10.3M19.7 7.5H25.3" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"></path>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1253,9 +1254,73 @@
 
         <!-- Mini barre flottante de sélection lasso (apparaît brièvement quand des éléments sont entourés) -->
         <div class="lasso-floating-actions hidden" id="lassoFloatingActions">
+          <button class="lasso-fab-btn" id="btnQuickColorLasso" title="Changer la couleur (GoodNotes)">
+            <span class="lasso-color-dot" id="lassoQuickColorDot"></span>
+          </button>
           <button class="lasso-fab-btn" id="btnQuickDupLasso" title="Dupliquer">⧉</button>
           <button class="lasso-fab-btn ai" id="btnQuickRecogLasso" title="Convertir en Texte / LaTeX">✨</button>
           <button class="lasso-fab-btn danger" id="btnQuickDelLasso" title="Supprimer">✕</button>
+        </div>
+
+        <!-- Barre flottante d'édition de forme sélectionnée (GoodNotes ShapeTool Editing) -->
+        <div class="shape-edit-bar hidden" id="shapeEditFloatingBar" role="toolbar" aria-label="Édition de la forme sélectionnée">
+          <div class="shape-edit-group" id="shapeEditClosedTypes">
+            <button class="shape-edit-btn" type="button" data-shape-convert="ellipse" title="Convertir en Cercle / Ellipse">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg>
+            </button>
+            <button class="shape-edit-btn" type="button" data-shape-convert="rect" title="Convertir en Rectangle">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="14" rx="1"/></svg>
+            </button>
+            <button class="shape-edit-btn" type="button" data-shape-convert="roundedRect" title="Convertir en Rectangle arrondi">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="14" rx="5"/></svg>
+            </button>
+            <button class="shape-edit-btn" type="button" data-shape-convert="triangle" title="Convertir en Triangle">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 4.5 20 19 4 19"/></svg>
+            </button>
+            <button class="shape-edit-btn" type="button" data-shape-convert="diamond" title="Convertir en Losange">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 3.8 20.2 12 12 20.2 3.8 12"/></svg>
+            </button>
+          </div>
+          <div class="shape-edit-group hidden" id="shapeEditOpenTypes">
+            <button class="shape-edit-btn" type="button" data-shape-convert="line" title="Convertir en Ligne">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+            </button>
+            <button class="shape-edit-btn" type="button" data-shape-convert="arrow" title="Convertir en Flèche">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="11 5 19 5 19 13"/></svg>
+            </button>
+            <button class="shape-edit-btn" type="button" data-shape-convert="elbowArrow" title="Convertir en Connecteur coudé">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6v6h14v6"/><polyline points="16 15 19 18 22 15"/></svg>
+            </button>
+            <button class="shape-edit-btn" type="button" data-shape-convert="curvedArrow" title="Convertir en Connecteur courbe">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6c0 7 5 6 7 3s7-3 7 9"/><polyline points="16 15 19 18 22 15"/></svg>
+            </button>
+          </div>
+          <span class="shape-edit-sep"></span>
+          <div class="shape-edit-group">
+            <button class="shape-edit-btn" id="btnShapeEditFill" type="button" title="Remplissage de la forme">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" fill-opacity="0.28" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="4"/></svg>
+            </button>
+            <button class="shape-edit-btn" id="btnShapeEditThin" type="button" title="Réduire l'épaisseur">−</button>
+            <span class="shape-edit-size-label" id="shapeEditSizeLabel">3px</span>
+            <button class="shape-edit-btn" id="btnShapeEditThick" type="button" title="Augmenter l'épaisseur">+</button>
+          </div>
+          <span class="shape-edit-sep"></span>
+          <div class="shape-edit-group" id="shapeEditColorSwatches">
+            <button class="shape-edit-swatch" type="button" data-shape-color="#111827" style="background:#111827" title="Noir"></button>
+            <button class="shape-edit-swatch" type="button" data-shape-color="#2563eb" style="background:#2563eb" title="Bleu"></button>
+            <button class="shape-edit-swatch" type="button" data-shape-color="#dc2626" style="background:#dc2626" title="Rouge"></button>
+            <button class="shape-edit-swatch" type="button" data-shape-color="#16a34a" style="background:#16a34a" title="Vert"></button>
+            <button class="shape-edit-swatch" type="button" data-shape-color="#d97706" style="background:#d97706" title="Orange"></button>
+            <label class="shape-edit-color-picker" title="Autre couleur">
+              <input type="color" id="shapeEditCustomColor" value="#111827" />
+              <span class="shape-edit-color-wheel"></span>
+            </label>
+          </div>
+          <span class="shape-edit-sep"></span>
+          <div class="shape-edit-group">
+            <button class="shape-edit-btn" id="btnShapeEditDup" type="button" title="Dupliquer la forme">⧉</button>
+            <button class="shape-edit-btn danger" id="btnShapeEditDel" type="button" title="Supprimer la forme">✕</button>
+          </div>
         </div>
 
         <!-- ROUE DE COULEURS RADIALE (Maintenir le bouton du lasso sans bouger) -->
@@ -1650,6 +1715,13 @@
           <button class="color-swatch" data-cover="#6d28d9" style="background:linear-gradient(135deg,#6d28d9,#9333ea)" title="Améthyste"></button>
           <button class="color-swatch" data-cover="#db2777" style="background:linear-gradient(135deg,#db2777,#f43f5e)" title="Corail Rose"></button>
           <button class="color-swatch" data-cover="#334155" style="background:linear-gradient(135deg,#1e293b,#475569)" title="Ardoise Graphite"></button>
+          <button class="gn-add-color-btn gn-add-color-btn-sm" id="btnAddNotebookCoverColor" type="button" title="Ajouter une couleur de couverture" aria-label="Ajouter une couleur de couverture">
+            <svg class="gn-add-dashed-svg" width="26" height="26" viewBox="0 0 30 30" fill="none" aria-hidden="true">
+              <circle cx="14" cy="16" r="10.2" stroke="currentColor" stroke-width="2" stroke-dasharray="4.2 3.2" stroke-linecap="round"></circle>
+              <circle class="gn-add-badge-bg" cx="22.5" cy="7.5" r="6.2" fill="currentColor"></circle>
+              <path class="gn-add-badge-plus" d="M22.5 4.7V10.3M19.7 7.5H25.3" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"></path>
+            </svg>
+          </button>
         </div>
       </div>
       <div class="form-field">
@@ -1850,6 +1922,13 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
           <button class="color-swatch" data-folder-color="#db2777" style="background:#db2777" title="Rose"></button>
           <button class="color-swatch" data-folder-color="#64748b" style="background:#64748b" title="Gris"></button>
           <button class="color-swatch" data-folder-color="#1e293b" style="background:#1e293b" title="Anthracite"></button>
+          <button class="gn-add-color-btn gn-add-color-btn-sm" id="btnAddFolderColor" type="button" title="Ajouter une couleur de dossier" aria-label="Ajouter une couleur de dossier">
+            <svg class="gn-add-dashed-svg" width="26" height="26" viewBox="0 0 30 30" fill="none" aria-hidden="true">
+              <circle cx="14" cy="16" r="10.2" stroke="currentColor" stroke-width="2" stroke-dasharray="4.2 3.2" stroke-linecap="round"></circle>
+              <circle class="gn-add-badge-bg" cx="22.5" cy="7.5" r="6.2" fill="currentColor"></circle>
+              <path class="gn-add-badge-plus" d="M22.5 4.7V10.3M19.7 7.5H25.3" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"></path>
+            </svg>
+          </button>
         </div>
       </div>
       <div class="form-field">
@@ -1870,6 +1949,101 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
         <button class="btn-secondary" id="btnCancelFolderCustomizeModal">Annuler</button>
         <button class="btn-primary" id="btnConfirmFolderCustomizeModal">Enregistrer</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ==================== POPOVER COULEUR UNIFIÉ STYLE GOODNOTES 6 ==================== -->
+  <div class="gn-color-popover hidden" id="gnColorPopover" role="dialog" aria-label="Sélecteur de couleur GoodNotes">
+    <div class="gn-color-popover-caret" id="gnColorPopoverCaret"></div>
+
+    <div class="gn-color-popover-header">
+      <div class="gn-color-popover-header-left">
+        <button class="gn-color-header-icon-btn hidden" id="btnGnColorBack" type="button" title="Retour aux préréglages" aria-label="Retour aux préréglages">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+        <span class="gn-color-popover-title" id="gnColorPopoverTitle">Couleur Du Stylo</span>
+      </div>
+      <div class="gn-color-popover-header-actions">
+        <button class="gn-color-header-icon-btn hidden" id="btnGnColorEyedropper" type="button" title="Pipette de couleur" aria-label="Pipette de couleur">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19.5 4.5a2.83 2.83 0 0 0-4 0L13 7l-1.5-1.5L10 7l1.5 1.5-6.5 6.5a2 2 0 0 0-.55 1.1L4 20l3.9-.45a2 2 0 0 0 1.1-.55l6.5-6.5L17 14l1.5-1.5L17 11l2.5-2.5a2.83 2.83 0 0 0 0-4z"></path>
+          </svg>
+        </button>
+        <button class="gn-color-header-icon-btn hidden" id="btnGnColorMoreSlot" type="button" title="Options de l'emplacement de couleur" aria-label="Options de l'emplacement de couleur">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="5.5" cy="12" r="1.75"></circle>
+            <circle cx="12" cy="12" r="1.75"></circle>
+            <circle cx="18.5" cy="12" r="1.75"></circle>
+          </svg>
+        </button>
+        <div class="gn-color-slot-menu hidden" id="gnColorSlotMenu" role="menu">
+          <button class="gn-color-slot-menu-item danger" id="btnGnColorRemoveSlot" type="button" role="menuitem">
+            Supprimer l'emplacement de couleur
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- VUE 1 : GRILLE DE PRÉRÉGLAGES GOODNOTES (5 COLONNES + ROUE ARC-EN-CIEL) -->
+    <div class="gn-color-presets-view" id="gnColorPresetsView">
+      <div class="gn-color-presets-grid" id="gnColorPresetsGrid" role="grid"></div>
+    </div>
+
+    <!-- VUE 2 : ÉDITEUR DE COULEUR PERSONNALISÉE (SATURATION/LUMINOSITÉ + TEINTE + HEX) -->
+    <div class="gn-color-custom-view hidden" id="gnColorCustomView">
+      <div class="gn-color-sat-box" id="gnColorSatBox">
+        <div class="gn-color-sat-white"></div>
+        <div class="gn-color-sat-black"></div>
+        <div class="gn-color-sat-thumb" id="gnColorSatThumb"></div>
+      </div>
+
+      <div class="gn-color-hue-wrap" id="gnColorHueWrap">
+        <div class="gn-color-hue-bar" id="gnColorHueBar"></div>
+        <div class="gn-color-hue-thumb" id="gnColorHueThumb"></div>
+      </div>
+
+      <div class="gn-color-hex-row">
+        <div class="gn-color-hex-group">
+          <span class="gn-color-custom-preview" id="gnColorCustomPreview"></span>
+          <input type="text" class="gn-color-hex-input" id="gnColorHexInput" maxlength="7" autocomplete="off" spellcheck="false" value="#007AFF" aria-label="Code couleur hexadécimal" />
+        </div>
+
+        <!-- Mode Ajout d'un préréglage (cercle couleur + badge + bleu, style GoodNotes) -->
+        <button class="gn-color-commit-add-btn" id="btnGnColorCommitAdd" type="button" title="Ajouter cette couleur" aria-label="Ajouter cette couleur">
+          <span class="gn-color-commit-circle" id="gnColorCommitCircle"></span>
+          <span class="gn-color-commit-plus" aria-hidden="true">+</span>
+        </button>
+
+        <!-- Mode Édition d'un préréglage existant (Valider bleu + Supprimer rouge, style GoodNotes) -->
+        <div class="gn-color-edit-actions hidden" id="gnColorEditActions">
+          <button class="gn-color-edit-ok-btn" id="btnGnColorCommitEdit" type="button" title="Enregistrer la couleur" aria-label="Enregistrer la couleur">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+          <button class="gn-color-edit-del-btn" id="btnGnColorDeletePreset" type="button" title="Supprimer ce préréglage" aria-label="Supprimer ce préréglage">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+              <path d="M10 11v6M14 11v6"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- OPTION SPÉCIFIQUE FORMES (STYLE GOODNOTES ConnectedShapesColorSelector) -->
+    <div class="gn-color-shape-fill-section hidden" id="gnColorShapeFillSection">
+      <div class="gn-color-popover-divider"></div>
+      <label class="gn-color-shape-fill-row">
+        <span>Remplir la couleur</span>
+        <span class="gn-ios-switch">
+          <input type="checkbox" id="gnColorShapeFillSwitch" />
+          <span class="gn-ios-slider"></span>
+        </span>
+      </label>
     </div>
   </div>
 
