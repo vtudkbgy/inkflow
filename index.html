@@ -170,8 +170,17 @@
       <!-- BARRE D'OUTILS GOODNOTES 6 EN HAUT (PLEINE LARGEUR, 1 SEULE LIGNE, ICÔNES ÉPURÉES) -->
       <header class="floating-header gn-header">
         <div class="unified-top-bar gn-toolbar" role="toolbar" aria-label="Barre d'outils principale">
-          <!-- ZONE GAUCHE : Bibliothèque Cahiers + Annuler / Rétablir (disposition GoodNotes) -->
-          <div class="gn-bar-group gn-bar-left">
+          <!-- ZONE GAUCHE : Mes fichiers + Bibliothèque Cahiers + Annuler / Rétablir -->
+          <div class="gn-bar-group gn-bar-left" id="gnBarLeft">
+            <button class="tool-btn gn-icon-only gn-files-trigger-btn" id="btnOpenFilesView" title="Mes fichiers — Bibliothèque (Ctrl+Shift+L)" aria-label="Ouvrir la page des fichiers">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4.2l2 2.4h6.8A2.5 2.5 0 0 1 21 9.9v7.6a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-10z" fill="currentColor" fill-opacity="0.16"></path>
+                <line x1="7.5" y1="13" x2="16.5" y2="13" stroke-opacity="0.72"></line>
+                <line x1="7.5" y1="16" x2="13" y2="16" stroke-opacity="0.72"></line>
+              </svg>
+              <span class="gn-sr-label">Fichiers</span>
+            </button>
+
             <button class="tool-btn gn-sidebar-btn" id="btnToggleSidebar" title="Bibliothèque — Cahiers, dossiers & pages (Ctrl+B)">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="3" width="7.5" height="7.5" rx="2" fill="currentColor" fill-opacity="0.18"></rect>
@@ -198,8 +207,8 @@
             </button>
           </div>
 
-          <!-- ZONE CENTRALE : Palette d'outils GoodNotes (icônes pures, re-cliquer pour les options) -->
-          <div class="gn-bar-group gn-bar-center">
+          <!-- ZONE CENTRALE : Palette d'outils personnalisable -->
+          <div class="gn-bar-group gn-bar-center" id="gnBarCenter">
             <button class="tool-btn gn-tool-icon active" data-tool="pen" id="toolPen" title="Stylo, Surligneur & Ruban (P) — Re-cliquer pour la barre d'outils">
               <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 2.5L7.2 12.2a1.8 1.8 0 0 0 .35 2.05L9.5 16.2h5l1.95-1.95a1.8 1.8 0 0 0 .35-2.05L12 2.5z" fill="currentColor" fill-opacity="0.14"></path>
@@ -297,8 +306,8 @@
             </button>
           </div>
 
-          <!-- ZONE DROITE : Recherche, IA, Papier, Export, Fichiers, Thème -->
-          <div class="gn-bar-group gn-bar-right">
+          <!-- ZONE DROITE : Recherche, IA, Papier, Export, Thème, Plein écran & Personnalisation -->
+          <div class="gn-bar-group gn-bar-right" id="gnBarRight">
             <button class="tool-btn gn-icon-only" id="btnPdfSearch" title="Rechercher du texte dans le PDF / cahier (Ctrl+F)" aria-label="Rechercher du texte">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="11" cy="11" r="7.2"></circle>
@@ -334,15 +343,6 @@
               <span class="gn-sr-label">Export</span>
             </button>
 
-            <button class="tool-btn gn-icon-only gn-files-trigger-btn" id="btnOpenFilesView" title="Mes fichiers — Bibliothèque (Ctrl+Shift+L)" aria-label="Ouvrir la page des fichiers">
-              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4.2l2 2.4h6.8A2.5 2.5 0 0 1 21 9.9v7.6a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-10z" fill="currentColor" fill-opacity="0.16"></path>
-                <line x1="7.5" y1="13" x2="16.5" y2="13" stroke-opacity="0.72"></line>
-                <line x1="7.5" y1="16" x2="13" y2="16" stroke-opacity="0.72"></line>
-              </svg>
-              <span class="gn-sr-label">Fichiers</span>
-            </button>
-
             <button class="tool-btn gn-icon-only" id="btnThemeToggle" title="Basculer le thème Clair / Sombre">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M20.4 13.4A8.4 8.4 0 1 1 10.6 3.6a6.6 6.6 0 0 0 9.8 9.8z" fill="currentColor" fill-opacity="0.16"></path>
@@ -364,6 +364,18 @@
                 <line x1="3" y1="21" x2="10" y2="14"></line>
               </svg>
               <span class="gn-sr-label">Plein écran</span>
+            </button>
+
+            <button class="tool-btn gn-icon-only" id="btnCustomizeToolbar" type="button" title="Personnaliser la barre d'outils" aria-label="Personnaliser la barre d'outils">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="4" y1="7" x2="20" y2="7"></line>
+                <circle cx="9" cy="7" r="2.2" fill="currentColor"></circle>
+                <line x1="4" y1="12" x2="20" y2="12"></line>
+                <circle cx="15.5" cy="12" r="2.2" fill="currentColor"></circle>
+                <line x1="4" y1="17" x2="20" y2="17"></line>
+                <circle cx="10.5" cy="17" r="2.2" fill="currentColor"></circle>
+              </svg>
+              <span class="gn-sr-label">Personnaliser</span>
             </button>
           </div>
         </div>
@@ -2573,6 +2585,47 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
         <button class="btn-ghost" id="btnCropCancel" type="button">Annuler</button>
         <button class="btn-primary" id="btnCropApply" type="button">Appliquer le recadrage</button>
       </div>
+    </div>
+  </div>
+
+  <!-- POPOVER PERSONNALISATION DE LA BARRE D'OUTILS -->
+  <div class="toolbar-customize-popover hidden" id="toolbarCustomizePopover" role="dialog" aria-label="Personnaliser la barre d'outils">
+    <div class="tb-cust-head">
+      <div class="tb-cust-title">Personnaliser la barre d'outils</div>
+      <button class="tb-cust-close" id="btnCloseToolbarCustomize" type="button" title="Fermer" aria-label="Fermer">✕</button>
+    </div>
+
+    <div class="tb-cust-block">
+      <div class="tb-cust-row">
+        <span class="tb-cust-row-label">Position de la barre</span>
+        <div class="tb-cust-seg" role="radiogroup" aria-label="Position de la barre d'outils">
+          <button class="tb-cust-seg-btn active" id="btnToolbarPosTop" type="button" data-tb-pos="top">Haut</button>
+          <button class="tb-cust-seg-btn" id="btnToolbarPosBottom" type="button" data-tb-pos="bottom">Bas</button>
+        </div>
+      </div>
+      <label class="tb-cust-row tb-cust-toggle-row">
+        <span class="tb-cust-row-label">Barre d'onglets des cahiers</span>
+        <span class="gn-ios-switch">
+          <input type="checkbox" id="chkToolbarShowDocTabs" checked />
+          <span class="gn-ios-slider"></span>
+        </span>
+      </label>
+    </div>
+
+    <div class="tb-cust-hint">Glissez la poignée ≡ ou utilisez ▲ ▼ pour réorganiser vos outils.</div>
+
+    <div class="tb-cust-section">
+      <div class="tb-cust-section-label">Outils principaux</div>
+      <div class="tb-cust-list" id="toolbarCustomizeCenterList"></div>
+    </div>
+
+    <div class="tb-cust-section">
+      <div class="tb-cust-section-label">Actions rapides</div>
+      <div class="tb-cust-list" id="toolbarCustomizeRightList"></div>
+    </div>
+
+    <div class="tb-cust-footer">
+      <button class="tb-cust-reset-btn" id="btnResetToolbarConfig" type="button">Réinitialiser par défaut</button>
     </div>
   </div>
 

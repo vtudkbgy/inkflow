@@ -607,7 +607,36 @@ async function runVerification() {
     throw new Error('Les contrôles de recadrage d\'images (#3) sont introuvables');
   }
 
-  console.log(`✓ [4/4] Import PDF (PDF.js) + Export annoté + Plein écran + Pile A4 + Couleurs + Lasso + Ruban + Pack #1/#3/#4/#6/#9 vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+  // Vérification positionnement du bouton Fichiers à gauche + Personnalisation de la barre d'outils
+  const rawHtml = fs.readFileSync(path.resolve(__dirname, '..', 'index.html'), 'utf8');
+  const leftBarMatch = rawHtml.match(/id="gnBarLeft"[\s\S]*?<div class="gn-bar-group gn-bar-center"/);
+  if (!leftBarMatch || !leftBarMatch[0].includes('id="btnOpenFilesView"')) {
+    throw new Error('Le bouton Mes fichiers (#btnOpenFilesView) doit être placé dans la zone gauche (#gnBarLeft)');
+  }
+  api.setToolbarItemVisibility('toolLaser', false);
+  const laserBtn = sandbox.document.getElementById('toolLaser');
+  if (!api.getToolbarCustomizationConfig().hiddenIds.includes('toolLaser') || (laserBtn && !laserBtn.classList.contains('toolbar-item-hidden'))) {
+    throw new Error('Le masquage d\'un outil via la personnalisation de la barre d\'outils a échoué');
+  }
+  api.reorderToolbarItems('center', ['toolEraser', 'toolPen']);
+  const reordered = api.getToolbarCustomizationConfig().centerOrder;
+  if (reordered[0] !== 'toolEraser' || reordered[1] !== 'toolPen') {
+    throw new Error('La réorganisation des outils de la barre d\'outils a échoué');
+  }
+  api.setToolbarPosition('bottom');
+  if (api.getToolbarCustomizationConfig().position !== 'bottom' || !sandbox.document.documentElement.classList.contains('toolbar-pos-bottom')) {
+    throw new Error('Le passage de la barre d\'outils en bas a échoué');
+  }
+  api.setDocTabsVisibility(false);
+  if (api.getToolbarCustomizationConfig().showDocTabs !== false) {
+    throw new Error('Le masquage de la barre d\'onglets via la personnalisation a échoué');
+  }
+  const resetCfg = api.resetToolbarCustomization();
+  if (resetCfg.position !== 'top' || resetCfg.showDocTabs !== true || resetCfg.hiddenIds.length !== 0 || resetCfg.centerOrder[0] !== 'toolPen') {
+    throw new Error('La réinitialisation de la barre d\'outils par défaut a échoué');
+  }
+
+  console.log(`✓ [4/4] Import PDF + Export annoté + Plein écran + Pile A4 + Couleurs + Lasso + Ruban + Pack #1/#3/#4/#6/#9 + Personnalisation barre d'outils vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {

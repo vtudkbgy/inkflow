@@ -17749,6 +17749,11 @@
           if (elBtn) elBtn.classList.remove('active');
           return;
         }
+        const tbCustPop = document.getElementById('toolbarCustomizePopover');
+        if (tbCustPop && !tbCustPop.classList.contains('hidden')) {
+          closeToolbarCustomizePopover();
+          return;
+        }
         const cropMod = document.getElementById('modalImageCrop');
         if (cropMod && !cropMod.classList.contains('hidden')) {
           closeImageCropModal();
@@ -22210,7 +22215,448 @@
           }
         });
       }
+
+      // Personnalisation de la barre d'outils
+      initToolbarCustomization();
     }
+  }
+
+  // ============================================================================
+  // PERSONNALISATION DE LA BARRE D'OUTILS (ORDRE, VISIBILITÉ, POSITION HAUT/BAS)
+  // ============================================================================
+  const TOOLBAR_CONFIG_STORAGE_KEY = 'inkflow_toolbar_config_v1';
+
+  const TOOLBAR_CENTER_ITEMS_META = [
+    { id: 'toolPen', label: 'Stylo / Surligneur / Ruban' },
+    { id: 'toolEraser', label: 'Gomme' },
+    { id: 'toolLasso', label: 'Lasso' },
+    { id: 'toolShape', label: 'Formes' },
+    { id: 'toolText', label: 'Zone de texte' },
+    { id: 'btnInsertImage', label: 'Image' },
+    { id: 'btnElementsLibrary', label: 'Éléments' },
+    { id: 'btnToggleRuler', label: 'Règle graduée' },
+    { id: 'toolLaser', label: 'Pointeur laser' },
+    { id: 'toolPan', label: 'Main / Déplacer' }
+  ];
+
+  const TOOLBAR_RIGHT_ITEMS_META = [
+    { id: 'btnPdfSearch', label: 'Recherche (Ctrl+F)' },
+    { id: 'btnOpenRecognition', label: 'Reconnaissance IA / LaTeX' },
+    { id: 'btnPaperSettings', label: 'Modèles & fonds de page' },
+    { id: 'btnExportMenu', label: 'Exporter' },
+    { id: 'btnThemeToggle', label: 'Thème Clair / Sombre' },
+    { id: 'btnFullscreenToggle', label: 'Plein écran' }
+  ];
+
+  function createDefaultToolbarConfig() {
+    return {
+      position: 'top',
+      showDocTabs: true,
+      centerOrder: TOOLBAR_CENTER_ITEMS_META.map((x) => x.id),
+      rightOrder: TOOLBAR_RIGHT_ITEMS_META.map((x) => x.id),
+      hiddenIds: []
+    };
+  }
+
+  let toolbarCustomConfig = createDefaultToolbarConfig();
+
+  function normalizeOrderList(savedOrder, defaults) {
+    const valid = new Set(defaults);
+    const result = [];
+    if (Array.isArray(savedOrder)) {
+      savedOrder.forEach((id) => {
+        if (valid.has(id) && !result.includes(id)) result.push(id);
+      });
+    }
+    defaults.forEach((id) => {
+      if (!result.includes(id)) result.push(id);
+    });
+    return result;
+  }
+
+  function loadToolbarCustomizationConfig() {
+    const def = createDefaultToolbarConfig();
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem(TOOLBAR_CONFIG_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            const allValid = new Set([...def.centerOrder, ...def.rightOrder]);
+            toolbarCustomConfig = {
+              position: parsed.position === 'bottom' ? 'bottom' : 'top',
+              showDocTabs: parsed.showDocTabs !== false,
+              centerOrder: normalizeOrderList(parsed.centerOrder, def.centerOrder),
+              rightOrder: normalizeOrderList(parsed.rightOrder, def.rightOrder),
+              hiddenIds: Array.isArray(parsed.hiddenIds)
+                ? parsed.hiddenIds.filter((id, i, arr) => allValid.has(id) && arr.indexOf(id) === i)
+                : []
+            };
+            // Toujours garantir au moins un outil principal visible
+            const visibleCenterCount = toolbarCustomConfig.centerOrder.filter((id) => !toolbarCustomConfig.hiddenIds.includes(id)).length;
+            if (visibleCenterCount === 0) {
+              toolbarCustomConfig.hiddenIds = toolbarCustomConfig.hiddenIds.filter((id) => id !== 'toolPen');
+            }
+            return toolbarCustomConfig;
+          }
+        }
+      }
+    } catch (_) {}
+    toolbarCustomConfig = def;
+    return toolbarCustomConfig;
+  }
+
+  function saveToolbarCustomizationConfig() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(TOOLBAR_CONFIG_STORAGE_KEY, JSON.stringify(toolbarCustomConfig));
+      }
+    } catch (_) {}
+  }
+
+  function getToolbarCustomizationConfig() {
+    return {
+      position: toolbarCustomConfig.position,
+      showDocTabs: toolbarCustomConfig.showDocTabs,
+      centerOrder: [...toolbarCustomConfig.centerOrder],
+      rightOrder: [...toolbarCustomConfig.rightOrder],
+      hiddenIds: [...toolbarCustomConfig.hiddenIds]
+    };
+  }
+
+  function applyToolbarCustomization() {
+    if (typeof document === 'undefined') return;
+    const cfg = toolbarCustomConfig;
+    const hiddenSet = new Set(cfg.hiddenIds || []);
+
+    if (document.documentElement && document.documentElement.classList) {
+      document.documentElement.classList.toggle('toolbar-pos-bottom', cfg.position === 'bottom');
+    }
+
+    const tabsBar = document.getElementById('docTabsBar');
+    if (tabsBar && tabsBar.classList) {
+      tabsBar.classList.toggle('user-hidden', cfg.showDocTabs === false);
+    }
+
+    const centerEl = document.getElementById('gnBarCenter');
+    if (centerEl) {
+      cfg.centerOrder.forEach((id) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.classList.toggle('toolbar-item-hidden', hiddenSet.has(id));
+        if (btn.parentNode === centerEl && typeof centerEl.appendChild === 'function') {
+          centerEl.appendChild(btn);
+        }
+      });
+    }
+
+    const rightEl = document.getElementById('gnBarRight');
+    const customizeBtn = document.getElementById('btnCustomizeToolbar');
+    if (rightEl) {
+      cfg.rightOrder.forEach((id) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.classList.toggle('toolbar-item-hidden', hiddenSet.has(id));
+        if (btn.parentNode === rightEl && typeof rightEl.appendChild === 'function') {
+          rightEl.appendChild(btn);
+        }
+      });
+      if (customizeBtn && customizeBtn.parentNode === rightEl && typeof rightEl.appendChild === 'function') {
+        rightEl.appendChild(customizeBtn);
+      }
+    }
+
+    const posTopBtn = document.getElementById('btnToolbarPosTop');
+    const posBotBtn = document.getElementById('btnToolbarPosBottom');
+    if (posTopBtn) posTopBtn.classList.toggle('active', cfg.position !== 'bottom');
+    if (posBotBtn) posBotBtn.classList.toggle('active', cfg.position === 'bottom');
+
+    const chkTabs = document.getElementById('chkToolbarShowDocTabs');
+    if (chkTabs) chkTabs.checked = cfg.showDocTabs !== false;
+  }
+
+  function setToolbarItemVisibility(itemId, visible) {
+    const centerIds = TOOLBAR_CENTER_ITEMS_META.map((x) => x.id);
+    const rightIds = TOOLBAR_RIGHT_ITEMS_META.map((x) => x.id);
+    if (!centerIds.includes(itemId) && !rightIds.includes(itemId)) return false;
+
+    const nextHidden = new Set(toolbarCustomConfig.hiddenIds || []);
+    if (visible) {
+      nextHidden.delete(itemId);
+    } else {
+      if (centerIds.includes(itemId)) {
+        const remainingCenter = centerIds.filter((id) => id !== itemId && !nextHidden.has(id));
+        if (remainingCenter.length === 0) {
+          showToast('Au moins un outil principal doit rester visible.', 'error');
+          return false;
+        }
+      }
+      nextHidden.add(itemId);
+    }
+    toolbarCustomConfig.hiddenIds = Array.from(nextHidden);
+    saveToolbarCustomizationConfig();
+    applyToolbarCustomization();
+    renderToolbarCustomizePopover();
+    return true;
+  }
+
+  function reorderToolbarItems(section, newOrder) {
+    if (section === 'center') {
+      toolbarCustomConfig.centerOrder = normalizeOrderList(newOrder, TOOLBAR_CENTER_ITEMS_META.map((x) => x.id));
+    } else if (section === 'right') {
+      toolbarCustomConfig.rightOrder = normalizeOrderList(newOrder, TOOLBAR_RIGHT_ITEMS_META.map((x) => x.id));
+    } else {
+      return false;
+    }
+    saveToolbarCustomizationConfig();
+    applyToolbarCustomization();
+    renderToolbarCustomizePopover();
+    return true;
+  }
+
+  function moveToolbarItemByDelta(section, itemId, delta) {
+    const list = section === 'center' ? [...toolbarCustomConfig.centerOrder] : [...toolbarCustomConfig.rightOrder];
+    const idx = list.indexOf(itemId);
+    const targetIdx = idx + delta;
+    if (idx < 0 || targetIdx < 0 || targetIdx >= list.length) return false;
+    const [moved] = list.splice(idx, 1);
+    list.splice(targetIdx, 0, moved);
+    return reorderToolbarItems(section, list);
+  }
+
+  function setToolbarPosition(pos) {
+    toolbarCustomConfig.position = pos === 'bottom' ? 'bottom' : 'top';
+    saveToolbarCustomizationConfig();
+    applyToolbarCustomization();
+    return toolbarCustomConfig.position;
+  }
+
+  function setDocTabsVisibility(show) {
+    toolbarCustomConfig.showDocTabs = Boolean(show);
+    saveToolbarCustomizationConfig();
+    applyToolbarCustomization();
+    return toolbarCustomConfig.showDocTabs;
+  }
+
+  function resetToolbarCustomization() {
+    toolbarCustomConfig = createDefaultToolbarConfig();
+    saveToolbarCustomizationConfig();
+    applyToolbarCustomization();
+    renderToolbarCustomizePopover();
+    showToast('Barre d’outils réinitialisée par défaut');
+    return getToolbarCustomizationConfig();
+  }
+
+  function openToolbarCustomizePopover() {
+    if (typeof document === 'undefined') return;
+    const pop = document.getElementById('toolbarCustomizePopover');
+    const btn = document.getElementById('btnCustomizeToolbar');
+    if (!pop) return;
+    renderToolbarCustomizePopover();
+    pop.classList.remove('hidden');
+    if (btn) btn.classList.add('active');
+  }
+
+  function closeToolbarCustomizePopover() {
+    if (typeof document === 'undefined') return;
+    const pop = document.getElementById('toolbarCustomizePopover');
+    const btn = document.getElementById('btnCustomizeToolbar');
+    if (pop) pop.classList.add('hidden');
+    if (btn) btn.classList.remove('active');
+  }
+
+  function renderToolbarCustomizeSection(containerId, section, orderIds, metaList) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const metaMap = new Map(metaList.map((m) => [m.id, m]));
+    const hiddenSet = new Set(toolbarCustomConfig.hiddenIds || []);
+    container.innerHTML = '';
+
+    orderIds.forEach((id, idx) => {
+      const meta = metaMap.get(id);
+      if (!meta) return;
+      const isVisible = !hiddenSet.has(id);
+
+      const row = document.createElement('div');
+      row.className = `tb-cust-item${isVisible ? '' : ' is-hidden-item'}`;
+      row.dataset.itemId = id;
+      row.dataset.section = section;
+
+      const handle = document.createElement('span');
+      handle.className = 'tb-cust-handle';
+      handle.title = 'Glisser pour réorganiser';
+      handle.textContent = '≡';
+      row.appendChild(handle);
+
+      const iconWrap = document.createElement('span');
+      iconWrap.className = 'tb-cust-item-icon';
+      const origBtn = document.getElementById(id);
+      const origSvg = origBtn ? origBtn.querySelector('svg') : null;
+      if (origSvg && typeof origSvg.cloneNode === 'function') {
+        iconWrap.appendChild(origSvg.cloneNode(true));
+      }
+      row.appendChild(iconWrap);
+
+      const label = document.createElement('span');
+      label.className = 'tb-cust-item-name';
+      label.textContent = meta.label;
+      row.appendChild(label);
+
+      const orderBtns = document.createElement('div');
+      orderBtns.className = 'tb-cust-order-btns';
+
+      const upBtn = document.createElement('button');
+      upBtn.type = 'button';
+      upBtn.className = 'tb-cust-move-btn';
+      upBtn.title = 'Monter';
+      upBtn.textContent = '▲';
+      upBtn.disabled = idx === 0;
+      upBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        moveToolbarItemByDelta(section, id, -1);
+      });
+
+      const downBtn = document.createElement('button');
+      downBtn.type = 'button';
+      downBtn.className = 'tb-cust-move-btn';
+      downBtn.title = 'Descendre';
+      downBtn.textContent = '▼';
+      downBtn.disabled = idx === orderIds.length - 1;
+      downBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        moveToolbarItemByDelta(section, id, 1);
+      });
+
+      orderBtns.appendChild(upBtn);
+      orderBtns.appendChild(downBtn);
+      row.appendChild(orderBtns);
+
+      const swWrap = document.createElement('label');
+      swWrap.className = 'gn-ios-switch';
+      swWrap.title = isVisible ? 'Masquer de la barre d’outils' : 'Afficher dans la barre d’outils';
+      const chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.checked = isVisible;
+      chk.addEventListener('change', () => {
+        const ok = setToolbarItemVisibility(id, chk.checked);
+        if (!ok) chk.checked = true;
+      });
+      const slider = document.createElement('span');
+      slider.className = 'gn-ios-slider';
+      swWrap.appendChild(chk);
+      swWrap.appendChild(slider);
+      row.appendChild(swWrap);
+
+      // Glisser-déposer fluide par PointerEvents (souris, tactile & stylet)
+      handle.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        row.classList.add('is-dragging');
+        const pid = ev.pointerId;
+        let currentTargetId = null;
+        try { if (typeof pid === 'number') handle.setPointerCapture(pid); } catch (_) {}
+
+        const onMove = (mev) => {
+          const rows = Array.from(container.querySelectorAll('.tb-cust-item'));
+          let hovered = null;
+          for (const r of rows) {
+            r.classList.remove('is-drag-target');
+            if (r === row) continue;
+            const rect = r.getBoundingClientRect();
+            if (mev.clientY >= rect.top && mev.clientY <= rect.bottom) {
+              hovered = r;
+            }
+          }
+          if (hovered) {
+            hovered.classList.add('is-drag-target');
+            currentTargetId = hovered.dataset.itemId;
+          } else {
+            currentTargetId = null;
+          }
+        };
+
+        const onUp = () => {
+          handle.removeEventListener('pointermove', onMove);
+          handle.removeEventListener('pointerup', onUp);
+          handle.removeEventListener('pointercancel', onUp);
+          try { if (typeof pid === 'number') handle.releasePointerCapture(pid); } catch (_) {}
+          row.classList.remove('is-dragging');
+          container.querySelectorAll('.is-drag-target').forEach((el) => el.classList.remove('is-drag-target'));
+          if (currentTargetId && currentTargetId !== id) {
+            const list = section === 'center' ? [...toolbarCustomConfig.centerOrder] : [...toolbarCustomConfig.rightOrder];
+            const fromIdx = list.indexOf(id);
+            const toIdx = list.indexOf(currentTargetId);
+            if (fromIdx >= 0 && toIdx >= 0) {
+              const [moved] = list.splice(fromIdx, 1);
+              list.splice(toIdx, 0, moved);
+              reorderToolbarItems(section, list);
+            }
+          }
+        };
+
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+        handle.addEventListener('pointercancel', onUp);
+      });
+
+      container.appendChild(row);
+    });
+  }
+
+  function renderToolbarCustomizePopover() {
+    if (typeof document === 'undefined') return;
+    renderToolbarCustomizeSection(
+      'toolbarCustomizeCenterList',
+      'center',
+      toolbarCustomConfig.centerOrder,
+      TOOLBAR_CENTER_ITEMS_META
+    );
+    renderToolbarCustomizeSection(
+      'toolbarCustomizeRightList',
+      'right',
+      toolbarCustomConfig.rightOrder,
+      TOOLBAR_RIGHT_ITEMS_META
+    );
+    const posTopBtn = document.getElementById('btnToolbarPosTop');
+    const posBotBtn = document.getElementById('btnToolbarPosBottom');
+    if (posTopBtn) posTopBtn.classList.toggle('active', toolbarCustomConfig.position !== 'bottom');
+    if (posBotBtn) posBotBtn.classList.toggle('active', toolbarCustomConfig.position === 'bottom');
+    const chkTabs = document.getElementById('chkToolbarShowDocTabs');
+    if (chkTabs) chkTabs.checked = toolbarCustomConfig.showDocTabs !== false;
+  }
+
+  function initToolbarCustomization() {
+    loadToolbarCustomizationConfig();
+    applyToolbarCustomization();
+    if (typeof document === 'undefined') return;
+
+    const btnOpen = document.getElementById('btnCustomizeToolbar');
+    const pop = document.getElementById('toolbarCustomizePopover');
+    const btnClose = document.getElementById('btnCloseToolbarCustomize');
+    const btnPosTop = document.getElementById('btnToolbarPosTop');
+    const btnPosBot = document.getElementById('btnToolbarPosBottom');
+    const chkTabs = document.getElementById('chkToolbarShowDocTabs');
+    const btnReset = document.getElementById('btnResetToolbarConfig');
+
+    if (btnOpen && pop) {
+      btnOpen.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (pop.classList.contains('hidden')) openToolbarCustomizePopover();
+        else closeToolbarCustomizePopover();
+      });
+      document.addEventListener('pointerdown', (ev) => {
+        if (!pop.classList.contains('hidden') && !ev.target.closest('#toolbarCustomizePopover') && !ev.target.closest('#btnCustomizeToolbar')) {
+          closeToolbarCustomizePopover();
+        }
+      });
+    }
+    if (btnClose) btnClose.addEventListener('click', closeToolbarCustomizePopover);
+    if (btnPosTop) btnPosTop.addEventListener('click', () => setToolbarPosition('top'));
+    if (btnPosBot) btnPosBot.addEventListener('click', () => setToolbarPosition('bottom'));
+    if (chkTabs) {
+      chkTabs.addEventListener('change', () => setDocTabsVisibility(chkTabs.checked));
+    }
+    if (btnReset) btnReset.addEventListener('click', resetToolbarCustomization);
   }
 
   // ============================================================================
@@ -22348,6 +22794,15 @@
       runPdfAndNotebookSearch,
       navigatePdfSearchToIndex,
       getPdfSearchState: () => ({ ...pdfSearchState, matches: [...pdfSearchState.matches] }),
+      getToolbarCustomizationConfig,
+      setToolbarItemVisibility,
+      reorderToolbarItems,
+      moveToolbarItemByDelta,
+      setToolbarPosition,
+      setDocTabsVisibility,
+      resetToolbarCustomization,
+      openToolbarCustomizePopover,
+      closeToolbarCustomizePopover,
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,
