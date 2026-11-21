@@ -525,7 +525,19 @@ async function runVerification() {
     throw new Error('Le glisser-déposer d\'une sélection Lasso dupliquée en outil Stylo n\'a pas déplacé le trait copié');
   }
 
-  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran + Gestionnaire GoodNotes + Pile A4 + Couleurs GoodNotes + Déplacement Lasso vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+  // Vérification des paramètres du Ruban GoodNotes 6 (Ruban droit / libre + Supprimer tout le ruban)
+  state.tool = 'tape';
+  state.tapeForceStraight = false;
+  pdfPages[0].tapes = [
+    { id: 'tp_verify_free', x1: 40, y1: 40, x2: 140, y2: 60, straight: false, points: [{ x: 40, y: 40 }, { x: 90, y: 55 }, { x: 140, y: 60 }], thickness: 26, color: '#ff5f67', revealed: false },
+    { id: 'tp_verify_straight', x1: 40, y1: 120, x2: 180, y2: 120, straight: true, thickness: 26, color: '#ff9f49', revealed: false }
+  ];
+  const removedTapesCount = api.removeAllTapesOnActivePage();
+  if (removedTapesCount !== 2 || pdfPages[0].tapes.length !== 0) {
+    throw new Error('Le bouton "Supprimer tout le ruban" n\'a pas effacé tous les rubans de la page');
+  }
+
+  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran + Gestionnaire GoodNotes + Pile A4 + Couleurs GoodNotes + Lasso + Ruban vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {

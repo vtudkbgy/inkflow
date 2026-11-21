@@ -9280,10 +9280,11 @@
       tryStartLassoSelectionTransform(worldPt)
     ) {
       cancelPendingPageSave(page.id);
-      if (state.gnPenPopoverOpen || state.gnPencilPopoverOpen || state.gnHighlighterPopoverOpen || state.gnStrokePopoverOpen || state.gnShapeStrokePopoverOpen) {
+      if (state.gnPenPopoverOpen || state.gnPencilPopoverOpen || state.gnHighlighterPopoverOpen || state.gnTapePopoverOpen || state.gnStrokePopoverOpen || state.gnShapeStrokePopoverOpen) {
         state.gnPenPopoverOpen = false;
         state.gnPencilPopoverOpen = false;
         state.gnHighlighterPopoverOpen = false;
+        state.gnTapePopoverOpen = false;
         state.gnStrokePopoverOpen = false;
         state.gnShapeStrokePopoverOpen = false;
         updateToolbarActiveState();
@@ -9845,11 +9846,29 @@
     } else if (state.tool === 'tape') {
       if (!state.currentTape) return;
       const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
-      // Aligne horizontalement si l'angle est proche de 0° (comme Goodnotes Tape)
-      const dx = wPt.x - state.currentTape.x1;
-      const dy = wPt.y - state.currentTape.y1;
-      state.currentTape.x2 = wPt.x;
-      state.currentTape.y2 = Math.abs(dy) < Math.abs(dx) * 0.12 ? state.currentTape.y1 : wPt.y;
+      if (state.currentTape.straight === false && Array.isArray(state.currentTape.points)) {
+        const pts = state.currentTape.points;
+        const last = pts[pts.length - 1];
+        if (!last || Math.hypot(wPt.x - last.x, wPt.y - last.y) >= 3) {
+          pts.push({ x: wPt.x, y: wPt.y });
+          state.currentTape.x2 = wPt.x;
+          state.currentTape.y2 = wPt.y;
+        }
+      } else {
+        // Mode "Ruban droit" (GoodNotes forceStraightenTape) : ligne droite nette avec aimantation horizontale/verticale douce
+        const dx = wPt.x - state.currentTape.x1;
+        const dy = wPt.y - state.currentTape.y1;
+        if (Math.abs(dy) < Math.abs(dx) * 0.14) {
+          state.currentTape.x2 = wPt.x;
+          state.currentTape.y2 = state.currentTape.y1;
+        } else if (Math.abs(dx) < Math.abs(dy) * 0.14) {
+          state.currentTape.x2 = state.currentTape.x1;
+          state.currentTape.y2 = wPt.y;
+        } else {
+          state.currentTape.x2 = wPt.x;
+          state.currentTape.y2 = wPt.y;
+        }
+      }
       renderActiveCanvasOnly();
     } else if (state.tool === 'laser') {
       const now = performance.now();
@@ -10151,7 +10170,7 @@
           scheduleSaveActivePage(page);
         }
       } else if (state.tool === 'tape' && state.currentTape) {
-        if (Math.hypot(state.currentTape.x2 - state.currentTape.x1, state.currentTape.y2 - state.currentTape.y1) > 10) {
+        if (getTapeTotalLength(state.currentTape) > 10) {
           if (!Array.isArray(page.tapes)) page.tapes = [];
           page.tapes.push(state.currentTape);
           invalidateStaticInkCache();
@@ -10405,12 +10424,19 @@
 
   function isPointOnTape(tp, wx, wy, pad = 4) {
     if (!tp) return false;
+    const halfThick = (tp.thickness || 26) * 0.5 + pad;
+    if (Array.isArray(tp.points) && tp.points.length >= 2 && tp.straight === false) {
+      const pts = tp.points;
+      for (let i = 1; i < pts.length; i++) {
+        if (pointToSegmentDist({ x: wx, y: wy }, pts[i - 1], pts[i]) <= halfThick) return true;
+      }
+      return false;
+    }
     const dx = tp.x2 - tp.x1, dy = tp.y2 - tp.y1;
     const lenSq = dx * dx + dy * dy;
     if (lenSq < 1) return false;
     const t = Math.max(0, Math.min(1, ((wx - tp.x1) * dx + (wy - tp.y1) * dy) / lenSq));
     const px = tp.x1 + t * dx, py = tp.y1 + t * dy;
-    const halfThick = (tp.thickness || 26) * 0.5 + pad;
     return Math.hypot(wx - px, wy - py) <= halfThick;
   }
 
@@ -13074,6 +13100,7 @@
       state.gnPenPopoverOpen = false;
       state.gnPencilPopoverOpen = false;
       state.gnHighlighterPopoverOpen = false;
+      state.gnTapePopoverOpen = false;
       state.gnStrokePopoverOpen = false;
     }
     if (!showGnShapeBar) {
@@ -13093,6 +13120,9 @@
     const gnHighlighterPopoverEl = document.getElementById('gnHighlighterPopover');
     const showGnHighlighterPopover = Boolean(showGnSubBar && state.gnHighlighterPopoverOpen);
     if (gnHighlighterPopoverEl) gnHighlighterPopoverEl.classList.toggle('hidden', !showGnHighlighterPopover);
+    const gnTapePopoverEl = document.getElementById('gnTapePopover');
+    const showGnTapePopover = Boolean(showGnSubBar && state.gnTapePopoverOpen);
+    if (gnTapePopoverEl) gnTapePopoverEl.classList.toggle('hidden', !showGnTapePopover);
     const gnStrokePopoverEl = document.getElementById('gnStrokePopover');
     const showGnStrokePopover = Boolean(showGnSubBar && state.gnStrokePopoverOpen);
     if (gnStrokePopoverEl) gnStrokePopoverEl.classList.toggle('hidden', !showGnStrokePopover);
@@ -13849,6 +13879,7 @@
     state.gnPenPopoverOpen = false;
     state.gnPencilPopoverOpen = false;
     state.gnHighlighterPopoverOpen = false;
+    state.gnTapePopoverOpen = false;
     state.gnStrokePopoverOpen = false;
     state.gnShapeStrokePopoverOpen = false;
     if (gnColorPopoverState.anchorEl && gnColorPopoverState.anchorEl.classList) {
@@ -13940,6 +13971,7 @@
         state.gnPenPopoverOpen = false;
         state.gnPencilPopoverOpen = false;
         state.gnHighlighterPopoverOpen = false;
+        state.gnTapePopoverOpen = false;
         state.gnStrokePopoverOpen = false;
         state.gnShapeStrokePopoverOpen = false;
         setToolColor(key, normHex, { slotIndex: idx, selectOnly: true });
@@ -14233,7 +14265,8 @@
         btn.classList.toggle('popover-open', Boolean(state.gnHighlighterPopoverOpen));
       } else if (st === 'tape') {
         isActive = state.tool === 'tape';
-        setBtnColorVar(btn, state.tapeColor || '#f59e0b');
+        setBtnColorVar(btn, state.tapeColor || '#ff5f67');
+        btn.classList.toggle('popover-open', Boolean(state.gnTapePopoverOpen));
       } else if (st === 'instant-shape') {
         isActive = Boolean(state.instantShapeMode);
       } else {
@@ -14415,6 +14448,13 @@
     if (state.gnHighlighterPopoverOpen) {
       alignSubBarCaret(document.getElementById('gnSubToolHighlighter'), 'gnHighlighterPopover', 'gnHighlighterPopoverCaret', true);
     }
+    const tapeStraightSw = document.getElementById('gnTapeStraightSwitch');
+    if (tapeStraightSw) tapeStraightSw.checked = Boolean(state.tapeForceStraight);
+    const tapePrevBar = document.getElementById('gnTapePreviewBar');
+    if (tapePrevBar) tapePrevBar.setAttribute('fill', state.tapeColor || '#ff5f67');
+    if (state.gnTapePopoverOpen) {
+      alignSubBarCaret(document.getElementById('gnSubToolTape'), 'gnTapePopover', 'gnTapePopoverCaret', true);
+    }
     if (state.gnPenPopoverOpen) {
       const penCaret = document.querySelector('#gnPenPopover .gn-pen-popover-caret');
       const penAnchor = document.getElementById('gnSubToolPen');
@@ -14591,6 +14631,7 @@
         if (st === 'pen') {
           state.gnPencilPopoverOpen = false;
           state.gnHighlighterPopoverOpen = false;
+          state.gnTapePopoverOpen = false;
           if (state.tool === 'pen') {
             state.gnPenPopoverOpen = !state.gnPenPopoverOpen;
             if (mainView) mainView.classList.remove('hidden');
@@ -14609,6 +14650,7 @@
         } else if (st === 'pencil') {
           state.gnPenPopoverOpen = false;
           state.gnHighlighterPopoverOpen = false;
+          state.gnTapePopoverOpen = false;
           if (state.tool === 'pencil') {
             state.gnPencilPopoverOpen = !state.gnPencilPopoverOpen;
             updateToolbarActiveState();
@@ -14623,6 +14665,7 @@
         } else if (st === 'highlighter') {
           state.gnPenPopoverOpen = false;
           state.gnPencilPopoverOpen = false;
+          state.gnTapePopoverOpen = false;
           if (state.tool === 'highlighter') {
             state.gnHighlighterPopoverOpen = !state.gnHighlighterPopoverOpen;
             updateToolbarActiveState();
@@ -14645,6 +14688,7 @@
           state.gnPenPopoverOpen = false;
           state.gnPencilPopoverOpen = false;
           state.gnHighlighterPopoverOpen = false;
+          state.gnTapePopoverOpen = false;
           updateToolbarActiveState();
           showToast(
             state.instantShapeMode
@@ -14654,14 +14698,20 @@
             1800
           );
         } else if (st === 'tape') {
-          syncCanonicalToToolMemory(state.tool);
-          state.tool = st;
-          applyToolMemoryToCanonical(st);
-          state.toolOptionsOpen = true;
           state.gnPenPopoverOpen = false;
           state.gnPencilPopoverOpen = false;
           state.gnHighlighterPopoverOpen = false;
-          updateToolbarActiveState();
+          if (state.tool === 'tape') {
+            state.gnTapePopoverOpen = !state.gnTapePopoverOpen;
+            updateToolbarActiveState();
+          } else {
+            syncCanonicalToToolMemory(state.tool);
+            state.tool = 'tape';
+            applyToolMemoryToCanonical('tape');
+            state.toolOptionsOpen = true;
+            state.gnTapePopoverOpen = false;
+            updateToolbarActiveState();
+          }
         }
       });
     });
@@ -14696,6 +14746,22 @@
       });
     }
 
+    // Événements du popover Ruban (Ruban droit + Supprimer tout le ruban — réplication GoodNotes 6)
+    const gnTapeStraightSw = document.getElementById('gnTapeStraightSwitch');
+    if (gnTapeStraightSw) {
+      gnTapeStraightSw.addEventListener('change', (e) => {
+        state.tapeForceStraight = Boolean(e.target.checked);
+        saveTapePrefsToStorage();
+        syncGnPenSubBarUi();
+      });
+    }
+    const btnGnTapeRemoveAll = document.getElementById('btnGnTapeRemoveAll');
+    if (btnGnTapeRemoveAll) {
+      btnGnTapeRemoveAll.addEventListener('click', () => {
+        removeAllTapesOnActivePage();
+      });
+    }
+
     subBar.querySelectorAll('.gn-thick-btn').forEach((btn, idx) => {
       btn.addEventListener('click', () => {
         const toolKey = DEFAULT_TOOL_SIZE_SLOTS[state.tool] ? state.tool : 'pen';
@@ -14714,6 +14780,7 @@
         state.gnPenPopoverOpen = false;
         state.gnPencilPopoverOpen = false;
         state.gnHighlighterPopoverOpen = false;
+        state.gnTapePopoverOpen = false;
         state.gnStrokePopoverOpen = true;
         updateToolbarActiveState();
       });
@@ -15583,7 +15650,8 @@
       state.toolOptionsOpen = false;
       updateToolbarActiveState();
       dom.exportPopover.classList.add('hidden');
-      dom.paperPopover.classList.toggle('hidden');
+      if (dom.paperPopover) dom.paperPopover.classList.add('hidden');
+      openGnTemplateLibraryModal('paper');
     });
     dom.btnClosePaperPopover.addEventListener('click', () => dom.paperPopover.classList.add('hidden'));
     dom.paperOptionBtns.forEach((b) => b.addEventListener('click', () => {
@@ -17873,6 +17941,975 @@
     requestRender();
   }
 
+  // ============================================================================
+  // BIBLIOTHÈQUE DE MODÈLES DE PAGE & COUVERTURES STYLE GOODNOTES 6 (ANALYSE REA)
+  // ============================================================================
+  const GN_CUSTOM_TEMPLATES_STORAGE_KEY = 'inkflow_gn_custom_templates_v1';
+
+  const GN_PAGE_SIZE_PRESETS = [
+    { id: 'goodnotes_standard', label: 'Goodnotes Standard', width: 834, height: 1079, meta: '834 × 1079' },
+    { id: 'a4', label: 'A4', width: 1091, height: 1543, meta: '210 × 297 mm' },
+    { id: 'a5', label: 'A5', width: 769, height: 1091, meta: '148 × 210 mm' },
+    { id: 'a6', label: 'A6', width: 546, height: 769, meta: '105 × 148 mm' },
+    { id: 'a7', label: 'A7', width: 385, height: 546, meta: '74 × 105 mm' },
+    { id: 'a3', label: 'A3', width: 1543, height: 2183, meta: '297 × 420 mm' },
+    { id: 'letter', label: 'Lettre', width: 1122, height: 1452, meta: 'US Letter' },
+    { id: 'tabloid', label: 'Tabloïd', width: 1452, height: 2244, meta: 'US Tabloid' },
+    { id: 'infinite', label: 'Page infinie', width: PAGE_WIDTH, height: PAGE_HEIGHT, meta: '∞ Illimitée', isInfinite: true }
+  ];
+
+  const GN_PAPER_TONE_OPTIONS = [
+    { id: 'white', label: 'Papier blanc', swatch: '#ffffff' },
+    { id: 'ivory', label: 'Papier jaune', swatch: '#fbf6dc' },
+    { id: 'dark', label: 'Papier sombre', swatch: '#14171f' },
+    { id: 'sepia', label: 'Parchemin', swatch: '#f5eedc' },
+    { id: 'blueprint', label: 'Blueprint', swatch: '#0d2847' },
+    { id: 'all', label: 'Tous les papiers', swatch: 'conic-gradient(#ffffff 0deg 120deg, #fbf6dc 120deg 240deg, #1e293b 240deg 360deg)' }
+  ];
+
+  const GN_TEMPLATE_LANGUAGES = [
+    { id: 'fr', label: 'Français' },
+    { id: 'en', label: 'English' },
+    { id: 'es', label: 'Español' },
+    { id: 'de', label: 'Deutsch' }
+  ];
+
+  const GN_PAPER_TEMPLATE_GROUPS = [
+    {
+      id: 'essentials',
+      title: 'Basique',
+      items: [
+        { id: 'blank', label: 'Vierge' },
+        { id: 'dotted', label: 'Papier à pointillés' },
+        { id: 'ruled-narrow', label: 'Interligne étroit' },
+        { id: 'lined', label: 'Interligne large' },
+        { id: 'grid', label: 'Papier quadrillé' },
+        { id: 'seyes', label: 'Seyès (Grands carreaux)' },
+        { id: 'engineering', label: 'Millimétré' },
+        { id: 'isometric', label: 'Isométrique 3D' }
+      ]
+    },
+    {
+      id: 'writing_papers',
+      title: 'Papier à lettres',
+      items: [
+        { id: 'cornell', label: 'Cornell' },
+        { id: 'legal', label: 'Legal' },
+        { id: 'single-column', label: 'Une colonne' },
+        { id: 'single-column-mix', label: 'Une colonne, mélange' },
+        { id: 'three-column', label: 'Trois colonnes' },
+        { id: 'twocolumn', label: 'Deux colonnes' },
+        { id: 'two-column-left', label: 'Deux colonnes, gauche' },
+        { id: 'two-column-right', label: 'Deux colonnes, droite' }
+      ]
+    },
+    {
+      id: 'planner',
+      title: 'Planning',
+      items: [
+        { id: 'todos', label: 'Listes de tâches' },
+        { id: 'planner', label: 'Semainier A' },
+        { id: 'weekly-planner-b', label: 'Semainier B' },
+        { id: 'monthly-planner-b', label: 'Planning mensuel B' },
+        { id: 'monthly-planner-c', label: 'Planning mensuel C' },
+        { id: 'accounting', label: 'Comptabilité' }
+      ]
+    },
+    {
+      id: 'music',
+      title: 'Musique',
+      items: [
+        { id: 'music', label: 'Papier à musique' },
+        { id: 'guitar-score', label: 'Partition de guitare' },
+        { id: 'guitar-tablature', label: 'Tablature de guitare' }
+      ]
+    }
+  ];
+
+  const GN_COVER_TEMPLATE_GROUPS = [
+    {
+      id: 'common',
+      title: 'Courant',
+      items: [
+        { id: 'no-cover', label: 'Pas de couverture', coverColor: '#e2e8f0', style: 'none' }
+      ]
+    },
+    {
+      id: 'simple',
+      title: 'Simple',
+      items: [
+        { id: 'simple', label: 'Simple', coverColor: '#f5efe6', accent: '#d6c7b2', style: 'simple' },
+        { id: 'simple-blue', label: 'Simple bleu', coverColor: '#2563eb', accent: '#93c5fd', style: 'simple' },
+        { id: 'simple-green', label: 'Simple vert', coverColor: '#0f766e', accent: '#5eead4', style: 'simple' },
+        { id: 'simple-pink', label: 'Simple rose', coverColor: '#db2777', accent: '#f9a8d4', style: 'simple' },
+        { id: 'simple-red', label: 'Simple rouge', coverColor: '#be123c', accent: '#fda4af', style: 'simple' },
+        { id: 'simple-black', label: 'Simple noir', coverColor: '#1e293b', accent: '#94a3b8', style: 'simple' },
+        { id: 'simple-allblack', label: 'Simple noir intégral', coverColor: '#0f172a', accent: '#334155', style: 'simple' }
+      ]
+    },
+    {
+      id: 'solid',
+      title: 'Uni',
+      items: [
+        { id: 'solid-white', label: 'Uni blanc', coverColor: '#f8fafc', style: 'solid' },
+        { id: 'solid-yellow', label: 'Uni jaune', coverColor: '#f59e0b', style: 'solid' },
+        { id: 'solid-babyblue', label: 'Uni bleu pastel', coverColor: '#60a5fa', style: 'solid' },
+        { id: 'solid-blue', label: 'Uni bleu', coverColor: '#0072ce', style: 'solid' },
+        { id: 'solid-teal', label: 'Uni bleu canard', coverColor: '#0d9488', style: 'solid' },
+        { id: 'solid-green', label: 'Uni vert', coverColor: '#16a34a', style: 'solid' },
+        { id: 'solid-pink', label: 'Uni rose', coverColor: '#ec4899', style: 'solid' },
+        { id: 'solid-red', label: 'Uni rouge', coverColor: '#dc2626', style: 'solid' },
+        { id: 'solid-grey', label: 'Uni gris', coverColor: '#475569', style: 'solid' }
+      ]
+    },
+    {
+      id: 'black_and_white',
+      title: 'Noir et blanc',
+      items: [
+        { id: 'bw-geometric', label: 'Géométrique', coverColor: '#1e293b', style: 'bw-geo' },
+        { id: 'bw-lines', label: 'Lignes', coverColor: '#334155', style: 'bw-lines' },
+        { id: 'bw-waves', label: 'Ondulations', coverColor: '#1f2937', style: 'bw-waves' },
+        { id: 'bw-waves-black', label: 'Ondulations noires', coverColor: '#0f172a', style: 'bw-waves-dark' },
+        { id: 'bw-dots', label: 'Cercle et points', coverColor: '#374151', style: 'bw-dots' },
+        { id: 'bw-math', label: 'Maths', coverColor: '#1e293b', style: 'bw-math' }
+      ]
+    },
+    {
+      id: 'patterns',
+      title: 'Motifs',
+      items: [
+        { id: 'pat-fluid', label: 'Fluide', coverColor: '#2563eb', accent: '#38bdf8', style: 'pat-fluid' },
+        { id: 'pat-soft', label: 'Pastel', coverColor: '#8b5cf6', accent: '#f472b6', style: 'pat-soft' },
+        { id: 'pat-brushes', label: 'Pinceaux', coverColor: '#0ea5e9', accent: '#6366f1', style: 'pat-brushes' },
+        { id: 'pat-waves', label: 'Vagues', coverColor: '#0f766e', accent: '#2dd4bf', style: 'pat-waves' },
+        { id: 'pat-zigzag', label: 'Zigzag', coverColor: '#b45309', accent: '#fbbf24', style: 'pat-zigzag' }
+      ]
+    }
+  ];
+
+  const gnTemplateModalState = {
+    open: false,
+    activeTab: 'paper', // 'paper' | 'cover'
+    editMode: false,
+    sizeId: 'goodnotes_standard',
+    toneId: 'white',
+    language: 'fr',
+    orientation: 'portrait', // 'portrait' | 'landscape'
+    scope: 'current', // 'current' | 'all'
+    gridSize: 28,
+    selectedPaperId: 'lined',
+    selectedCustomDataUrl: null,
+    selectedCoverId: 'simple-blue',
+    collapsedSections: new Set(),
+    selectedForDeletion: new Set(), // templateIds or groupIds
+    importTargetGroupId: null,
+    openDropdown: null, // 'size' | 'color' | 'lang' | 'scope' | null
+    customStore: {
+      groups: [{ id: 'my-templates', title: 'Mes modèles', type: 'paper' }],
+      templates: [] // { id, groupId, type: 'paper'|'cover', label, dataUrl, orientation }
+    }
+  };
+
+  function loadGnCustomTemplatesStore() {
+    try {
+      const raw = localStorage.getItem(GN_CUSTOM_TEMPLATES_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.groups) && Array.isArray(parsed.templates)) {
+        gnTemplateModalState.customStore = parsed;
+      }
+    } catch (_) {}
+  }
+
+  function saveGnCustomTemplatesStore() {
+    try {
+      localStorage.setItem(GN_CUSTOM_TEMPLATES_STORAGE_KEY, JSON.stringify(gnTemplateModalState.customStore));
+    } catch (_) {}
+  }
+
+  function getGnTemplateLibraryState() {
+    return { ...gnTemplateModalState };
+  }
+
+  function getPageDimensionsForSizeAndOrientation(sizeId, orientation) {
+    const preset = GN_PAGE_SIZE_PRESETS.find((s) => s.id === sizeId) || GN_PAGE_SIZE_PRESETS[0];
+    if (preset.isInfinite) {
+      return { width: PAGE_WIDTH, height: PAGE_HEIGHT, viewMode: 'infinite' };
+    }
+    const isLandscape = orientation === 'landscape';
+    const w = isLandscape ? Math.max(preset.width, preset.height) : Math.min(preset.width, preset.height);
+    const h = isLandscape ? Math.min(preset.width, preset.height) : Math.max(preset.width, preset.height);
+    return { width: w, height: h, viewMode: 'page' };
+  }
+
+  function renderGnPaperThumbnail(canvas, tplItem, toneId, orientation, language, gridSize) {
+    if (!canvas || typeof canvas.getContext !== 'function') return;
+    const isLand = orientation === 'landscape';
+    const cssW = isLand ? 138 : 106;
+    const cssH = isLand ? 100 : 138;
+    const dpr = 2;
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+    const tctx = canvas.getContext('2d');
+    if (!tctx) return;
+
+    const previewTone = toneId === 'all' ? 'white' : (toneId || 'white');
+    const virtualW = isLand ? 1079 : 834;
+    const virtualH = isLand ? 834 : 1079;
+    const scaleX = canvas.width / virtualW;
+    const scaleY = canvas.height / virtualH;
+
+    tctx.save();
+    tctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+    const mockPage = {
+      paperType: tplItem.id,
+      paperTone: previewTone,
+      gridSize: Math.max(18, gridSize || 28),
+      viewMode: 'page',
+      pageWidth: virtualW,
+      pageHeight: virtualH,
+      templateLanguage: language || 'fr',
+      customTemplateDataUrl: tplItem.dataUrl || null
+    };
+    drawPaperBackground(tctx, mockPage, virtualW, virtualH, true, true);
+    tctx.restore();
+  }
+
+  function renderGnCoverThumbnail(canvas, coverItem, orientation) {
+    if (!canvas || typeof canvas.getContext !== 'function') return;
+    const isLand = orientation === 'landscape';
+    const cssW = isLand ? 138 : 106;
+    const cssH = isLand ? 100 : 138;
+    const dpr = 2;
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+    const tctx = canvas.getContext('2d');
+    if (!tctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    tctx.clearRect(0, 0, w, h);
+
+    if (coverItem.dataUrl) {
+      const img = getCustomTemplateImage(coverItem.dataUrl);
+      if (img) {
+        tctx.drawImage(img, 0, 0, w, h);
+        return;
+      }
+    }
+
+    if (coverItem.style === 'none') {
+      tctx.fillStyle = '#f8fafc';
+      tctx.fillRect(0, 0, w, h);
+      tctx.strokeStyle = '#cbd5e1';
+      tctx.lineWidth = 3;
+      tctx.setLineDash([8, 6]);
+      tctx.strokeRect(8, 8, w - 16, h - 16);
+      tctx.setLineDash([]);
+      tctx.beginPath();
+      tctx.moveTo(24, h - 24);
+      tctx.lineTo(w - 24, 24);
+      tctx.strokeStyle = '#94a3b8';
+      tctx.lineWidth = 3;
+      tctx.stroke();
+      return;
+    }
+
+    const base = coverItem.coverColor || '#2563eb';
+    const acc = coverItem.accent || '#93c5fd';
+
+    if (coverItem.style && coverItem.style.startsWith('bw-')) {
+      const darkBg = coverItem.style === 'bw-waves-dark';
+      tctx.fillStyle = darkBg ? '#111827' : '#ffffff';
+      tctx.fillRect(0, 0, w, h);
+      tctx.strokeStyle = darkBg ? 'rgba(255,255,255,0.65)' : '#1e293b';
+      tctx.fillStyle = darkBg ? 'rgba(255,255,255,0.65)' : '#1e293b';
+      tctx.lineWidth = 2.5;
+      if (coverItem.style === 'bw-geo') {
+        for (let y = 20; y < h; y += 38) {
+          for (let x = 20; x < w; x += 38) {
+            tctx.strokeRect(x, y, 22, 22);
+          }
+        }
+      } else if (coverItem.style === 'bw-lines') {
+        for (let y = 18; y < h; y += 16) {
+          tctx.beginPath(); tctx.moveTo(16, y); tctx.lineTo(w - 16, y); tctx.stroke();
+        }
+      } else if (coverItem.style === 'bw-waves' || coverItem.style === 'bw-waves-dark') {
+        for (let y = 24; y < h; y += 22) {
+          tctx.beginPath();
+          for (let x = 0; x <= w; x += 12) {
+            const wy = y + Math.sin(x * 0.08 + y) * 7;
+            if (x === 0) tctx.moveTo(x, wy); else tctx.lineTo(x, wy);
+          }
+          tctx.stroke();
+        }
+      } else if (coverItem.style === 'bw-dots') {
+        for (let y = 26; y < h; y += 34) {
+          for (let x = 26; x < w; x += 34) {
+            tctx.beginPath(); tctx.arc(x, y, 7, 0, Math.PI * 2); tctx.fill();
+          }
+        }
+      } else if (coverItem.style === 'bw-math') {
+        tctx.font = '700 22px Georgia, serif';
+        const syms = ['∑', 'π', '∫', '√', '∞', 'Δ'];
+        for (let i = 0; i < 9; i++) {
+          tctx.fillText(syms[i % syms.length], 24 + (i % 3) * 62, 54 + Math.floor(i / 3) * 76);
+        }
+      }
+    } else if (coverItem.style && coverItem.style.startsWith('pat-')) {
+      const grad = tctx.createLinearGradient(0, 0, w, h);
+      grad.addColorStop(0, base);
+      grad.addColorStop(1, acc);
+      tctx.fillStyle = grad;
+      tctx.fillRect(0, 0, w, h);
+      tctx.fillStyle = 'rgba(255,255,255,0.22)';
+      tctx.beginPath();
+      tctx.arc(w * 0.78, h * 0.25, w * 0.38, 0, Math.PI * 2);
+      tctx.fill();
+      tctx.beginPath();
+      tctx.arc(w * 0.22, h * 0.80, w * 0.32, 0, Math.PI * 2);
+      tctx.fill();
+    } else {
+      tctx.fillStyle = base;
+      tctx.fillRect(0, 0, w, h);
+      if (coverItem.style === 'simple') {
+        // Bandeau d'étiquette caractéristique des couvertures "Simple" GoodNotes
+        tctx.fillStyle = 'rgba(255,255,255,0.92)';
+        tctx.fillRect(w * 0.18, h * 0.24, w * 0.64, h * 0.16);
+        tctx.fillStyle = acc;
+        tctx.fillRect(w * 0.18, h * 0.24, 6, h * 0.16);
+      }
+    }
+
+    // Reliure verticale discrète à gauche façon cahier GoodNotes
+    tctx.fillStyle = 'rgba(15, 23, 42, 0.16)';
+    tctx.fillRect(0, 0, Math.round(w * 0.085), h);
+    tctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+    tctx.fillRect(Math.round(w * 0.085), 0, 2, h);
+  }
+
+  function closeAllGnTplDropdowns() {
+    gnTemplateModalState.openDropdown = null;
+    ['gnTplSizeMenu', 'gnTplColorMenu', 'gnTplLangMenu', 'gnTplScopeMenu'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('hidden');
+    });
+    ['gnTplBtnSize', 'gnTplBtnColor', 'gnTplBtnLang'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function renderGnTplDropdowns() {
+    const sizeMenu = document.getElementById('gnTplSizeMenu');
+    const colorMenu = document.getElementById('gnTplColorMenu');
+    const langMenu = document.getElementById('gnTplLangMenu');
+    const scopeMenu = document.getElementById('gnTplScopeMenu');
+
+    if (sizeMenu) {
+      sizeMenu.innerHTML = '';
+      GN_PAGE_SIZE_PRESETS.forEach((sz) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `gn-tpl-dropdown-item${gnTemplateModalState.sizeId === sz.id ? ' selected' : ''}`;
+        btn.innerHTML = `<span class="gn-tpl-dropdown-item-main"><span>${sz.label}</span></span><span class="gn-tpl-dropdown-meta">${sz.meta}</span>`;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          gnTemplateModalState.sizeId = sz.id;
+          closeAllGnTplDropdowns();
+          renderGnTemplateLibraryModal();
+        });
+        sizeMenu.appendChild(btn);
+      });
+    }
+
+    if (colorMenu) {
+      colorMenu.innerHTML = '';
+      GN_PAPER_TONE_OPTIONS.forEach((tone) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `gn-tpl-dropdown-item${gnTemplateModalState.toneId === tone.id ? ' selected' : ''}`;
+        btn.innerHTML = `<span class="gn-tpl-dropdown-item-main"><span class="gn-tpl-tone-dot" style="background:${tone.swatch}"></span><span>${tone.label}</span></span>${gnTemplateModalState.toneId === tone.id ? '<span>✓</span>' : ''}`;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          gnTemplateModalState.toneId = tone.id;
+          closeAllGnTplDropdowns();
+          renderGnTemplateLibraryModal();
+        });
+        colorMenu.appendChild(btn);
+      });
+    }
+
+    if (langMenu) {
+      langMenu.innerHTML = '';
+      GN_TEMPLATE_LANGUAGES.forEach((lang) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `gn-tpl-dropdown-item${gnTemplateModalState.language === lang.id ? ' selected' : ''}`;
+        btn.innerHTML = `<span class="gn-tpl-dropdown-item-main"><span>${lang.label}</span></span>${gnTemplateModalState.language === lang.id ? '<span>✓</span>' : ''}`;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          gnTemplateModalState.language = lang.id;
+          closeAllGnTplDropdowns();
+          renderGnTemplateLibraryModal();
+        });
+        langMenu.appendChild(btn);
+      });
+    }
+
+    if (scopeMenu) {
+      scopeMenu.innerHTML = '';
+      [
+        { id: 'current', label: 'Page actuelle' },
+        { id: 'all', label: 'Toutes les pages' }
+      ].forEach((sc) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `gn-tpl-dropdown-item${gnTemplateModalState.scope === sc.id ? ' selected' : ''}`;
+        btn.innerHTML = `<span class="gn-tpl-dropdown-item-main"><span>${sc.label}</span></span>${gnTemplateModalState.scope === sc.id ? '<span>✓</span>' : ''}`;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          gnTemplateModalState.scope = sc.id;
+          closeAllGnTplDropdowns();
+          renderGnTemplateLibraryModal();
+        });
+        scopeMenu.appendChild(btn);
+      });
+    }
+  }
+
+  function renderGnTemplateLibraryModal() {
+    const body = document.getElementById('gnTplBody');
+    if (!body) return;
+
+    const st = gnTemplateModalState;
+    const isPaper = st.activeTab === 'paper';
+    const isLand = st.orientation === 'landscape';
+
+    // Sync tabs & edit mode header/footer
+    const tabCover = document.getElementById('gnTplTabCover');
+    const tabPaper = document.getElementById('gnTplTabPaper');
+    if (tabCover) { tabCover.classList.toggle('active', !isPaper); tabCover.setAttribute('aria-selected', String(!isPaper)); }
+    if (tabPaper) { tabPaper.classList.toggle('active', isPaper); tabPaper.setAttribute('aria-selected', String(isPaper)); }
+
+    const editBtn = document.getElementById('gnTplBtnEdit');
+    const delBtn = document.getElementById('gnTplBtnDeleteSelected');
+    if (editBtn) editBtn.classList.toggle('hidden', st.editMode);
+    if (delBtn) {
+      delBtn.classList.toggle('hidden', !st.editMode);
+      delBtn.disabled = st.selectedForDeletion.size === 0;
+    }
+
+    const normalLeft = document.getElementById('gnTplFooterNormalLeft');
+    const normalRight = document.getElementById('gnTplFooterNormalRight');
+    const editLeft = document.getElementById('gnTplFooterEditLeft');
+    const editRight = document.getElementById('gnTplFooterEditRight');
+    if (normalLeft) normalLeft.classList.toggle('hidden', st.editMode);
+    if (normalRight) normalRight.classList.toggle('hidden', st.editMode);
+    if (editLeft) editLeft.classList.toggle('hidden', !st.editMode);
+    if (editRight) editRight.classList.toggle('hidden', !st.editMode);
+
+    // Sync filter labels
+    const curSize = GN_PAGE_SIZE_PRESETS.find((s) => s.id === st.sizeId) || GN_PAGE_SIZE_PRESETS[0];
+    const curTone = GN_PAPER_TONE_OPTIONS.find((t) => t.id === st.toneId) || GN_PAPER_TONE_OPTIONS[0];
+    const curLang = GN_TEMPLATE_LANGUAGES.find((l) => l.id === st.language) || GN_TEMPLATE_LANGUAGES[0];
+
+    const sizeLbl = document.getElementById('gnTplSizeLabel');
+    const colorLbl = document.getElementById('gnTplColorLabel');
+    const langLbl = document.getElementById('gnTplLangLabel');
+    const scopeLbl = document.getElementById('gnTplScopeLabel');
+    const colorWrap = document.getElementById('gnTplColorFilterWrap');
+    const spacingCtrl = document.getElementById('gnTplSpacingControl');
+    const spacingSlider = document.getElementById('gnTplGridSpacingSlider');
+    const spacingVal = document.getElementById('gnTplGridSpacingVal');
+
+    if (sizeLbl) sizeLbl.textContent = curSize.label;
+    if (colorLbl) colorLbl.textContent = curTone.label;
+    if (langLbl) langLbl.textContent = curLang.label;
+    if (scopeLbl) scopeLbl.textContent = st.scope === 'all' ? 'Toutes les pages' : 'Page actuelle';
+    if (colorWrap) colorWrap.classList.toggle('hidden', !isPaper);
+    if (spacingCtrl) spacingCtrl.classList.toggle('hidden', !isPaper);
+    if (spacingSlider) spacingSlider.value = String(st.gridSize || 28);
+    if (spacingVal) spacingVal.textContent = `${st.gridSize || 28}px`;
+
+    const btnPort = document.getElementById('gnTplOrientPortrait');
+    const btnLand = document.getElementById('gnTplOrientLandscape');
+    if (btnPort) { btnPort.classList.toggle('active', !isLand); btnPort.setAttribute('aria-pressed', String(!isLand)); }
+    if (btnLand) { btnLand.classList.toggle('active', isLand); btnLand.setAttribute('aria-pressed', String(isLand)); }
+
+    renderGnTplDropdowns();
+
+    // Construit la liste des sections (groupes personnalisés + groupes officiels GoodNotes)
+    const builtInGroups = isPaper ? GN_PAPER_TEMPLATE_GROUPS : GN_COVER_TEMPLATE_GROUPS;
+    const customGroups = (st.customStore.groups || [])
+      .filter((g) => (g.type || 'paper') === st.activeTab)
+      .map((g) => ({
+        id: g.id,
+        title: g.title,
+        isCustomGroup: true,
+        items: (st.customStore.templates || []).filter((t) => t.groupId === g.id && (t.type || 'paper') === st.activeTab)
+      }))
+      .filter((g) => st.editMode || g.items.length > 0);
+
+    const allGroups = [...builtInGroups, ...customGroups];
+    body.innerHTML = '';
+
+    allGroups.forEach((group) => {
+      const secKey = `${st.activeTab}:${group.id}`;
+      const isCollapsed = st.collapsedSections.has(secKey);
+
+      const sectionEl = document.createElement('section');
+      sectionEl.className = `gn-tpl-section${isCollapsed ? ' collapsed' : ''}`;
+      sectionEl.dataset.tplGroup = group.id;
+
+      const headerEl = document.createElement('div');
+      headerEl.className = 'gn-tpl-section-header';
+
+      const titleWrap = document.createElement('div');
+      titleWrap.className = 'gn-tpl-section-title-wrap';
+      titleWrap.innerHTML = `<svg class="gn-tpl-section-caret" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M2.5 4l3.5 4 3.5-4z"></path></svg><span class="gn-tpl-section-title">${group.title}</span>`;
+      headerEl.appendChild(titleWrap);
+
+      if (st.editMode && group.isCustomGroup) {
+        const actionsWrap = document.createElement('div');
+        actionsWrap.className = 'gn-tpl-section-actions';
+        const renameBtn = document.createElement('button');
+        renameBtn.type = 'button';
+        renameBtn.className = 'gn-tpl-group-rename-btn';
+        renameBtn.textContent = 'Renommer';
+        renameBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const nextName = window.prompt('Nouveau nom du groupe :', group.title);
+          if (nextName && nextName.trim()) {
+            const target = st.customStore.groups.find((g) => g.id === group.id);
+            if (target) {
+              target.title = nextName.trim();
+              saveGnCustomTemplatesStore();
+              renderGnTemplateLibraryModal();
+            }
+          }
+        });
+        actionsWrap.appendChild(renameBtn);
+        headerEl.appendChild(actionsWrap);
+      }
+
+      headerEl.addEventListener('click', () => {
+        if (st.collapsedSections.has(secKey)) st.collapsedSections.delete(secKey);
+        else st.collapsedSections.add(secKey);
+        sectionEl.classList.toggle('collapsed', st.collapsedSections.has(secKey));
+      });
+      sectionEl.appendChild(headerEl);
+
+      const carouselEl = document.createElement('div');
+      carouselEl.className = 'gn-tpl-carousel';
+
+      // En mode Modifier, affiche la carte pointillée bleue "+ Importer" officielle GoodNotes dans les groupes persos
+      if (st.editMode && group.isCustomGroup) {
+        const importCard = document.createElement('button');
+        importCard.type = 'button';
+        importCard.className = `gn-tpl-card gn-tpl-import-card${isLand ? ' landscape' : ''}`;
+        importCard.innerHTML = `<div class="gn-tpl-thumb-frame"><div class="gn-tpl-import-box"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></div></div><span class="gn-tpl-card-label">Importer</span>`;
+        importCard.addEventListener('click', () => {
+          st.importTargetGroupId = group.id;
+          const fileInp = document.getElementById('gnTplImportFileInput');
+          if (fileInp) { fileInp.value = ''; fileInp.click(); }
+        });
+        carouselEl.appendChild(importCard);
+      }
+
+      group.items.forEach((item) => {
+        const isSelected = isPaper
+          ? st.selectedPaperId === item.id
+          : st.selectedCoverId === item.id;
+        const isCustomItem = Boolean(item.dataUrl || String(item.id).startsWith('custom:'));
+        const isMarkedDelete = st.selectedForDeletion.has(item.id);
+
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = `gn-tpl-card${isLand ? ' landscape' : ''}${isSelected && !st.editMode ? ' selected' : ''}${isMarkedDelete ? ' marked-delete' : ''}`;
+        card.dataset.tplId = item.id;
+
+        const frame = document.createElement('div');
+        frame.className = 'gn-tpl-thumb-frame';
+
+        const thumbCanvas = document.createElement('canvas');
+        thumbCanvas.className = 'gn-tpl-thumb-canvas';
+        thumbCanvas.setAttribute('aria-hidden', 'true');
+        if (isPaper) {
+          renderGnPaperThumbnail(thumbCanvas, item, st.toneId, st.orientation, st.language, st.gridSize);
+        } else {
+          renderGnCoverThumbnail(thumbCanvas, item, st.orientation);
+        }
+        frame.appendChild(thumbCanvas);
+
+        if (st.editMode && isCustomItem) {
+          const check = document.createElement('span');
+          check.className = 'gn-tpl-edit-check';
+          check.textContent = isMarkedDelete ? '✓' : '';
+          frame.appendChild(check);
+        }
+
+        const lbl = document.createElement('span');
+        lbl.className = 'gn-tpl-card-label';
+        lbl.textContent = item.label;
+
+        card.appendChild(frame);
+        card.appendChild(lbl);
+
+        card.addEventListener('click', () => {
+          if (st.editMode) {
+            if (!isCustomItem) return;
+            if (st.selectedForDeletion.has(item.id)) st.selectedForDeletion.delete(item.id);
+            else st.selectedForDeletion.add(item.id);
+            renderGnTemplateLibraryModal();
+            return;
+          }
+          if (isPaper) {
+            st.selectedPaperId = item.id;
+            st.selectedCustomDataUrl = item.dataUrl || null;
+          } else {
+            st.selectedCoverId = item.id;
+          }
+          renderGnTemplateLibraryModal();
+        });
+
+        card.addEventListener('dblclick', () => {
+          if (st.editMode) return;
+          if (isPaper) {
+            st.selectedPaperId = item.id;
+            st.selectedCustomDataUrl = item.dataUrl || null;
+          } else {
+            st.selectedCoverId = item.id;
+          }
+          applyGnTemplateLibrarySelection();
+        });
+
+        carouselEl.appendChild(card);
+      });
+
+      sectionEl.appendChild(carouselEl);
+      body.appendChild(sectionEl);
+    });
+
+    // Bandeau GoodNotes officiel en bas de liste : "Vous voulez créer un tableau de taille illimitée ?"
+    if (isPaper && !st.editMode) {
+      const banner = document.createElement('div');
+      banner.className = 'gn-tpl-infinite-banner';
+      const isAlreadyInf = st.sizeId === 'infinite';
+      banner.innerHTML = `<span class="gn-tpl-infinite-banner-text">${isAlreadyInf ? 'Mode Tableau blanc / Page infinie sélectionné.' : 'Vous voulez créer un tableau de taille illimitée ?'}</span>`;
+      const actBtn = document.createElement('button');
+      actBtn.type = 'button';
+      actBtn.className = 'gn-tpl-infinite-banner-btn';
+      actBtn.textContent = isAlreadyInf ? 'Revenir au format Goodnotes Standard' : 'Passer en Page infinie';
+      actBtn.addEventListener('click', () => {
+        st.sizeId = isAlreadyInf ? 'goodnotes_standard' : 'infinite';
+        renderGnTemplateLibraryModal();
+      });
+      banner.appendChild(actBtn);
+      body.appendChild(banner);
+    }
+  }
+
+  function openGnTemplateLibraryModal(initialTab = 'paper') {
+    const modal = document.getElementById('gnTemplateLibraryModal');
+    if (!modal) return;
+    loadGnCustomTemplatesStore();
+
+    const page = getActivePage();
+    const nb = getActiveNotebook();
+    const st = gnTemplateModalState;
+
+    st.open = true;
+    st.activeTab = initialTab === 'cover' ? 'cover' : 'paper';
+    st.editMode = false;
+    st.selectedForDeletion.clear();
+    closeAllGnTplDropdowns();
+
+    if (page) {
+      st.selectedPaperId = page.paperType || 'grid';
+      st.selectedCustomDataUrl = page.customTemplateDataUrl || null;
+      st.toneId = page.paperTone || 'white';
+      st.gridSize = Number.isFinite(page.gridSize) ? page.gridSize : 28;
+      st.language = page.templateLanguage || 'fr';
+      st.orientation = page.pageOrientation || ((page.pageWidth && page.pageHeight && page.pageWidth > page.pageHeight) ? 'landscape' : 'portrait');
+      if ((page.viewMode || 'infinite') === 'infinite' && !page.pdfId) {
+        st.sizeId = 'infinite';
+      } else {
+        st.sizeId = page.pageSize || 'goodnotes_standard';
+      }
+    }
+    if (nb) {
+      st.selectedCoverId = nb.coverTemplateId || 'simple-blue';
+    }
+
+    modal.classList.remove('hidden');
+    renderGnTemplateLibraryModal();
+  }
+
+  function closeGnTemplateLibraryModal() {
+    const modal = document.getElementById('gnTemplateLibraryModal');
+    if (modal) modal.classList.add('hidden');
+    gnTemplateModalState.open = false;
+    gnTemplateModalState.editMode = false;
+    gnTemplateModalState.selectedForDeletion.clear();
+    closeAllGnTplDropdowns();
+  }
+
+  function applyGnTemplateLibrarySelection() {
+    const st = gnTemplateModalState;
+    const page = getActivePage();
+    const nb = getActiveNotebook();
+    if (!page || !nb) {
+      closeGnTemplateLibraryModal();
+      return;
+    }
+
+    if (st.activeTab === 'cover') {
+      const flatCovers = [
+        ...GN_COVER_TEMPLATE_GROUPS.flatMap((g) => g.items),
+        ...(st.customStore.templates || []).filter((t) => t.type === 'cover')
+      ];
+      const chosenCover = flatCovers.find((c) => c.id === st.selectedCoverId);
+      if (chosenCover) {
+        nb.coverTemplateId = chosenCover.id;
+        nb.coverColor = chosenCover.coverColor || nb.coverColor || '#0072ce';
+        nb.coverCustomDataUrl = chosenCover.dataUrl || null;
+        nb.updatedAt = Date.now();
+        db.saveNotebook(nb);
+        renderNotebooksSidebar();
+        if (typeof renderGnFilesPage === 'function') renderGnFilesPage();
+        showToast(`Couverture appliquée : ${chosenCover.label}`);
+      }
+      closeGnTemplateLibraryModal();
+      return;
+    }
+
+    const dims = getPageDimensionsForSizeAndOrientation(st.sizeId, st.orientation);
+    const effectiveTone = st.toneId === 'all' ? (page.paperTone || 'white') : st.toneId;
+    const targetPages = st.scope === 'all'
+      ? getActiveNotebookPages().filter((pg) => !pg.pdfId && !pg.isPdfPage)
+      : [page];
+
+    targetPages.forEach((pg) => {
+      pg.paperType = st.selectedPaperId;
+      pg.paperTone = effectiveTone;
+      pg.gridSize = st.gridSize;
+      pg.templateLanguage = st.language;
+      pg.customTemplateDataUrl = st.selectedCustomDataUrl || null;
+      if (!pg.pdfId && !pg.isPdfPage) {
+        pg.viewMode = dims.viewMode;
+        pg.pageSize = st.sizeId;
+        pg.pageOrientation = st.orientation;
+        pg.pageWidth = dims.width;
+        pg.pageHeight = dims.height;
+      }
+      pg.updatedAt = Date.now();
+      pg.thumbnail = generatePageThumbnail(pg);
+      db.savePage(pg);
+    });
+
+    nb.defaultPaperType = st.selectedPaperId;
+    nb.updatedAt = Date.now();
+    db.saveNotebook(nb);
+
+    invalidateStaticInkCache();
+    resetPullToAddState();
+    updateBreadcrumbs();
+    renderPagesSidebar();
+    if (isBoundedPage(page)) fitPageToViewport(true);
+    else requestRender();
+    scheduleSaveActivePage(page);
+    showToast('Changement de modèle effectué');
+    closeGnTemplateLibraryModal();
+  }
+
+  function initGnTemplateLibraryModal() {
+    const modal = document.getElementById('gnTemplateLibraryModal');
+    if (!modal || modal.dataset.bound === '1') return;
+    modal.dataset.bound = '1';
+    loadGnCustomTemplatesStore();
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        closeGnTemplateLibraryModal();
+      } else if (!e.target.closest('.gn-tpl-filter-wrap')) {
+        closeAllGnTplDropdowns();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (!gnTemplateModalState.open) return;
+      if (e.key === 'Escape') {
+        if (gnTemplateModalState.openDropdown) closeAllGnTplDropdowns();
+        else closeGnTemplateLibraryModal();
+      }
+    });
+
+    const tabCover = document.getElementById('gnTplTabCover');
+    const tabPaper = document.getElementById('gnTplTabPaper');
+    if (tabCover) {
+      tabCover.addEventListener('click', () => {
+        gnTemplateModalState.activeTab = 'cover';
+        closeAllGnTplDropdowns();
+        renderGnTemplateLibraryModal();
+      });
+    }
+    if (tabPaper) {
+      tabPaper.addEventListener('click', () => {
+        gnTemplateModalState.activeTab = 'paper';
+        closeAllGnTplDropdowns();
+        renderGnTemplateLibraryModal();
+      });
+    }
+
+    const bindDropdown = (btnId, menuId, key) => {
+      const btn = document.getElementById(btnId);
+      const menu = document.getElementById(menuId);
+      if (!btn || !menu) return;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const willOpen = gnTemplateModalState.openDropdown !== key;
+        closeAllGnTplDropdowns();
+        if (willOpen) {
+          gnTemplateModalState.openDropdown = key;
+          menu.classList.remove('hidden');
+          btn.setAttribute('aria-expanded', 'true');
+        }
+      });
+    };
+    bindDropdown('gnTplBtnSize', 'gnTplSizeMenu', 'size');
+    bindDropdown('gnTplBtnColor', 'gnTplColorMenu', 'color');
+    bindDropdown('gnTplBtnLang', 'gnTplLangMenu', 'lang');
+    bindDropdown('gnTplBtnScope', 'gnTplScopeMenu', 'scope');
+
+    const btnPort = document.getElementById('gnTplOrientPortrait');
+    const btnLand = document.getElementById('gnTplOrientLandscape');
+    if (btnPort) {
+      btnPort.addEventListener('click', () => {
+        gnTemplateModalState.orientation = 'portrait';
+        renderGnTemplateLibraryModal();
+      });
+    }
+    if (btnLand) {
+      btnLand.addEventListener('click', () => {
+        gnTemplateModalState.orientation = 'landscape';
+        renderGnTemplateLibraryModal();
+      });
+    }
+
+    const spacingSlider = document.getElementById('gnTplGridSpacingSlider');
+    if (spacingSlider) {
+      spacingSlider.addEventListener('input', (e) => {
+        gnTemplateModalState.gridSize = parseInt(e.target.value, 10) || 28;
+        const valEl = document.getElementById('gnTplGridSpacingVal');
+        if (valEl) valEl.textContent = `${gnTemplateModalState.gridSize}px`;
+        renderGnTemplateLibraryModal();
+      });
+    }
+
+    const btnEdit = document.getElementById('gnTplBtnEdit');
+    const btnDoneEdit = document.getElementById('gnTplBtnDoneEdit');
+    const btnDeleteSelected = document.getElementById('gnTplBtnDeleteSelected');
+    if (btnEdit) {
+      btnEdit.addEventListener('click', () => {
+        gnTemplateModalState.editMode = true;
+        gnTemplateModalState.selectedForDeletion.clear();
+        closeAllGnTplDropdowns();
+        renderGnTemplateLibraryModal();
+      });
+    }
+    if (btnDoneEdit) {
+      btnDoneEdit.addEventListener('click', () => {
+        gnTemplateModalState.editMode = false;
+        gnTemplateModalState.selectedForDeletion.clear();
+        renderGnTemplateLibraryModal();
+      });
+    }
+    if (btnDeleteSelected) {
+      btnDeleteSelected.addEventListener('click', () => {
+        const ids = gnTemplateModalState.selectedForDeletion;
+        if (ids.size === 0) return;
+        gnTemplateModalState.customStore.templates = (gnTemplateModalState.customStore.templates || []).filter((t) => !ids.has(t.id));
+        ids.clear();
+        saveGnCustomTemplatesStore();
+        renderGnTemplateLibraryModal();
+        showToast('Modèles personnalisés supprimés');
+      });
+    }
+
+    const btnImportFooter = document.getElementById('gnTplBtnImportFooter');
+    const fileInput = document.getElementById('gnTplImportFileInput');
+    if (btnImportFooter && fileInput) {
+      btnImportFooter.addEventListener('click', () => {
+        const st = gnTemplateModalState;
+        let grp = (st.customStore.groups || []).find((g) => (g.type || 'paper') === st.activeTab);
+        if (!grp) {
+          grp = { id: `grp_${Date.now()}`, title: 'Mes modèles', type: st.activeTab };
+          st.customStore.groups.push(grp);
+          saveGnCustomTemplatesStore();
+        }
+        st.importTargetGroupId = grp.id;
+        fileInput.value = '';
+        fileInput.click();
+      });
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = String(reader.result || '');
+          if (!dataUrl) return;
+          const st = gnTemplateModalState;
+          const baseName = file.name.replace(/\.[^.]+$/, '') || 'Modèle importé';
+          const targetGroupId = st.importTargetGroupId || ((st.customStore.groups.find((g) => (g.type || 'paper') === st.activeTab) || {}).id) || 'my-templates';
+          const newId = `custom:${Date.now()}`;
+          st.customStore.templates.push({
+            id: newId,
+            groupId: targetGroupId,
+            type: st.activeTab,
+            label: baseName,
+            dataUrl,
+            orientation: st.orientation
+          });
+          saveGnCustomTemplatesStore();
+          if (st.activeTab === 'paper') {
+            st.selectedPaperId = newId;
+            st.selectedCustomDataUrl = dataUrl;
+          } else {
+            st.selectedCoverId = newId;
+          }
+          renderGnTemplateLibraryModal();
+          showToast(`Modèle importé : ${baseName}`);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    const btnNewGroup = document.getElementById('gnTplBtnNewGroup');
+    if (btnNewGroup) {
+      btnNewGroup.addEventListener('click', () => {
+        const name = window.prompt('Nom du nouveau groupe de modèles :', 'Mes modèles');
+        if (!name || !name.trim()) return;
+        gnTemplateModalState.customStore.groups.push({
+          id: `grp_${Date.now()}`,
+          title: name.trim(),
+          type: gnTemplateModalState.activeTab
+        });
+        saveGnCustomTemplatesStore();
+        renderGnTemplateLibraryModal();
+        showToast(`Groupe créé : ${name.trim()}`);
+      });
+    }
+
+    const btnCancel = document.getElementById('gnTplBtnCancel');
+    const btnApply = document.getElementById('gnTplBtnApply');
+    if (btnCancel) btnCancel.addEventListener('click', closeGnTemplateLibraryModal);
+    if (btnApply) btnApply.addEventListener('click', applyGnTemplateLibrarySelection);
+  }
+
   if (typeof window !== 'undefined') {
     window.__plumeStudioApi = {
       importPdfFromBuffer,
@@ -17946,12 +18983,19 @@
       openGnColorPopover,
       closeGnColorPopover,
       getGnColorPopoverState,
+      openGnTemplateLibraryModal,
+      closeGnTemplateLibraryModal,
+      getGnTemplateLibraryState,
+      GN_PAGE_SIZE_PRESETS,
+      GN_PAPER_TEMPLATE_GROUPS,
+      GN_COVER_TEMPLATE_GROUPS,
       addToolColorSlot,
       removeToolColorSlot,
       getToolColorPresets,
       applyColorFromGnPopover,
       duplicateLassoSelection,
       computeSelectionBounds,
+      removeAllTapesOnActivePage,
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,
@@ -17969,6 +19013,7 @@
   applyDemoStateSynchronously();
   bindEvents();
   initGoodnotesExtensions();
+  initGnTemplateLibraryModal();
   updateToolbarActiveState();
   renderWorldTextCards();
   fitPageToViewport();
