@@ -537,7 +537,77 @@ async function runVerification() {
     throw new Error('Le bouton "Supprimer tout le ruban" n\'a pas effacé tous les rubans de la page');
   }
 
-  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran + Gestionnaire GoodNotes + Pile A4 + Couleurs GoodNotes + Lasso + Ruban vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+  // Vérification #1 : Règle graduée virtuelle rotative + aimantation de tracé sur le bord supérieur
+  const rulerShown = api.toggleVirtualRuler(true);
+  const rState = api.getVirtualRulerState();
+  if (!rulerShown || !rState.visible) {
+    throw new Error('La règle virtuelle (#1) ne s\'est pas activée correctement');
+  }
+  const topEdgeScreenY = rState.cy - rState.thickness * 0.5;
+  const nearWorldStart = {
+    x: (rState.cx - 80 - state.panX) / state.zoom,
+    y: (topEdgeScreenY - 8 - state.panY) / state.zoom
+  };
+  const nearWorldNext = {
+    x: (rState.cx + 80 - state.panX) / state.zoom,
+    y: (topEdgeScreenY - 19 - state.panY) / state.zoom
+  };
+  const snapped1 = api.snapWorldPointToVirtualRuler(nearWorldStart, true);
+  const snapped2 = api.snapWorldPointToVirtualRuler(nearWorldNext, false);
+  if (Math.abs(snapped2.y - snapped1.y) > 0.05) {
+    throw new Error(`Le guidage sur le bord de la règle virtuelle (#1) n'a pas projeté le trait en ligne droite (dy=${Math.abs(snapped2.y - snapped1.y)})`);
+  }
+  api.toggleVirtualRuler(false);
+
+  // Vérification #4 : Onglets multi-documents (ouverture, bascule et fermeture d'onglet)
+  const firstNbId = state.notebooks.find((n) => !n.trashedAt && n.id !== state.activeNotebookId)?.id;
+  if (firstNbId) {
+    api.openNotebookInTab(firstNbId, false);
+    const tabsBeforeClose = (state.openNotebookTabIds || []).length;
+    if (tabsBeforeClose < 2) {
+      throw new Error('L\'ouverture d\'un second cahier dans les onglets (#4) n\'a pas ajouté d\'onglet');
+    }
+    const closedOk = api.closeNotebookTab(firstNbId);
+    if (!closedOk || state.openNotebookTabIds.length !== tabsBeforeClose - 1) {
+      throw new Error('La fermeture d\'un onglet de cahier (#4) a échoué');
+    }
+  }
+
+  // Vérification #6 : Bibliothèque d'Éléments / Stickers réutilisables (enregistrement Lasso + insertion modèle)
+  state.selectedIds.strokes.clear();
+  state.selectedIds.shapes.clear();
+  state.selectedIds.texts.clear();
+  state.selectedIds.strokes.add(dupStroke.id);
+  const savedEl = api.saveLassoSelectionAsElement('Schéma Vérif');
+  if (!savedEl || !api.getSavedElementsLibrary().some((e) => e.id === savedEl.id)) {
+    throw new Error('L\'enregistrement d\'une sélection Lasso dans la Bibliothèque d\'Éléments (#6) a échoué');
+  }
+  const shapesBeforeElInsert = (pdfPages[0].shapes || []).length;
+  const insertedBuiltin = api.insertElementIntoActivePage(api.BUILTIN_VECTOR_ELEMENTS[0]);
+  if (!insertedBuiltin || (pdfPages[0].shapes || []).length <= shapesBeforeElInsert || state.selectedIds.shapes.size === 0) {
+    throw new Error('L\'insertion d\'un modèle vectoriel depuis la Bibliothèque d\'Éléments (#6) a échoué');
+  }
+
+  // Vérification #9 : Recherche de texte hors-ligne dans le PDF importé & les cartes texte (Ctrl+F)
+  pdfPages[0].texts = pdfPages[0].texts || [];
+  pdfPages[0].texts.push({ id: 'txt_search_verify', x: 80, y: 120, width: 220, text: 'Théorème de Cauchy-Schwarz' });
+  api.openPdfSearchBar();
+  const textMatches = await api.runPdfAndNotebookSearch('Cauchy');
+  if (!Array.isArray(textMatches) || textMatches.length < 1) {
+    throw new Error('La recherche (#9) n\'a pas trouvé le texte d\'une carte texte du cahier');
+  }
+  const pdfMatches = await api.runPdfAndNotebookSearch('Page');
+  if (!Array.isArray(pdfMatches) || pdfMatches.length < 1 || !pdfMatches.some((m) => m.source === 'pdf')) {
+    throw new Error('La recherche PDF hors-ligne (#9) n\'a pas trouvé de texte natif dans le PDF importé');
+  }
+  api.closePdfSearchBar();
+
+  // Vérification #3 : API et DOM de recadrage d'images présents
+  if (typeof api.openImageCropModal !== 'function' || typeof api.applyImageCrop !== 'function' || !sandbox.document.getElementById('modalImageCrop')) {
+    throw new Error('Les contrôles de recadrage d\'images (#3) sont introuvables');
+  }
+
+  console.log(`✓ [4/4] Import PDF (PDF.js) + Export annoté + Plein écran + Pile A4 + Couleurs + Lasso + Ruban + Pack #1/#3/#4/#6/#9 vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {

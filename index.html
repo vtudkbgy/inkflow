@@ -262,6 +262,21 @@
               <span class="gn-sr-label">Image</span>
             </button>
 
+            <button class="tool-btn gn-tool-icon" id="btnElementsLibrary" title="Éléments &amp; stickers réutilisables (repères, schémas, modèles)">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3l2.6 5.3 5.9.85-4.25 4.15 1 5.85L12 16.4l-5.25 2.75 1-5.85L3.5 9.15l5.9-.85L12 3z" fill="currentColor" fill-opacity="0.14"></path>
+              </svg>
+              <span class="gn-sr-label">Éléments</span>
+            </button>
+
+            <button class="tool-btn gn-tool-icon" id="btnToggleRuler" title="Règle graduée virtuelle (R) — Guide le stylo, rotative à la molette ou 2 doigts" aria-pressed="false">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M16.2 3.3l4.5 4.5-12.9 12.9-4.5-4.5L16.2 3.3z" fill="currentColor" fill-opacity="0.14"></path>
+                <path d="M13.5 6l2 2M10.8 8.7l1.5 1.5M8.1 11.4l2 2M5.4 14.1l1.5 1.5"></path>
+              </svg>
+              <span class="gn-sr-label">Règle</span>
+            </button>
+
             <button class="tool-btn gn-tool-icon" data-tool="laser" id="toolLaser" title="Pointeur laser (K) — Re-cliquer pour les options">
               <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="5.6" fill="currentColor" fill-opacity="0.18" stroke="none"></circle>
@@ -282,8 +297,16 @@
             </button>
           </div>
 
-          <!-- ZONE DROITE : IA, Papier, Export, Fichiers, Thème -->
+          <!-- ZONE DROITE : Recherche, IA, Papier, Export, Fichiers, Thème -->
           <div class="gn-bar-group gn-bar-right">
+            <button class="tool-btn gn-icon-only" id="btnPdfSearch" title="Rechercher du texte dans le PDF / cahier (Ctrl+F)" aria-label="Rechercher du texte">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7.2"></circle>
+                <line x1="20.2" y1="20.2" x2="16.2" y2="16.2"></line>
+              </svg>
+              <span class="gn-sr-label">Rechercher</span>
+            </button>
+
             <button class="tool-btn ai-btn gn-icon-only" id="btnOpenRecognition" title="Reconnaître l'écriture manuscrite et les équations (IA / LaTeX)">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" fill="currentColor" fill-opacity="0.22"></path>
@@ -342,6 +365,20 @@
               </svg>
               <span class="gn-sr-label">Plein écran</span>
             </button>
+          </div>
+        </div>
+
+        <!-- BARRE D'ONGLETS MULTI-DOCUMENTS (Cahiers & PDF ouverts en parallèle) -->
+        <div class="doc-tabs-bar" id="docTabsBar" role="tablist" aria-label="Cahiers ouverts">
+          <div class="doc-tabs-list" id="docTabsList"></div>
+          <div class="doc-tab-add-wrap">
+            <button class="doc-tab-add-btn" id="btnDocTabAdd" type="button" title="Ouvrir un autre cahier dans un onglet" aria-label="Ouvrir un onglet">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <div class="doc-tab-add-popover hidden" id="docTabAddPopover" role="menu"></div>
           </div>
         </div>
 
@@ -1539,9 +1576,38 @@
           <button class="lasso-fab-btn" id="btnQuickColorLasso" title="Changer la couleur">
             <span class="lasso-color-dot" id="lassoQuickColorDot"></span>
           </button>
+          <button class="lasso-fab-btn" id="btnQuickSaveElementLasso" title="Enregistrer comme élément réutilisable">★</button>
           <button class="lasso-fab-btn" id="btnQuickDupLasso" title="Dupliquer">⧉</button>
           <button class="lasso-fab-btn ai" id="btnQuickRecogLasso" title="Convertir en Texte / LaTeX">✨</button>
           <button class="lasso-fab-btn danger" id="btnQuickDelLasso" title="Supprimer">✕</button>
+        </div>
+
+        <!-- RÈGLE GRADUÉE VIRTUELLE ROTATIVE (#1) -->
+        <div class="virtual-ruler-overlay hidden" id="virtualRulerOverlay" role="region" aria-label="Règle graduée virtuelle">
+          <canvas id="virtualRulerCanvas" width="660" height="68" aria-hidden="true"></canvas>
+          <button class="ruler-rotate-handle ruler-rotate-left" id="rulerRotateLeft" type="button" title="Glisser pour pivoter la règle" aria-label="Pivoter la règle (gauche)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+          </button>
+          <div class="ruler-center-hud" id="rulerCenterHud">
+            <span class="ruler-angle-readout" id="rulerAngleReadout">0°</span>
+            <button class="ruler-close-btn" id="btnCloseRuler" type="button" title="Masquer la règle (R)" aria-label="Masquer la règle">✕</button>
+          </div>
+          <button class="ruler-rotate-handle ruler-rotate-right" id="rulerRotateRight" type="button" title="Glisser pour pivoter la règle" aria-label="Pivoter la règle (droite)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+          </button>
+        </div>
+
+        <!-- BARRE FLOTTANTE DE RECHERCHE PDF / TEXTE (Ctrl+F, #9) -->
+        <div class="pdf-search-bar hidden" id="pdfSearchBar" role="search" aria-label="Rechercher dans le document">
+          <svg class="pdf-search-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle>
+            <line x1="20" y1="20" x2="16.2" y2="16.2"></line>
+          </svg>
+          <input type="search" id="pdfSearchInput" class="pdf-search-input" placeholder="Rechercher dans le PDF / cahier…" autocomplete="off" />
+          <span class="pdf-search-count" id="pdfSearchCount">0 / 0</span>
+          <button class="pdf-search-nav-btn" id="btnPdfSearchPrev" type="button" title="Résultat précédent (Maj+Entrée)" aria-label="Résultat précédent" disabled>▲</button>
+          <button class="pdf-search-nav-btn" id="btnPdfSearchNext" type="button" title="Résultat suivant (Entrée)" aria-label="Résultat suivant" disabled>▼</button>
+          <button class="pdf-search-close-btn" id="btnPdfSearchClose" type="button" title="Fermer (Échap)" aria-label="Fermer la recherche">✕</button>
         </div>
 
         <!-- Barre flottante d'édition de forme sélectionnée (GoodNotes ShapeTool Editing) -->
@@ -2465,6 +2531,48 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
           <span class="gn-ios-slider"></span>
         </span>
       </label>
+    </div>
+  </div>
+
+  <!-- POPOVER BIBLIOTHÈQUE D'ÉLÉMENTS & STICKERS RÉUTILISABLES (#6) -->
+  <div class="elements-popover hidden" id="elementsPopover" role="dialog" aria-label="Bibliothèque d'éléments réutilisables">
+    <div class="elements-popover-head">
+      <div class="elements-popover-title">Éléments</div>
+      <button class="elements-popover-close" id="btnCloseElementsPopover" type="button" title="Fermer" aria-label="Fermer">✕</button>
+    </div>
+    <div class="elements-popover-hint">Entourez un schéma au Lasso puis cliquez sur ★ pour l'enregistrer ici.</div>
+    <div class="elements-section">
+      <div class="elements-section-label">Mes éléments <span id="userElementsCount">(0)</span></div>
+      <div class="elements-grid" id="userElementsGrid"></div>
+    </div>
+    <div class="elements-section">
+      <div class="elements-section-label">Modèles intégrés</div>
+      <div class="elements-grid" id="builtinElementsGrid"></div>
+    </div>
+  </div>
+
+  <!-- MODALE RECADRAGE D'IMAGE (RECTANGLE & MAIN LEVÉE, #3) -->
+  <div class="modal-backdrop hidden" id="modalImageCrop" role="dialog" aria-modal="true" aria-labelledby="modalImageCropTitle">
+    <div class="modal-card modal-image-crop-card">
+      <div class="modal-header">
+        <h3 id="modalImageCropTitle">Recadrer l'image</h3>
+        <button class="btn-icon" id="btnCloseImageCrop" type="button" title="Fermer" aria-label="Fermer">✕</button>
+      </div>
+      <div class="crop-toolbar">
+        <div class="crop-mode-pills" role="tablist" aria-label="Mode de recadrage">
+          <button class="crop-mode-btn active" id="btnCropModeRect" type="button" data-crop-mode="rect" role="tab" aria-selected="true">Rectangle</button>
+          <button class="crop-mode-btn" id="btnCropModeFreehand" type="button" data-crop-mode="freehand" role="tab" aria-selected="false">Main levée</button>
+        </div>
+        <button class="btn-ghost-sm" id="btnCropReset" type="button" title="Réinitialiser la sélection">Réinitialiser</button>
+      </div>
+      <div class="crop-hint" id="cropHintText">Ajustez le cadre ou les poignées d'angle pour recadrer l'image.</div>
+      <div class="crop-canvas-wrap" id="cropCanvasWrap">
+        <canvas id="imageCropCanvas" width="520" height="360"></canvas>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="btnCropCancel" type="button">Annuler</button>
+        <button class="btn-primary" id="btnCropApply" type="button">Appliquer le recadrage</button>
+      </div>
     </div>
   </div>
 

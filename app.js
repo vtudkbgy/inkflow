@@ -5184,10 +5184,19 @@
       wrap.innerHTML = `
         <img src="${imgItem.src}" alt="Image" draggable="false" />
         <div class="world-image-controls">
-          <button class="icon-btn-tiny danger" data-img-act="delete" title="Supprimer l'image">✕</button>
+          <button class="world-image-ctrl-btn" data-img-act="crop" type="button" title="Recadrer l'image" aria-label="Recadrer l'image">✂</button>
+          <button class="world-image-ctrl-btn danger" data-img-act="delete" type="button" title="Supprimer l'image" aria-label="Supprimer l'image">✕</button>
         </div>
         <div class="world-image-resize-handle" title="Redimensionner"></div>
       `;
+
+      const cropBtn = wrap.querySelector('[data-img-act="crop"]');
+      if (cropBtn) {
+        cropBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          openImageCropModal(imgItem, page);
+        });
+      }
 
       const delBtn = wrap.querySelector('[data-img-act="delete"]');
       if (delBtn) {
@@ -7387,6 +7396,25 @@
 
   const pdfDocInstanceCache = new Map(); // pdfId -> Promise<PDFDocumentProxy>
   const pdfRenderedCanvasCache = new Map(); // `${pdfId}_${pageNum}` -> { canvas, renderedScale, renderingPromise, renderTask, lastUsedAt }
+  const pdfTextIndexCache = new Map(); // `${pdfId}_${pageNum}` -> { items: Array<{ str, norm, x, y, width, height }> }
+  const virtualRulerState = {
+    visible: false,
+    positioned: false,
+    cx: 480,
+    cy: 280,
+    angleDeg: 0,
+    length: 660,
+    thickness: 68,
+    activeEdge: null,
+    snapped: false
+  };
+  const pdfSearchState = {
+    open: false,
+    query: '',
+    matches: [],
+    activeIndex: -1,
+    searchToken: 0
+  };
   let hiDpiPdfZoomTimer = null;
   let lazyAdjacentPdfTimer = null;
 
@@ -7483,6 +7511,11 @@
           entry.canvas = null;
         }
         pdfRenderedCanvasCache.delete(key);
+      }
+    }
+    for (const key of Array.from(pdfTextIndexCache.keys())) {
+      if (key.startsWith(prefix)) {
+        pdfTextIndexCache.delete(key);
       }
     }
 
@@ -8655,21 +8688,27 @@
     const effectiveDark = page.pdfId ? false : isDark;
     const hasShapeConnGuide = Boolean(state.tool === 'shape' && state.shapeHoverConnection);
     const selectedShape = state.selectedShapeId ? getSelectedShape(page) : null;
+    const hasPdfSearchHighlights = Boolean(
+      pdfSearchState.open &&
+      pdfSearchState.matches.length > 0 &&
+      pdfSearchState.matches.some((m) => m.pageId === page.id)
+    );
 
     // Cas 1 : Tracé libre au stylo ou surligneur -> rendu incrémental O(1) uniquement des nouveaux points
-    if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape && !state.currentShape && !hasShapeConnGuide && !selectedShape && state.lassoPolygon.length === 0 && !state.currentTape && state.laserTrail.length === 0) {
+    if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape && !state.currentShape && !hasShapeConnGuide && !selectedShape && !hasPdfSearchHighlights && state.lassoPolygon.length === 0 && !state.currentTape && state.laserTrail.length === 0) {
       renderIncrementalStrokeTail(state.currentStroke, dpr, rect, effectiveDark);
       renderPerfStats.activeRenderCount++;
       renderPerfStats.lastActiveRenderMs = performance.now() - t0;
       return;
     }
 
-    // Cas 2 : Forme géométrique, Édition de forme, Guides de connexion GoodNotes, Aperçu Zone de Texte, Ruban d'étude, Pointeur Laser ou Lasso
+    // Cas 2 : Forme géométrique, Édition de forme, Guides de connexion, Aperçu Zone de Texte, Ruban d'étude, Pointeur Laser, Recherche PDF ou Lasso
     const hasOverlay = Boolean(
       state.currentStroke ||
       state.currentShape ||
       hasShapeConnGuide ||
       selectedShape ||
+      hasPdfSearchHighlights ||
       state.textBoxCreateDrag ||
       state.currentTape ||
       state.laserTrail.length > 0 ||
@@ -8726,6 +8765,9 @@
     }
     if (state.laserTrail.length > 0) {
       drawLaserTrail(activeCtx);
+    }
+    if (hasPdfSearchHighlights) {
+      drawPdfSearchHighlights(activeCtx, page.id);
     }
     drawLassoOverlay(activeCtx);
     activeCtx.restore();
@@ -10217,15 +10259,16 @@
         _renderedUpToIndex: 0
       };
       const effPressure = computeLiveEffectivePressure(state.currentStroke, pressure, e.tiltX || 0, e.tiltY || 0, null);
+      const startPt = snapWorldPointToVirtualRuler(worldPt, true);
       state.currentStroke.points.push({
-        x: worldPt.x,
-        y: worldPt.y,
+        x: startPt.x,
+        y: startPt.y,
         pressure: effPressure,
         tiltX: e.tiltX || 0,
         tiltY: e.tiltY || 0,
         t: downTime
       });
-      initLiveStabilizer(state.currentStroke, worldPt.x, worldPt.y, downTime);
+      initLiveStabilizer(state.currentStroke, startPt.x, startPt.y, downTime);
       state.holdShapeAnchorScreen = { x: e.clientX, y: e.clientY };
       cancelHoldShapeTimer();
       if (hadLassoSelection) requestRender();
@@ -10243,15 +10286,16 @@
         return;
       }
       pushHistorySnapshot();
+      const tapeStartPt = snapWorldPointToVirtualRuler(worldPt, true);
       const isStraightTape = Boolean(state.tapeForceStraight);
       state.currentTape = {
         id: createUid('tp'),
-        x1: worldPt.x,
-        y1: worldPt.y,
-        x2: worldPt.x,
-        y2: worldPt.y,
+        x1: tapeStartPt.x,
+        y1: tapeStartPt.y,
+        x2: tapeStartPt.x,
+        y2: tapeStartPt.y,
         straight: isStraightTape,
-        points: isStraightTape ? undefined : [{ x: worldPt.x, y: worldPt.y }],
+        points: isStraightTape ? undefined : [{ x: tapeStartPt.x, y: tapeStartPt.y }],
         thickness: Math.max(12, state.tapeSize || state.highlighterSize || 26),
         color: state.tapeColor || '#ff5f67',
         revealed: false
@@ -10462,7 +10506,7 @@
 
       for (const ce of coalesced) {
         if (!Number.isFinite(ce.clientX) || !Number.isFinite(ce.clientY)) continue;
-        const rawPt = screenToWorld(ce.clientX, ce.clientY);
+        const rawPt = snapWorldPointToVirtualRuler(screenToWorld(ce.clientX, ce.clientY), false);
         const p = extractEffectivePressure(ce, rawPt);
         lastP = p;
         const ptTime = ce.timeStamp || performance.now();
@@ -10582,8 +10626,8 @@
         if (!state.currentStroke) continue;
         const pts = state.currentStroke.points;
         const prevPt = pts[pts.length - 1];
-        // Stabilisation One-Euro en TEMPS RÉEL pendant le tracé
-        const stabPt = applyLiveStabilization(state.currentStroke, rawPt.x, rawPt.y, ptTime);
+        // Stabilisation One-Euro en TEMPS RÉEL pendant le tracé (contournée si guidage sur règle actif)
+        const stabPt = virtualRulerState.activeEdge ? rawPt : applyLiveStabilization(state.currentStroke, rawPt.x, rawPt.y, ptTime);
         const finalPt = bounded ? clampPointToPage(activePageForMove, stabPt) : stabPt;
         const effP = computeLiveEffectivePressure(state.currentStroke, p, ce.tiltX || 0, ce.tiltY || 0, prevPt ? prevPt.pressure : null);
         state.currentStroke._lastRawPt = {
@@ -10665,7 +10709,7 @@
       }
     } else if (state.tool === 'tape') {
       if (!state.currentTape) return;
-      const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
+      const wPt = clampPointToPage(activePageForMove, snapWorldPointToVirtualRuler(screenToWorld(e.clientX, e.clientY), false));
       if (state.currentTape.straight === false && Array.isArray(state.currentTape.points)) {
         const pts = state.currentTape.points;
         const last = pts[pts.length - 1];
@@ -10745,6 +10789,7 @@
   function handlePointerUpOrCancel(e) {
     state.lastPointerUpTime = performance.now();
     state.predictedPoints = [];
+    virtualRulerState.activeEdge = null;
     cancelHoldShapeTimer();
     cancelColorWheelTimer();
 
@@ -12130,6 +12175,7 @@
     clearLassoSelection();
     renderNotebooksSidebar();
     renderPagesSidebar();
+    syncOpenTabsWithActiveNotebook();
     updateUndoRedoButtons();
     renderWorldTextCards();
     fitPageToViewport();
@@ -12699,6 +12745,7 @@
       selectNotebook(activeNonTrashed[0].id);
     } else {
       renderNotebooksSidebar();
+      syncOpenTabsWithActiveNotebook();
     }
     showToast(`« ${nb.title} » déplacé dans la Corbeille`);
     return true;
@@ -13532,6 +13579,10 @@
 
     renderNotebooksSidebar();
     renderPagesSidebar();
+    syncOpenTabsWithActiveNotebook();
+    if (prevNbId && prevNbId !== nbId && pdfSearchState.open) {
+      runPdfAndNotebookSearch(pdfSearchState.query, { preservePage: false });
+    }
     updateUndoRedoButtons();
     renderWorldTextCards();
     requestRender();
@@ -13829,6 +13880,7 @@
       selectNotebook(state.notebooks[0].id);
     } else {
       renderNotebooksSidebar();
+      syncOpenTabsWithActiveNotebook();
     }
     return true;
   }
@@ -17527,6 +17579,7 @@
     dom.btnThemeToggle.addEventListener('click', () => {
       const h = document.documentElement;
       h.setAttribute('data-theme', h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+      if (virtualRulerState.visible) renderVirtualRuler();
       requestRender();
     });
 
@@ -17678,8 +17731,29 @@
         toggleFilesPage();
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        openPdfSearchBar();
+        return;
+      }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === 'Escape') {
+        if (pdfSearchState.open) {
+          closePdfSearchBar();
+          return;
+        }
+        const elPop = document.getElementById('elementsPopover');
+        if (elPop && !elPop.classList.contains('hidden')) {
+          elPop.classList.add('hidden');
+          const elBtn = document.getElementById('btnElementsLibrary');
+          if (elBtn) elBtn.classList.remove('active');
+          return;
+        }
+        const cropMod = document.getElementById('modalImageCrop');
+        if (cropMod && !cropMod.classList.contains('hidden')) {
+          closeImageCropModal();
+          return;
+        }
         if (state.filesPageOpen) {
           const newMenu = document.getElementById('gnFilesNewMenu');
           const ctxMenu = document.getElementById('gnFilesContextMenu');
@@ -17712,6 +17786,7 @@
       else if (k === 'l') setActiveTool('lasso');
       else if (k === 't') setActiveTool('text');
       else if (k === 's') setActiveTool('shape');
+      else if (k === 'r') toggleVirtualRuler();
       else if (k === 'm') openLatexModalForCard(null, null);
     });
     window.addEventListener('keyup', (e) => {
@@ -17761,8 +17836,13 @@
 
   function updateFullscreenUi(isFs) {
     isWindowFullscreen = Boolean(isFs);
-    if (typeof document !== 'undefined' && document.documentElement && typeof document.documentElement.setAttribute === 'function') {
-      document.documentElement.setAttribute('data-fullscreen', isWindowFullscreen ? 'true' : 'false');
+    if (typeof document !== 'undefined' && document.documentElement) {
+      if (typeof document.documentElement.setAttribute === 'function') {
+        document.documentElement.setAttribute('data-fullscreen', isWindowFullscreen ? 'true' : 'false');
+      }
+      if (document.documentElement.classList) {
+        document.documentElement.classList.toggle('is-fullscreen', isWindowFullscreen);
+      }
     }
     if (dom.btnFullscreenToggle) {
       dom.btnFullscreenToggle.classList.toggle('active', isWindowFullscreen);
@@ -17945,7 +18025,8 @@
       y: Math.round(center.y - h * 0.5),
       width: w,
       height: h,
-      src: dataUrl
+      src: dataUrl,
+      origSrc: dataUrl
     });
     renderWorldTextCards();
     scheduleSaveActivePage(page);
@@ -19351,17 +19432,29 @@
       });
     }
     window.addEventListener('paste', (ev) => {
-      const tag = document.activeElement && document.activeElement.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      const items = ev.clipboardData && ev.clipboardData.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type && item.type.startsWith('image/')) {
-          const f = item.getAsFile();
-          if (f) {
+      const ae = document.activeElement;
+      const tag = ae && ae.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (ae && ae.isContentEditable)) return;
+      const cd = ev.clipboardData;
+      if (!cd) return;
+      if (cd.items && cd.items.length > 0) {
+        for (const item of cd.items) {
+          if (item.type && item.type.startsWith('image/')) {
+            const f = item.getAsFile();
+            if (f) {
+              ev.preventDefault();
+              readFileAsImageAndInsert(f);
+              return;
+            }
+          }
+        }
+      }
+      if (cd.files && cd.files.length > 0) {
+        for (const f of cd.files) {
+          if (f && f.type && f.type.startsWith('image/')) {
             ev.preventDefault();
             readFileAsImageAndInsert(f);
-            break;
+            return;
           }
         }
       }
@@ -19503,6 +19596,8 @@
     ensureActiveAndAdjacentPdfPagesLoaded(getActivePage());
     renderNotebooksSidebar();
     renderPagesSidebar();
+    loadOpenNotebookTabs();
+    syncOpenTabsWithActiveNotebook();
     updateToolbarActiveState();
     renderWorldTextCards();
     fitPageToViewport();
@@ -20479,6 +20574,1646 @@
   }
 
   // ============================================================================
+  // PACK FONCTIONNALITÉS #1 (RÈGLE), #3 (RECADRAGE IMAGE), #4 (ONGLETS),
+  // #6 (BIBLIOTHÈQUE D'ÉLÉMENTS) & #9 (RECHERCHE PDF / CAHIER)
+  // ============================================================================
+
+  // --- #4 ONGLETS DE CAHIERS OUVERTS ---
+  const DOC_TABS_STORAGE_KEY = 'inkflow_open_tabs_v1';
+  if (!Array.isArray(state.openNotebookTabIds)) state.openNotebookTabIds = [];
+
+  function saveOpenNotebookTabs() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(DOC_TABS_STORAGE_KEY, JSON.stringify(state.openNotebookTabIds || []));
+      }
+    } catch (_) {}
+  }
+
+  function loadOpenNotebookTabs() {
+    let saved = [];
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem(DOC_TABS_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) saved = parsed.filter((id) => typeof id === 'string');
+        }
+      }
+    } catch (_) {}
+    const validIds = new Set((state.notebooks || []).filter((n) => !n.trashedAt).map((n) => n.id));
+    state.openNotebookTabIds = saved.filter((id) => validIds.has(id));
+    if (state.activeNotebookId && validIds.has(state.activeNotebookId) && !state.openNotebookTabIds.includes(state.activeNotebookId)) {
+      state.openNotebookTabIds.push(state.activeNotebookId);
+    }
+    if (state.openNotebookTabIds.length === 0) {
+      const firstActive = (state.notebooks || []).find((n) => !n.trashedAt);
+      if (firstActive) state.openNotebookTabIds.push(firstActive.id);
+    }
+    saveOpenNotebookTabs();
+  }
+
+  function syncOpenTabsWithActiveNotebook() {
+    const validIds = new Set((state.notebooks || []).filter((n) => !n.trashedAt).map((n) => n.id));
+    state.openNotebookTabIds = (state.openNotebookTabIds || []).filter((id, idx, arr) => validIds.has(id) && arr.indexOf(id) === idx);
+    if (state.activeNotebookId && validIds.has(state.activeNotebookId) && !state.openNotebookTabIds.includes(state.activeNotebookId)) {
+      state.openNotebookTabIds.push(state.activeNotebookId);
+    }
+    if (state.openNotebookTabIds.length === 0) {
+      const firstActive = (state.notebooks || []).find((n) => !n.trashedAt);
+      if (firstActive) state.openNotebookTabIds.push(firstActive.id);
+    }
+    saveOpenNotebookTabs();
+    renderDocTabsBar();
+  }
+
+  function openNotebookInTab(nbId, activate = true) {
+    const nb = (state.notebooks || []).find((n) => n.id === nbId && !n.trashedAt);
+    if (!nb) return false;
+    if (!Array.isArray(state.openNotebookTabIds)) state.openNotebookTabIds = [];
+    if (state.activeNotebookId && !state.openNotebookTabIds.includes(state.activeNotebookId)) {
+      state.openNotebookTabIds.push(state.activeNotebookId);
+    }
+    if (!state.openNotebookTabIds.includes(nbId)) {
+      state.openNotebookTabIds.push(nbId);
+      saveOpenNotebookTabs();
+    }
+    if (activate && state.activeNotebookId !== nbId) {
+      selectNotebook(nbId);
+    } else {
+      renderDocTabsBar();
+    }
+    return true;
+  }
+
+  function closeNotebookTab(nbId) {
+    if (!Array.isArray(state.openNotebookTabIds) || state.openNotebookTabIds.length <= 1) return false;
+    const idx = state.openNotebookTabIds.indexOf(nbId);
+    if (idx === -1) return false;
+    state.openNotebookTabIds.splice(idx, 1);
+    saveOpenNotebookTabs();
+    if (state.activeNotebookId === nbId) {
+      const nextId = state.openNotebookTabIds[Math.max(0, idx - 1)] || state.openNotebookTabIds[0];
+      if (nextId) selectNotebook(nextId);
+    } else {
+      renderDocTabsBar();
+    }
+    return true;
+  }
+
+  function renderDocTabsBar() {
+    if (typeof document === 'undefined') return;
+    const listEl = document.getElementById('docTabsList');
+    if (!listEl) return;
+    const nbMap = new Map((state.notebooks || []).filter((n) => !n.trashedAt).map((n) => [n.id, n]));
+    const ids = (state.openNotebookTabIds || []).filter((id) => nbMap.has(id));
+    if (ids.length === 0 && state.activeNotebookId && nbMap.has(state.activeNotebookId)) {
+      ids.push(state.activeNotebookId);
+    }
+    listEl.innerHTML = '';
+    const canClose = ids.length > 1;
+    ids.forEach((id) => {
+      const nb = nbMap.get(id);
+      if (!nb) return;
+      const isActive = id === state.activeNotebookId;
+      const tabBtn = document.createElement('div');
+      tabBtn.className = `doc-tab${isActive ? ' active' : ''}`;
+      tabBtn.setAttribute('role', 'tab');
+      tabBtn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      tabBtn.dataset.notebookId = id;
+      tabBtn.title = nb.title || 'Cahier';
+
+      const dot = document.createElement('span');
+      dot.className = 'doc-tab-dot';
+      dot.style.background = nb.color || '#0072ce';
+      tabBtn.appendChild(dot);
+
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'doc-tab-title';
+      titleSpan.textContent = nb.title || 'Sans titre';
+      tabBtn.appendChild(titleSpan);
+
+      if (canClose) {
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'doc-tab-close';
+        closeBtn.type = 'button';
+        closeBtn.title = 'Fermer cet onglet';
+        closeBtn.setAttribute('aria-label', `Fermer l'onglet ${nb.title || ''}`);
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          closeNotebookTab(id);
+        });
+        tabBtn.appendChild(closeBtn);
+      }
+
+      tabBtn.addEventListener('click', () => {
+        if (state.activeNotebookId !== id) {
+          selectNotebook(id);
+        }
+      });
+      listEl.appendChild(tabBtn);
+    });
+  }
+
+  function renderDocTabAddPopover() {
+    if (typeof document === 'undefined') return;
+    const pop = document.getElementById('docTabAddPopover');
+    if (!pop) return;
+    pop.innerHTML = '';
+    const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
+    const openSet = new Set(state.openNotebookTabIds || []);
+    activeNbs.forEach((nb) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'doc-tab-pop-item';
+      const dot = document.createElement('span');
+      dot.className = 'doc-tab-dot';
+      dot.style.background = nb.color || '#0072ce';
+      const name = document.createElement('span');
+      name.className = 'doc-tab-pop-name';
+      name.textContent = nb.title || 'Sans titre';
+      item.appendChild(dot);
+      item.appendChild(name);
+      if (openSet.has(nb.id)) {
+        const meta = document.createElement('span');
+        meta.className = 'doc-tab-pop-meta';
+        meta.textContent = nb.id === state.activeNotebookId ? 'Actif' : 'Ouvert';
+        item.appendChild(meta);
+      }
+      item.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        pop.classList.add('hidden');
+        openNotebookInTab(nb.id, true);
+      });
+      pop.appendChild(item);
+    });
+
+    const createBtn = document.createElement('button');
+    createBtn.type = 'button';
+    createBtn.className = 'doc-tab-pop-item create-new';
+    createBtn.textContent = '+ Nouveau cahier';
+    createBtn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      pop.classList.add('hidden');
+      const count = activeNbs.length + 1;
+      const nb = await createNotebookProgrammatically(`Cahier ${count}`);
+      if (nb && nb.id) {
+        openNotebookInTab(nb.id, true);
+      }
+    });
+    pop.appendChild(createBtn);
+  }
+
+  // --- #1 RÈGLE GRADUÉE VIRTUELLE ROTATIVE ---
+  const RULER_SNAP_ANGLES = [0, 30, 45, 60, 90, 120, 135, 150, 180, -30, -45, -60, -90, -120, -135, -150, -180];
+
+  function normalizeRulerAngle(rawDeg, allowSnap = true) {
+    let deg = ((rawDeg + 180) % 360 + 360) % 360 - 180;
+    let snapped = false;
+    if (allowSnap) {
+      for (const target of RULER_SNAP_ANGLES) {
+        if (Math.abs(deg - target) <= 2.5) {
+          deg = target === -180 ? 180 : target;
+          snapped = true;
+          break;
+        }
+      }
+    }
+    return { angleDeg: deg, snapped };
+  }
+
+  function renderVirtualRuler() {
+    if (typeof document === 'undefined') return;
+    const overlay = document.getElementById('virtualRulerOverlay');
+    const canvas = document.getElementById('virtualRulerCanvas');
+    const readout = document.getElementById('rulerAngleReadout');
+    const toggleBtn = document.getElementById('btnToggleRuler');
+    if (toggleBtn) toggleBtn.classList.toggle('active', virtualRulerState.visible);
+    if (!overlay) return;
+    if (!virtualRulerState.visible) {
+      overlay.classList.add('hidden');
+      return;
+    }
+    overlay.classList.remove('hidden');
+    const len = virtualRulerState.length;
+    const thick = virtualRulerState.thickness;
+    overlay.style.width = `${len}px`;
+    overlay.style.height = `${thick}px`;
+    overlay.style.transform = `translate(${Math.round(virtualRulerState.cx - len * 0.5)}px, ${Math.round(virtualRulerState.cy - thick * 0.5)}px) rotate(${virtualRulerState.angleDeg.toFixed(2)}deg)`;
+
+    if (readout) {
+      let disp = Math.round(virtualRulerState.angleDeg);
+      if (disp === -0 || disp === 180 || disp === -180) disp = Math.abs(disp);
+      readout.textContent = `${disp}°`;
+      readout.classList.toggle('snapped', Boolean(virtualRulerState.snapped));
+    }
+
+    if (!canvas || typeof canvas.getContext !== 'function') return;
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1;
+    const cw = Math.round(len * dpr);
+    const ch = Math.round(thick * dpr);
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw;
+      canvas.height = ch;
+    }
+    const rctx = canvas.getContext('2d');
+    if (!rctx) return;
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+    rctx.save();
+    rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    rctx.clearRect(0, 0, len, thick);
+
+    // Corps translucide acrylique
+    rctx.fillStyle = isDark ? 'rgba(34, 39, 52, 0.82)' : 'rgba(255, 255, 255, 0.84)';
+    rctx.fillRect(0, 0, len, thick);
+
+    // Bandes subtiles le long des bords actifs
+    rctx.fillStyle = isDark ? 'rgba(96, 165, 250, 0.14)' : 'rgba(0, 114, 206, 0.08)';
+    rctx.fillRect(0, 0, len, 6);
+    rctx.fillRect(0, thick - 6, len, 6);
+
+    // Bordure nette
+    rctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.28)' : 'rgba(15, 23, 42, 0.24)';
+    rctx.lineWidth = 1.2;
+    rctx.strokeRect(0.6, 0.6, len - 1.2, thick - 1.2);
+
+    // Ligne médiane pointillée
+    rctx.save();
+    rctx.strokeStyle = isDark ? 'rgba(148, 163, 184, 0.25)' : 'rgba(15, 23, 42, 0.12)';
+    rctx.setLineDash([5, 5]);
+    rctx.beginPath();
+    rctx.moveTo(46, thick * 0.5);
+    rctx.lineTo(len - 46, thick * 0.5);
+    rctx.stroke();
+    rctx.restore();
+
+    // Graduations mm / 0.5 cm / cm sur les deux bords (37.8 px ≈ 1 cm)
+    const pxPerCm = 37.8;
+    const pxPerMm = pxPerCm / 10;
+    const startX = 48;
+    const endX = len - 48;
+    const tickColor = isDark ? 'rgba(241, 245, 249, 0.78)' : 'rgba(15, 23, 42, 0.72)';
+    const minorColor = isDark ? 'rgba(203, 213, 225, 0.42)' : 'rgba(51, 65, 85, 0.36)';
+    rctx.font = '600 9.5px system-ui, -apple-system, sans-serif';
+    rctx.textAlign = 'center';
+
+    let mmIndex = 0;
+    for (let x = startX; x <= endX + 0.5; x += pxPerMm, mmIndex++) {
+      const isCm = mmIndex % 10 === 0;
+      const isHalf = !isCm && mmIndex % 5 === 0;
+      const tickLen = isCm ? 14 : (isHalf ? 9.5 : 5.5);
+      rctx.strokeStyle = isCm ? tickColor : minorColor;
+      rctx.lineWidth = isCm ? 1.25 : 0.9;
+
+      // Bord supérieur
+      rctx.beginPath();
+      rctx.moveTo(x, 0);
+      rctx.lineTo(x, tickLen);
+      rctx.stroke();
+
+      // Bord inférieur
+      rctx.beginPath();
+      rctx.moveTo(x, thick);
+      rctx.lineTo(x, thick - tickLen);
+      rctx.stroke();
+
+      if (isCm) {
+        const cmVal = mmIndex / 10;
+        // Évite de chevaucher le badge d'angle au centre
+        if (Math.abs(x - len * 0.5) > 52) {
+          rctx.fillStyle = tickColor;
+          rctx.fillText(String(cmVal), x, 24);
+        }
+      }
+    }
+    rctx.restore();
+  }
+
+  function toggleVirtualRuler(forceState) {
+    const next = typeof forceState === 'boolean' ? forceState : !virtualRulerState.visible;
+    virtualRulerState.visible = next;
+    virtualRulerState.activeEdge = null;
+    if (next && !virtualRulerState.positioned && dom.canvasViewport) {
+      const rect = dom.canvasViewport.getBoundingClientRect();
+      if (rect && rect.width > 100 && rect.height > 100) {
+        virtualRulerState.cx = Math.round(rect.width * 0.5);
+        virtualRulerState.cy = Math.round(Math.max(190, rect.height * 0.46));
+        virtualRulerState.length = Math.min(680, Math.max(380, Math.round(rect.width * 0.62)));
+        virtualRulerState.positioned = true;
+      }
+    }
+    renderVirtualRuler();
+    return virtualRulerState.visible;
+  }
+
+  function snapWorldPointToVirtualRuler(worldPt, isStart = false) {
+    if (!virtualRulerState.visible || !worldPt || !Number.isFinite(worldPt.x) || !Number.isFinite(worldPt.y)) {
+      if (isStart) virtualRulerState.activeEdge = null;
+      return worldPt;
+    }
+    const zoom = Math.max(0.05, state.zoom || 1);
+    const sx = worldPt.x * zoom + (state.panX || 0);
+    const sy = worldPt.y * zoom + (state.panY || 0);
+    const rad = (virtualRulerState.angleDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const dx = sx - virtualRulerState.cx;
+    const dy = sy - virtualRulerState.cy;
+    // Coordonnées locales dans le repère de la règle
+    const lx = dx * cos + dy * sin;
+    const ly = -dx * sin + dy * cos;
+    const halfLen = virtualRulerState.length * 0.5;
+    const halfThick = virtualRulerState.thickness * 0.5;
+    const snapBand = 28;
+
+    if (isStart) {
+      if (Math.abs(lx) <= halfLen + snapBand) {
+        const distTop = Math.abs(ly - (-halfThick));
+        const distBot = Math.abs(ly - halfThick);
+        if (distTop <= snapBand && distTop <= distBot) {
+          virtualRulerState.activeEdge = 'top';
+        } else if (distBot <= snapBand) {
+          virtualRulerState.activeEdge = 'bottom';
+        } else {
+          virtualRulerState.activeEdge = null;
+        }
+      } else {
+        virtualRulerState.activeEdge = null;
+      }
+    }
+
+    if (!virtualRulerState.activeEdge) return worldPt;
+    const targetLy = virtualRulerState.activeEdge === 'top' ? -(halfThick + 1.5) : (halfThick + 1.5);
+    const projSx = virtualRulerState.cx + lx * cos - targetLy * sin;
+    const projSy = virtualRulerState.cy + lx * sin + targetLy * cos;
+    return {
+      x: (projSx - (state.panX || 0)) / zoom,
+      y: (projSy - (state.panY || 0)) / zoom
+    };
+  }
+
+  function initVirtualRulerEvents() {
+    if (typeof document === 'undefined') return;
+    const btnToggle = document.getElementById('btnToggleRuler');
+    const overlay = document.getElementById('virtualRulerOverlay');
+    const btnClose = document.getElementById('btnCloseRuler');
+    const rotLeft = document.getElementById('rulerRotateLeft');
+    const rotRight = document.getElementById('rulerRotateRight');
+
+    if (btnToggle) {
+      btnToggle.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        toggleVirtualRuler();
+      });
+    }
+    if (btnClose) {
+      btnClose.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        toggleVirtualRuler(false);
+      });
+    }
+    if (!overlay) return;
+
+    const rulerTouchMap = new Map();
+    let dragMode = null; // 'move' | 'rotate' | 'two-finger'
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let origCx = 0;
+    let origCy = 0;
+    let origAngle = 0;
+    let startHandleAngle = 0;
+    let twoFingerStartAngle = 0;
+    let twoFingerStartMid = null;
+
+    function getViewportOffset() {
+      const r = dom.canvasViewport ? dom.canvasViewport.getBoundingClientRect() : { left: 0, top: 0 };
+      return { left: r.left || 0, top: r.top || 0 };
+    }
+
+    const startRotateDrag = (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const vp = getViewportOffset();
+      const px = ev.clientX - vp.left;
+      const py = ev.clientY - vp.top;
+      dragMode = 'rotate';
+      origAngle = virtualRulerState.angleDeg;
+      startHandleAngle = Math.atan2(py - virtualRulerState.cy, px - virtualRulerState.cx) * (180 / Math.PI);
+      overlay.classList.add('dragging');
+      try { if (typeof ev.pointerId === 'number') ev.currentTarget.setPointerCapture(ev.pointerId); } catch (_) {}
+    };
+
+    const moveRotateDrag = (ev) => {
+      if (dragMode !== 'rotate') return;
+      ev.stopPropagation();
+      const vp = getViewportOffset();
+      const px = ev.clientX - vp.left;
+      const py = ev.clientY - vp.top;
+      const curAngle = Math.atan2(py - virtualRulerState.cy, px - virtualRulerState.cx) * (180 / Math.PI);
+      const res = normalizeRulerAngle(origAngle + (curAngle - startHandleAngle), !ev.altKey);
+      virtualRulerState.angleDeg = res.angleDeg;
+      virtualRulerState.snapped = res.snapped;
+      renderVirtualRuler();
+    };
+
+    const endRotateDrag = (ev) => {
+      if (dragMode !== 'rotate') return;
+      dragMode = null;
+      overlay.classList.remove('dragging');
+      try { if (typeof ev.pointerId === 'number') ev.currentTarget.releasePointerCapture(ev.pointerId); } catch (_) {}
+    };
+
+    [rotLeft, rotRight].forEach((handle) => {
+      if (!handle) return;
+      handle.addEventListener('pointerdown', startRotateDrag);
+      handle.addEventListener('pointermove', moveRotateDrag);
+      handle.addEventListener('pointerup', endRotateDrag);
+      handle.addEventListener('pointercancel', endRotateDrag);
+    });
+
+    overlay.addEventListener('pointerdown', (ev) => {
+      if (ev.target.closest('.ruler-rotate-handle') || ev.target.closest('.ruler-close-btn')) return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      if (ev.pointerType === 'touch') {
+        rulerTouchMap.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      }
+      if (rulerTouchMap.size >= 2) {
+        const pts = Array.from(rulerTouchMap.values());
+        dragMode = 'two-finger';
+        origCx = virtualRulerState.cx;
+        origCy = virtualRulerState.cy;
+        origAngle = virtualRulerState.angleDeg;
+        twoFingerStartMid = { x: (pts[0].x + pts[1].x) * 0.5, y: (pts[0].y + pts[1].y) * 0.5 };
+        twoFingerStartAngle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) * (180 / Math.PI);
+      } else {
+        dragMode = 'move';
+        dragStartX = ev.clientX;
+        dragStartY = ev.clientY;
+        origCx = virtualRulerState.cx;
+        origCy = virtualRulerState.cy;
+      }
+      overlay.classList.add('dragging');
+      try { if (typeof ev.pointerId === 'number') overlay.setPointerCapture(ev.pointerId); } catch (_) {}
+    });
+
+    overlay.addEventListener('pointermove', (ev) => {
+      if (!dragMode || dragMode === 'rotate') return;
+      ev.stopPropagation();
+      if (ev.pointerType === 'touch' && rulerTouchMap.has(ev.pointerId)) {
+        rulerTouchMap.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      }
+      if (dragMode === 'two-finger' && rulerTouchMap.size >= 2 && twoFingerStartMid) {
+        const pts = Array.from(rulerTouchMap.values());
+        const mid = { x: (pts[0].x + pts[1].x) * 0.5, y: (pts[0].y + pts[1].y) * 0.5 };
+        const ang = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) * (180 / Math.PI);
+        virtualRulerState.cx = origCx + (mid.x - twoFingerStartMid.x);
+        virtualRulerState.cy = origCy + (mid.y - twoFingerStartMid.y);
+        const res = normalizeRulerAngle(origAngle + (ang - twoFingerStartAngle), true);
+        virtualRulerState.angleDeg = res.angleDeg;
+        virtualRulerState.snapped = res.snapped;
+        renderVirtualRuler();
+      } else if (dragMode === 'move') {
+        virtualRulerState.cx = origCx + (ev.clientX - dragStartX);
+        virtualRulerState.cy = origCy + (ev.clientY - dragStartY);
+        renderVirtualRuler();
+      }
+    });
+
+    const endBodyDrag = (ev) => {
+      if (ev.pointerType === 'touch') rulerTouchMap.delete(ev.pointerId);
+      if (rulerTouchMap.size < 2 && dragMode === 'two-finger') {
+        dragMode = null;
+      } else if (dragMode === 'move') {
+        dragMode = null;
+      }
+      if (!dragMode) overlay.classList.remove('dragging');
+      try { if (typeof ev.pointerId === 'number') overlay.releasePointerCapture(ev.pointerId); } catch (_) {}
+    };
+    overlay.addEventListener('pointerup', endBodyDrag);
+    overlay.addEventListener('pointercancel', endBodyDrag);
+
+    overlay.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const step = ev.shiftKey ? 5 : 1;
+      const dir = ev.deltaY > 0 ? 1 : -1;
+      const res = normalizeRulerAngle(virtualRulerState.angleDeg + dir * step, !ev.altKey && step >= 5);
+      virtualRulerState.angleDeg = res.angleDeg;
+      virtualRulerState.snapped = res.snapped;
+      renderVirtualRuler();
+    }, { passive: false });
+  }
+
+  // --- #3 RECADRAGE D'IMAGES (RECTANGLE & MAIN LEVÉE) ---
+  const imageCropState = {
+    open: false,
+    imgItem: null,
+    page: null,
+    loadedImg: null,
+    mode: 'rect', // 'rect' | 'freehand'
+    rect: { x: 0.08, y: 0.08, w: 0.84, h: 0.84 },
+    freehand: [],
+    drawBox: { x: 0, y: 0, w: 520, h: 360 },
+    dragAction: null,
+    dragStart: null,
+    dragOrigRect: null
+  };
+
+  function closeImageCropModal() {
+    imageCropState.open = false;
+    imageCropState.imgItem = null;
+    imageCropState.page = null;
+    imageCropState.loadedImg = null;
+    imageCropState.dragAction = null;
+    const modal = document.getElementById('modalImageCrop');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  function renderImageCropCanvas() {
+    const canvas = document.getElementById('imageCropCanvas');
+    const img = imageCropState.loadedImg;
+    if (!canvas || !img) return;
+    const cctx = canvas.getContext('2d');
+    if (!cctx) return;
+    const cw = canvas.width;
+    const ch = canvas.height;
+    const pad = 16;
+    const availW = cw - pad * 2;
+    const availH = ch - pad * 2;
+    const scale = Math.min(availW / Math.max(1, img.naturalWidth || img.width), availH / Math.max(1, img.naturalHeight || img.height));
+    const dw = Math.round((img.naturalWidth || img.width) * scale);
+    const dh = Math.round((img.naturalHeight || img.height) * scale);
+    const dx = Math.round((cw - dw) * 0.5);
+    const dy = Math.round((ch - dh) * 0.5);
+    imageCropState.drawBox = { x: dx, y: dy, w: dw, h: dh };
+
+    cctx.clearRect(0, 0, cw, ch);
+    cctx.drawImage(img, dx, dy, dw, dh);
+
+    if (imageCropState.mode === 'rect') {
+      const r = imageCropState.rect;
+      const rx = dx + r.x * dw;
+      const ry = dy + r.y * dh;
+      const rw = r.w * dw;
+      const rh = r.h * dh;
+
+      // Assombrit la zone extérieure
+      cctx.save();
+      cctx.fillStyle = 'rgba(15, 23, 42, 0.52)';
+      cctx.beginPath();
+      cctx.rect(dx, dy, dw, dh);
+      cctx.rect(rx, ry, rw, rh);
+      cctx.fill('evenodd');
+
+      // Règle des tiers
+      cctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      cctx.lineWidth = 1;
+      cctx.beginPath();
+      cctx.moveTo(rx + rw / 3, ry); cctx.lineTo(rx + rw / 3, ry + rh);
+      cctx.moveTo(rx + (2 * rw) / 3, ry); cctx.lineTo(rx + (2 * rw) / 3, ry + rh);
+      cctx.moveTo(rx, ry + rh / 3); cctx.lineTo(rx + rw, ry + rh / 3);
+      cctx.moveTo(rx, ry + (2 * rh) / 3); cctx.lineTo(rx + rw, ry + (2 * rh) / 3);
+      cctx.stroke();
+
+      // Bordure de sélection
+      cctx.strokeStyle = '#ffffff';
+      cctx.lineWidth = 2;
+      cctx.strokeRect(rx, ry, rw, rh);
+      cctx.strokeStyle = '#0072ce';
+      cctx.lineWidth = 1;
+      cctx.strokeRect(rx - 1, ry - 1, rw + 2, rh + 2);
+
+      // 4 poignées d'angle
+      const handles = [
+        [rx, ry],
+        [rx + rw, ry],
+        [rx, ry + rh],
+        [rx + rw, ry + rh]
+      ];
+      handles.forEach(([hx, hy]) => {
+        cctx.fillStyle = '#0072ce';
+        cctx.strokeStyle = '#ffffff';
+        cctx.lineWidth = 2;
+        cctx.beginPath();
+        cctx.arc(hx, hy, 6.5, 0, Math.PI * 2);
+        cctx.fill();
+        cctx.stroke();
+      });
+      cctx.restore();
+    } else {
+      // Mode Main levée
+      const pts = imageCropState.freehand;
+      if (pts.length >= 2) {
+        cctx.save();
+        cctx.fillStyle = 'rgba(15, 23, 42, 0.52)';
+        cctx.beginPath();
+        cctx.rect(dx, dy, dw, dh);
+        cctx.moveTo(dx + pts[0].x * dw, dy + pts[0].y * dh);
+        for (let i = 1; i < pts.length; i++) {
+          cctx.lineTo(dx + pts[i].x * dw, dy + pts[i].y * dh);
+        }
+        cctx.closePath();
+        cctx.fill('evenodd');
+
+        cctx.strokeStyle = '#38bdf8';
+        cctx.lineWidth = 2.2;
+        cctx.setLineDash([6, 4]);
+        cctx.beginPath();
+        cctx.moveTo(dx + pts[0].x * dw, dy + pts[0].y * dh);
+        for (let i = 1; i < pts.length; i++) {
+          cctx.lineTo(dx + pts[i].x * dw, dy + pts[i].y * dh);
+        }
+        cctx.closePath();
+        cctx.stroke();
+        cctx.restore();
+      }
+    }
+  }
+
+  function openImageCropModal(imgItem, page) {
+    if (!imgItem || !imgItem.src || typeof document === 'undefined') return false;
+    const modal = document.getElementById('modalImageCrop');
+    if (!modal) return false;
+    imageCropState.open = true;
+    imageCropState.imgItem = imgItem;
+    imageCropState.page = page || getActivePage();
+    imageCropState.mode = 'rect';
+    imageCropState.rect = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
+    imageCropState.freehand = [];
+    document.querySelectorAll('#modalImageCrop [data-crop-mode]').forEach((b) => {
+      const active = b.dataset.cropMode === 'rect';
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    const hint = document.getElementById('cropHintText');
+    if (hint) hint.textContent = 'Ajustez le cadre ou les poignées d\'angle pour recadrer l\'image.';
+
+    modal.classList.remove('hidden');
+    const img = new Image();
+    img.onload = () => {
+      imageCropState.loadedImg = img;
+      renderImageCropCanvas();
+    };
+    img.src = imgItem.src;
+    return true;
+  }
+
+  function applyImageCrop() {
+    const img = imageCropState.loadedImg;
+    const imgItem = imageCropState.imgItem;
+    const page = imageCropState.page || getActivePage();
+    if (!img || !imgItem || !page) {
+      closeImageCropModal();
+      return false;
+    }
+    const natW = img.naturalWidth || img.width || 320;
+    const natH = img.naturalHeight || img.height || 240;
+    const outCanvas = document.createElement('canvas');
+    const octx = outCanvas.getContext('2d');
+    if (!octx) return false;
+
+    let cropWFrac = 1;
+    let cropHFrac = 1;
+
+    if (imageCropState.mode === 'rect') {
+      const r = imageCropState.rect;
+      const sx = Math.max(0, Math.round(r.x * natW));
+      const sy = Math.max(0, Math.round(r.y * natH));
+      const sw = Math.max(8, Math.min(natW - sx, Math.round(r.w * natW)));
+      const sh = Math.max(8, Math.min(natH - sy, Math.round(r.h * natH)));
+      outCanvas.width = sw;
+      outCanvas.height = sh;
+      octx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      cropWFrac = sw / Math.max(1, natW);
+      cropHFrac = sh / Math.max(1, natH);
+    } else {
+      const pts = imageCropState.freehand;
+      if (!pts || pts.length < 3) {
+        showToast('Tracez d’abord un contour fermé à main levée autour de la zone à conserver.', 'error');
+        return false;
+      }
+      let minX = 1, minY = 1, maxX = 0, maxY = 0;
+      pts.forEach((p) => {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      });
+      const sx = Math.max(0, Math.floor(minX * natW));
+      const sy = Math.max(0, Math.floor(minY * natH));
+      const sw = Math.max(8, Math.min(natW - sx, Math.ceil((maxX - minX) * natW)));
+      const sh = Math.max(8, Math.min(natH - sy, Math.ceil((maxY - minY) * natH)));
+      outCanvas.width = sw;
+      outCanvas.height = sh;
+      octx.save();
+      octx.beginPath();
+      octx.moveTo(pts[0].x * natW - sx, pts[0].y * natH - sy);
+      for (let i = 1; i < pts.length; i++) {
+        octx.lineTo(pts[i].x * natW - sx, pts[i].y * natH - sy);
+      }
+      octx.closePath();
+      octx.clip();
+      octx.drawImage(img, -sx, -sy, natW, natH);
+      octx.restore();
+      cropWFrac = sw / Math.max(1, natW);
+      cropHFrac = sh / Math.max(1, natH);
+    }
+
+    pushHistorySnapshot(page);
+    if (!imgItem.origSrc) imgItem.origSrc = imgItem.src;
+    imgItem.src = outCanvas.toDataURL('image/png');
+    imgItem.width = Math.max(40, Math.round((imgItem.width || 240) * cropWFrac));
+    imgItem.height = Math.max(32, Math.round((imgItem.height || 180) * cropHFrac));
+    releaseCanvasMemory(outCanvas);
+    closeImageCropModal();
+    renderWorldTextCards();
+    scheduleSaveActivePage(page);
+    showToast('Image recadrée !');
+    return true;
+  }
+
+  function initImageCropModalEvents() {
+    if (typeof document === 'undefined') return;
+    const modal = document.getElementById('modalImageCrop');
+    const canvas = document.getElementById('imageCropCanvas');
+    const btnClose = document.getElementById('btnCloseImageCrop');
+    const btnCancel = document.getElementById('btnCropCancel');
+    const btnApply = document.getElementById('btnCropApply');
+    const btnReset = document.getElementById('btnCropReset');
+    const hint = document.getElementById('cropHintText');
+
+    if (btnClose) btnClose.addEventListener('click', closeImageCropModal);
+    if (btnCancel) btnCancel.addEventListener('click', closeImageCropModal);
+    if (btnApply) btnApply.addEventListener('click', applyImageCrop);
+    if (modal) {
+      modal.addEventListener('click', (ev) => {
+        if (ev.target === modal) closeImageCropModal();
+      });
+    }
+    if (btnReset) {
+      btnReset.addEventListener('click', () => {
+        if (imageCropState.mode === 'rect') {
+          const isAlreadyFull = imageCropState.rect.x <= 0.01 && imageCropState.rect.y <= 0.01 && imageCropState.rect.w >= 0.99 && imageCropState.rect.h >= 0.99;
+          imageCropState.rect = { x: 0, y: 0, w: 1, h: 1 };
+          if (isAlreadyFull && imageCropState.imgItem && imageCropState.imgItem.origSrc && imageCropState.imgItem.origSrc !== imageCropState.imgItem.src) {
+            const origImg = new Image();
+            origImg.onload = () => {
+              imageCropState.loadedImg = origImg;
+              renderImageCropCanvas();
+              showToast('Image d’origine restaurée dans l’aperçu');
+            };
+            origImg.src = imageCropState.imgItem.origSrc;
+            return;
+          }
+        } else {
+          imageCropState.freehand = [];
+        }
+        renderImageCropCanvas();
+      });
+    }
+
+    document.querySelectorAll('#modalImageCrop [data-crop-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.cropMode === 'freehand' ? 'freehand' : 'rect';
+        imageCropState.mode = mode;
+        document.querySelectorAll('#modalImageCrop [data-crop-mode]').forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle('active', active);
+          b.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        if (hint) {
+          hint.textContent = mode === 'rect'
+            ? 'Ajustez le cadre ou les poignées d\'angle pour recadrer l\'image.'
+            : 'Dessinez un contour libre autour de la zone à découper (fond transparent).';
+        }
+        renderImageCropCanvas();
+      });
+    });
+
+    if (!canvas) return;
+    function getNormalizedCropPoint(ev) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / Math.max(1, rect.width);
+      const scaleY = canvas.height / Math.max(1, rect.height);
+      const cx = (ev.clientX - rect.left) * scaleX;
+      const cy = (ev.clientY - rect.top) * scaleY;
+      const b = imageCropState.drawBox;
+      return {
+        cx,
+        cy,
+        nx: Math.max(0, Math.min(1, (cx - b.x) / Math.max(1, b.w))),
+        ny: Math.max(0, Math.min(1, (cy - b.y) / Math.max(1, b.h)))
+      };
+    }
+
+    canvas.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      const pt = getNormalizedCropPoint(ev);
+      try { if (typeof ev.pointerId === 'number') canvas.setPointerCapture(ev.pointerId); } catch (_) {}
+      if (imageCropState.mode === 'freehand') {
+        imageCropState.dragAction = 'freehand';
+        imageCropState.freehand = [{ x: pt.nx, y: pt.ny }];
+        renderImageCropCanvas();
+        return;
+      }
+      const b = imageCropState.drawBox;
+      const r = imageCropState.rect;
+      const rx = b.x + r.x * b.w;
+      const ry = b.y + r.y * b.h;
+      const rw = r.w * b.w;
+      const rh = r.h * b.h;
+      const hitRad = 16;
+      const corners = [
+        { act: 'nw', x: rx, y: ry },
+        { act: 'ne', x: rx + rw, y: ry },
+        { act: 'sw', x: rx, y: ry + rh },
+        { act: 'se', x: rx + rw, y: ry + rh }
+      ];
+      let matched = null;
+      for (const c of corners) {
+        if (Math.hypot(pt.cx - c.x, pt.cy - c.y) <= hitRad) {
+          matched = c.act;
+          break;
+        }
+      }
+      if (!matched && pt.cx >= rx && pt.cx <= rx + rw && pt.cy >= ry && pt.cy <= ry + rh) {
+        matched = 'move';
+      }
+      if (!matched) {
+        matched = 'new';
+        imageCropState.rect = { x: pt.nx, y: pt.ny, w: 0.05, h: 0.05 };
+      }
+      imageCropState.dragAction = matched;
+      imageCropState.dragStart = { nx: pt.nx, ny: pt.ny };
+      imageCropState.dragOrigRect = { ...imageCropState.rect };
+    });
+
+    canvas.addEventListener('pointermove', (ev) => {
+      if (!imageCropState.dragAction) return;
+      ev.preventDefault();
+      const pt = getNormalizedCropPoint(ev);
+      if (imageCropState.dragAction === 'freehand') {
+        const list = imageCropState.freehand;
+        const last = list[list.length - 1];
+        if (!last || Math.hypot(pt.nx - last.x, pt.ny - last.y) >= 0.008) {
+          list.push({ x: pt.nx, y: pt.ny });
+          renderImageCropCanvas();
+        }
+        return;
+      }
+      const orig = imageCropState.dragOrigRect;
+      const st = imageCropState.dragStart;
+      const minSize = 0.08;
+      const act = imageCropState.dragAction;
+      let { x, y, w, h } = orig;
+      if (act === 'move') {
+        x = Math.max(0, Math.min(1 - w, orig.x + (pt.nx - st.nx)));
+        y = Math.max(0, Math.min(1 - h, orig.y + (pt.ny - st.ny)));
+      } else if (act === 'new') {
+        x = Math.min(st.nx, pt.nx);
+        y = Math.min(st.ny, pt.ny);
+        w = Math.max(minSize, Math.abs(pt.nx - st.nx));
+        h = Math.max(minSize, Math.abs(pt.ny - st.ny));
+        if (x + w > 1) w = 1 - x;
+        if (y + h > 1) h = 1 - y;
+      } else if (act === 'se') {
+        w = Math.max(minSize, Math.min(1 - x, pt.nx - x));
+        h = Math.max(minSize, Math.min(1 - y, pt.ny - y));
+      } else if (act === 'nw') {
+        const maxX = orig.x + orig.w - minSize;
+        const maxY = orig.y + orig.h - minSize;
+        x = Math.max(0, Math.min(maxX, pt.nx));
+        y = Math.max(0, Math.min(maxY, pt.ny));
+        w = orig.x + orig.w - x;
+        h = orig.y + orig.h - y;
+      } else if (act === 'ne') {
+        const maxY = orig.y + orig.h - minSize;
+        y = Math.max(0, Math.min(maxY, pt.ny));
+        h = orig.y + orig.h - y;
+        w = Math.max(minSize, Math.min(1 - x, pt.nx - x));
+      } else if (act === 'sw') {
+        const maxX = orig.x + orig.w - minSize;
+        x = Math.max(0, Math.min(maxX, pt.nx));
+        w = orig.x + orig.w - x;
+        h = Math.max(minSize, Math.min(1 - y, pt.ny - y));
+      }
+      imageCropState.rect = { x, y, w, h };
+      renderImageCropCanvas();
+    });
+
+    const endCropDrag = (ev) => {
+      imageCropState.dragAction = null;
+      try { if (typeof ev.pointerId === 'number') canvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+    };
+    canvas.addEventListener('pointerup', endCropDrag);
+    canvas.addEventListener('pointercancel', endCropDrag);
+  }
+
+  // --- #6 BIBLIOTHÈQUE D'ÉLÉMENTS & STICKERS RÉUTILISABLES ---
+  const ELEMENTS_STORAGE_KEY = 'inkflow_elements_library_v1';
+
+  function buildBuiltinVectorElements() {
+    const mkLine = (x1, y1, x2, y2, color = '#1e293b', size = 2.4) => ({
+      type: 'line', x1, y1, x2, y2, color, size, filled: false, lineStyle: 'solid'
+    });
+    const mkArrow = (x1, y1, x2, y2, color = '#1e293b', size = 2.6) => ({
+      type: 'arrow', x1, y1, x2, y2, color, size, filled: false, lineStyle: 'solid'
+    });
+    return [
+      {
+        id: 'builtin_repere',
+        name: 'Repère orthonormé',
+        builtin: true,
+        width: 240,
+        height: 200,
+        strokes: [],
+        shapes: [
+          mkArrow(10, 100, 230, 100, '#1e293b', 2.4),
+          mkArrow(120, 190, 120, 10, '#1e293b', 2.4),
+          mkLine(60, 95, 60, 105, '#475569', 1.8),
+          mkLine(90, 95, 90, 105, '#475569', 1.8),
+          mkLine(150, 95, 150, 105, '#475569', 1.8),
+          mkLine(180, 95, 180, 105, '#475569', 1.8),
+          mkLine(115, 40, 125, 40, '#475569', 1.8),
+          mkLine(115, 70, 125, 70, '#475569', 1.8),
+          mkLine(115, 130, 125, 130, '#475569', 1.8),
+          mkLine(115, 160, 125, 160, '#475569', 1.8)
+        ]
+      },
+      {
+        id: 'builtin_axe_gradue',
+        name: 'Axe gradué',
+        builtin: true,
+        width: 280,
+        height: 44,
+        strokes: [],
+        shapes: [
+          mkArrow(8, 22, 272, 22, '#0f172a', 2.5),
+          mkLine(40, 14, 40, 30, '#0072ce', 2),
+          mkLine(80, 14, 80, 30, '#0072ce', 2),
+          mkLine(120, 14, 120, 30, '#0072ce', 2),
+          mkLine(160, 14, 160, 30, '#0072ce', 2),
+          mkLine(200, 14, 200, 30, '#0072ce', 2),
+          mkLine(240, 14, 240, 30, '#0072ce', 2)
+        ]
+      },
+      {
+        id: 'builtin_cercle_trigo',
+        name: 'Cercle trigo',
+        builtin: true,
+        width: 210,
+        height: 210,
+        strokes: [],
+        shapes: [
+          { type: 'ellipse', x1: 25, y1: 25, x2: 185, y2: 185, color: '#0072ce', size: 2.5, filled: false, lineStyle: 'solid' },
+          mkArrow(8, 105, 202, 105, '#1e293b', 2),
+          mkArrow(105, 202, 105, 8, '#1e293b', 2),
+          mkLine(48, 48, 162, 162, '#94a3b8', 1.5),
+          mkLine(48, 162, 162, 48, '#94a3b8', 1.5)
+        ]
+      },
+      {
+        id: 'builtin_tableau_2x3',
+        name: 'Tableau 2×3',
+        builtin: true,
+        width: 280,
+        height: 150,
+        strokes: [],
+        shapes: [
+          { type: 'rect', x1: 0, y1: 0, x2: 280, y2: 150, color: '#1e293b', size: 2.2, filled: false, lineStyle: 'solid' },
+          mkLine(0, 50, 280, 50, '#1e293b', 2),
+          mkLine(0, 100, 280, 100, '#475569', 1.6),
+          mkLine(140, 0, 140, 150, '#475569', 1.6)
+        ]
+      },
+      {
+        id: 'builtin_encadre',
+        name: 'Encadré Important',
+        builtin: true,
+        width: 270,
+        height: 110,
+        strokes: [],
+        shapes: [
+          { type: 'roundedRect', x1: 0, y1: 0, x2: 270, y2: 110, color: '#dc2626', size: 2.6, filled: true, lineStyle: 'solid' },
+          mkLine(14, 16, 14, 94, '#dc2626', 4.5)
+        ]
+      }
+    ];
+  }
+
+  const BUILTIN_VECTOR_ELEMENTS = buildBuiltinVectorElements();
+
+  let elementsLibraryMemoryFallback = null;
+
+  function getSavedElementsLibrary() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem(ELEMENTS_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            elementsLibraryMemoryFallback = parsed;
+            return parsed;
+          }
+        }
+      }
+    } catch (_) {}
+    return Array.isArray(elementsLibraryMemoryFallback) ? elementsLibraryMemoryFallback.slice() : [];
+  }
+
+  function saveElementsLibraryList(list) {
+    elementsLibraryMemoryFallback = Array.isArray(list) ? list.slice() : [];
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(ELEMENTS_STORAGE_KEY, JSON.stringify(elementsLibraryMemoryFallback));
+        return true;
+      }
+    } catch (_) {
+      showToast('Espace local plein : impossible d’enregistrer plus d’éléments.', 'error');
+      return false;
+    }
+    return true;
+  }
+
+  function generateElementPreviewDataUrl(el) {
+    if (typeof document === 'undefined') return '';
+    try {
+      const c = document.createElement('canvas');
+      c.width = 172;
+      c.height = 116;
+      const pctx = c.getContext('2d');
+      if (!pctx) return '';
+      const w = Math.max(10, el.width || 120);
+      const h = Math.max(10, el.height || 90);
+      const pad = 12;
+      const scale = Math.min((c.width - pad * 2) / w, (c.height - pad * 2) / h);
+      const ox = (c.width - w * scale) * 0.5;
+      const oy = (c.height - h * scale) * 0.5;
+      pctx.save();
+      pctx.translate(ox, oy);
+      pctx.scale(scale, scale);
+      (el.strokes || []).forEach((s) => drawSingleStroke(pctx, s, false, false));
+      (el.shapes || []).forEach((sh) => drawGeometricShape(pctx, sh, false, false));
+      pctx.restore();
+      const url = c.toDataURL('image/png');
+      releaseCanvasMemory(c);
+      return url;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function saveLassoSelectionAsElement(customName) {
+    const page = getActivePage();
+    if (!page) return null;
+    const selStrokes = (page.strokes || []).filter((s) => state.selectedIds.strokes.has(s.id));
+    const selShapes = (page.shapes || []).filter((sh) => state.selectedIds.shapes.has(sh.id));
+    if (selStrokes.length === 0 && selShapes.length === 0) {
+      showToast('Entourez d’abord un schéma ou des traits avec le Lasso.', 'error');
+      return null;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    selStrokes.forEach((s) => {
+      (s.points || []).forEach((p) => {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      });
+    });
+    selShapes.forEach((sh) => {
+      const bb = getShapeBoundingBox(sh);
+      minX = Math.min(minX, bb.minX);
+      minY = Math.min(minY, bb.minY);
+      maxX = Math.max(maxX, bb.maxX);
+      maxY = Math.max(maxY, bb.maxY);
+    });
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+
+    const normStrokes = selStrokes.map((s) => {
+      const clone = JSON.parse(JSON.stringify(s));
+      delete clone.id;
+      clone.points = (clone.points || []).map((p) => ({
+        ...p,
+        x: Math.round((p.x - minX) * 100) / 100,
+        y: Math.round((p.y - minY) * 100) / 100
+      }));
+      return clone;
+    });
+    const normShapes = selShapes.map((sh) => {
+      const clone = JSON.parse(JSON.stringify(sh));
+      delete clone.id;
+      delete clone.startConnection;
+      delete clone.endConnection;
+      clone.x1 = Math.round((clone.x1 - minX) * 100) / 100;
+      clone.y1 = Math.round((clone.y1 - minY) * 100) / 100;
+      clone.x2 = Math.round((clone.x2 - minX) * 100) / 100;
+      clone.y2 = Math.round((clone.y2 - minY) * 100) / 100;
+      if (Array.isArray(clone.points)) {
+        clone.points = clone.points.map((p) => ({
+          x: Math.round((p.x - minX) * 100) / 100,
+          y: Math.round((p.y - minY) * 100) / 100
+        }));
+      }
+      return clone;
+    });
+
+    const list = getSavedElementsLibrary();
+    const width = Math.max(16, Math.round(maxX - minX));
+    const height = Math.max(16, Math.round(maxY - minY));
+    const elObj = {
+      id: createUid('el'),
+      name: (customName && String(customName).trim()) || `Élément ${list.length + 1}`,
+      width,
+      height,
+      strokes: normStrokes,
+      shapes: normShapes,
+      createdAt: Date.now()
+    };
+    elObj.preview = generateElementPreviewDataUrl(elObj);
+    list.unshift(elObj);
+    saveElementsLibraryList(list);
+    renderElementsPopover();
+    showToast(`« ${elObj.name} » enregistré dans vos Éléments !`);
+    return elObj;
+  }
+
+  function deleteSavedElement(elId) {
+    const list = getSavedElementsLibrary().filter((item) => item.id !== elId);
+    saveElementsLibraryList(list);
+    renderElementsPopover();
+    showToast('Élément supprimé');
+  }
+
+  function insertElementIntoActivePage(elObj) {
+    const page = getActivePage();
+    if (!page || !elObj) return false;
+    let cx = 300;
+    let cy = 260;
+    if (dom.canvasViewport && typeof dom.canvasViewport.getBoundingClientRect === 'function') {
+      const rect = dom.canvasViewport.getBoundingClientRect();
+      if (rect && rect.width > 0 && rect.height > 0) {
+        const center = screenToWorld(rect.left + rect.width * 0.5, rect.top + rect.height * 0.5);
+        cx = center.x;
+        cy = center.y;
+      }
+    }
+    const w = Math.max(20, elObj.width || 160);
+    const h = Math.max(20, elObj.height || 120);
+    let ox = cx - w * 0.5;
+    let oy = cy - h * 0.5;
+    if (isBoundedPage(page)) {
+      const pb = getPageBounds(page);
+      ox = Math.max(12, Math.min(Math.max(12, pb.maxX - w - 12), ox));
+      oy = Math.max(12, Math.min(Math.max(12, pb.maxY - h - 12), oy));
+    }
+
+    pushHistorySnapshot(page);
+    if (!Array.isArray(page.strokes)) page.strokes = [];
+    if (!Array.isArray(page.shapes)) page.shapes = [];
+    clearLassoSelection();
+
+    (elObj.strokes || []).forEach((s) => {
+      const ns = JSON.parse(JSON.stringify(s));
+      ns.id = createUid('st');
+      ns.points = (ns.points || []).map((p) => ({
+        ...p,
+        x: p.x + ox,
+        y: p.y + oy
+      }));
+      page.strokes.push(ns);
+      state.selectedIds.strokes.add(ns.id);
+    });
+    (elObj.shapes || []).forEach((sh) => {
+      const nsh = JSON.parse(JSON.stringify(sh));
+      nsh.id = createUid('sh');
+      nsh.x1 += ox;
+      nsh.y1 += oy;
+      nsh.x2 += ox;
+      nsh.y2 += oy;
+      if (Array.isArray(nsh.points)) {
+        nsh.points = nsh.points.map((p) => ({ x: p.x + ox, y: p.y + oy }));
+      }
+      page.shapes.push(nsh);
+      state.selectedIds.shapes.add(nsh.id);
+    });
+
+    computeSelectionBounds();
+    updateLassoToolbarBadge();
+    invalidateStaticInkCache();
+    requestRender();
+    scheduleSaveActivePage(page);
+
+    const pop = document.getElementById('elementsPopover');
+    const btn = document.getElementById('btnElementsLibrary');
+    if (pop) pop.classList.add('hidden');
+    if (btn) btn.classList.remove('active');
+    showToast(`« ${elObj.name || 'Élément'} » inséré — glissez pour repositionner`);
+    return true;
+  }
+
+  function renderElementsPopover() {
+    if (typeof document === 'undefined') return;
+    const userGrid = document.getElementById('userElementsGrid');
+    const builtinGrid = document.getElementById('builtinElementsGrid');
+    const countEl = document.getElementById('userElementsCount');
+    if (!userGrid || !builtinGrid) return;
+
+    const saved = getSavedElementsLibrary();
+    if (countEl) countEl.textContent = `(${saved.length})`;
+    userGrid.innerHTML = '';
+    if (saved.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'elements-empty-msg';
+      empty.textContent = 'Aucun élément enregistré pour l’instant.';
+      userGrid.appendChild(empty);
+    } else {
+      saved.forEach((el) => {
+        const tile = document.createElement('div');
+        tile.className = 'element-tile';
+        tile.title = `Insérer « ${el.name} »`;
+        const previewSrc = el.preview || generateElementPreviewDataUrl(el);
+        const img = document.createElement('img');
+        img.className = 'element-tile-preview';
+        img.alt = el.name || 'Élément';
+        if (previewSrc) img.src = previewSrc;
+        tile.appendChild(img);
+
+        const label = document.createElement('span');
+        label.className = 'element-tile-name';
+        label.textContent = el.name || 'Élément';
+        tile.appendChild(label);
+
+        const del = document.createElement('button');
+        del.className = 'element-tile-del';
+        del.type = 'button';
+        del.title = 'Supprimer cet élément';
+        del.textContent = '✕';
+        del.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          deleteSavedElement(el.id);
+        });
+        tile.appendChild(del);
+
+        tile.addEventListener('click', () => insertElementIntoActivePage(el));
+        userGrid.appendChild(tile);
+      });
+    }
+
+    builtinGrid.innerHTML = '';
+    BUILTIN_VECTOR_ELEMENTS.forEach((el) => {
+      if (!el.preview) el.preview = generateElementPreviewDataUrl(el);
+      const tile = document.createElement('div');
+      tile.className = 'element-tile';
+      tile.title = `Insérer « ${el.name} »`;
+      const img = document.createElement('img');
+      img.className = 'element-tile-preview';
+      img.alt = el.name;
+      if (el.preview) img.src = el.preview;
+      tile.appendChild(img);
+
+      const label = document.createElement('span');
+      label.className = 'element-tile-name';
+      label.textContent = el.name;
+      tile.appendChild(label);
+
+      tile.addEventListener('click', () => insertElementIntoActivePage(el));
+      builtinGrid.appendChild(tile);
+    });
+  }
+
+  // --- #9 RECHERCHE DE TEXTE DANS LES PDF IMPORTÉS & CARTES TEXTE (Ctrl+F) ---
+  function normalizeSearchText(str) {
+    return String(str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
+
+  async function extractPdfPageTextItems(page) {
+    if (!page || !page.pdfId || !page.pdfPageNumber) return [];
+    const cacheKey = `${page.pdfId}_${page.pdfPageNumber}`;
+    if (pdfTextIndexCache.has(cacheKey)) {
+      return pdfTextIndexCache.get(cacheKey);
+    }
+    try {
+      const pdfDoc = await getLoadedPdfJsDoc(page.pdfId);
+      if (!pdfDoc) return [];
+      const pdfPage = await pdfDoc.getPage(page.pdfPageNumber);
+      const viewport = pdfPage.getViewport({ scale: 1 });
+      const textContent = await pdfPage.getTextContent();
+      const pageW = page.width || viewport.width || PAGE_WIDTH;
+      const pageH = page.height || viewport.height || PAGE_HEIGHT;
+      const sx = pageW / Math.max(1, viewport.width);
+      const sy = pageH / Math.max(1, viewport.height);
+      const items = [];
+      const utilTransform = window.pdfjsLib && window.pdfjsLib.Util && window.pdfjsLib.Util.transform;
+
+      for (const item of (textContent.items || [])) {
+        if (!item || !item.str || !item.str.trim()) continue;
+        let tx = 0;
+        let ty = 0;
+        let fontH = 14;
+        if (utilTransform && Array.isArray(item.transform) && Array.isArray(viewport.transform)) {
+          const m = utilTransform(viewport.transform, item.transform);
+          tx = m[4] * sx;
+          ty = m[5] * sy;
+          fontH = Math.max(9, Math.hypot(m[2], m[3]) * sy);
+        } else if (Array.isArray(item.transform)) {
+          tx = (item.transform[4] || 0) * sx;
+          ty = (viewport.height - (item.transform[5] || 0)) * sy;
+          fontH = Math.max(9, Math.abs(item.transform[3] || item.height || 14) * sy);
+        }
+        const itemW = Math.max(10, (item.width || item.str.length * (fontH * 0.52)) * sx);
+        items.push({
+          str: item.str,
+          norm: normalizeSearchText(item.str),
+          x: tx,
+          y: ty - fontH * 0.88,
+          width: itemW,
+          height: fontH * 1.18
+        });
+      }
+      pdfTextIndexCache.set(cacheKey, items);
+      return items;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function updatePdfSearchBarUi() {
+    if (typeof document === 'undefined') return;
+    const countEl = document.getElementById('pdfSearchCount');
+    const prevBtn = document.getElementById('btnPdfSearchPrev');
+    const nextBtn = document.getElementById('btnPdfSearchNext');
+    const total = pdfSearchState.matches.length;
+    const idx = total > 0 && pdfSearchState.activeIndex >= 0 ? pdfSearchState.activeIndex + 1 : 0;
+    if (countEl) countEl.textContent = `${idx} / ${total}`;
+    if (prevBtn) prevBtn.disabled = total <= 1;
+    if (nextBtn) nextBtn.disabled = total <= 1;
+  }
+
+  function drawPdfSearchHighlights(ctx, pageId) {
+    if (!pdfSearchState.open || !pdfSearchState.matches.length) return;
+    ctx.save();
+    pdfSearchState.matches.forEach((m, idx) => {
+      if (m.pageId !== pageId) return;
+      const isCurrent = idx === pdfSearchState.activeIndex;
+      const pad = 2;
+      ctx.fillStyle = isCurrent ? 'rgba(249, 115, 22, 0.42)' : 'rgba(250, 204, 21, 0.36)';
+      ctx.strokeStyle = isCurrent ? '#ea580c' : 'rgba(202, 138, 4, 0.65)';
+      ctx.lineWidth = (isCurrent ? 2 : 1) / Math.max(0.25, state.zoom || 1);
+      ctx.fillRect(m.x - pad, m.y - pad, m.width + pad * 2, m.height + pad * 2);
+      ctx.strokeRect(m.x - pad, m.y - pad, m.width + pad * 2, m.height + pad * 2);
+    });
+    ctx.restore();
+  }
+
+  function navigatePdfSearchToIndex(index) {
+    const total = pdfSearchState.matches.length;
+    if (total === 0) {
+      pdfSearchState.activeIndex = -1;
+      updatePdfSearchBarUi();
+      renderActiveCanvasOnly();
+      return null;
+    }
+    const safeIdx = ((index % total) + total) % total;
+    pdfSearchState.activeIndex = safeIdx;
+    const match = pdfSearchState.matches[safeIdx];
+    if (match && match.pageId && state.activePageId !== match.pageId) {
+      selectPage(match.pageId);
+    }
+    // Centre doucement la vue si le résultat est hors de l'écran
+    if (match && dom.canvasViewport) {
+      const vp = dom.canvasViewport.getBoundingClientRect();
+      if (vp && vp.width > 0 && vp.height > 0) {
+        const sx = (match.x + match.width * 0.5) * state.zoom + state.panX;
+        const sy = (match.y + match.height * 0.5) * state.zoom + state.panY;
+        if (sx < 40 || sx > vp.width - 40 || sy < 95 || sy > vp.height - 40) {
+          const targetPanX = vp.width * 0.5 - (match.x + match.width * 0.5) * state.zoom;
+          const targetPanY = vp.height * 0.45 - (match.y + match.height * 0.5) * state.zoom;
+          const clamped = clampViewportPan(targetPanX, targetPanY, state.zoom, getActivePage());
+          state.panX = clamped.panX;
+          state.panY = clamped.panY;
+          syncWorldLayerTransform();
+          requestRender();
+        }
+      }
+    }
+    updatePdfSearchBarUi();
+    renderActiveCanvasOnly();
+    return match;
+  }
+
+  async function runPdfAndNotebookSearch(rawQuery, options = {}) {
+    const q = String(rawQuery || '').trim();
+    pdfSearchState.query = q;
+    const token = ++pdfSearchState.searchToken;
+    if (!q) {
+      pdfSearchState.matches = [];
+      pdfSearchState.activeIndex = -1;
+      updatePdfSearchBarUi();
+      renderActiveCanvasOnly();
+      return [];
+    }
+    const normQ = normalizeSearchText(q);
+    const pages = getActiveNotebookPages();
+    const matches = [];
+
+    for (let pi = 0; pi < pages.length; pi++) {
+      if (token !== pdfSearchState.searchToken) return pdfSearchState.matches;
+      const pg = pages[pi];
+      // 1. Recherche dans le texte PDF natif hors-ligne
+      if (pg.pdfId && pg.pdfPageNumber) {
+        const items = await extractPdfPageTextItems(pg);
+        if (token !== pdfSearchState.searchToken) return pdfSearchState.matches;
+        for (const it of items) {
+          let pos = 0;
+          while ((pos = it.norm.indexOf(normQ, pos)) !== -1) {
+            const totalLen = Math.max(1, it.norm.length);
+            const subX = it.x + (pos / totalLen) * it.width;
+            const subW = Math.max(12, (normQ.length / totalLen) * it.width);
+            matches.push({
+              pageId: pg.id,
+              pageIndex: pi,
+              x: subX,
+              y: it.y,
+              width: subW,
+              height: it.height,
+              text: it.str,
+              source: 'pdf'
+            });
+            pos += Math.max(1, normQ.length);
+          }
+        }
+      }
+      // 2. Recherche dans les cartes texte & LaTeX du cahier
+      for (const tb of (pg.texts || [])) {
+        const content = `${tb.text || ''} ${tb.latex || ''}`.trim();
+        if (!content) continue;
+        if (normalizeSearchText(content).includes(normQ)) {
+          matches.push({
+            pageId: pg.id,
+            pageIndex: pi,
+            x: tb.x || 0,
+            y: tb.y || 0,
+            width: Math.max(80, tb.width || 220),
+            height: 36,
+            text: content,
+            source: 'text'
+          });
+        }
+      }
+    }
+
+    if (token !== pdfSearchState.searchToken) return pdfSearchState.matches;
+    pdfSearchState.matches = matches;
+    if (matches.length === 0) {
+      pdfSearchState.activeIndex = -1;
+      updatePdfSearchBarUi();
+      renderActiveCanvasOnly();
+      return [];
+    }
+    let initialIdx = 0;
+    if (options.preservePage !== false) {
+      const onCur = matches.findIndex((m) => m.pageId === state.activePageId);
+      if (onCur >= 0) initialIdx = onCur;
+    }
+    navigatePdfSearchToIndex(initialIdx);
+    return matches;
+  }
+
+  function openPdfSearchBar() {
+    pdfSearchState.open = true;
+    const bar = document.getElementById('pdfSearchBar');
+    const input = document.getElementById('pdfSearchInput');
+    const btn = document.getElementById('btnPdfSearch');
+    if (bar) bar.classList.remove('hidden');
+    if (btn) btn.classList.add('active');
+    updatePdfSearchBarUi();
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }
+
+  function closePdfSearchBar() {
+    pdfSearchState.open = false;
+    pdfSearchState.matches = [];
+    pdfSearchState.activeIndex = -1;
+    const bar = document.getElementById('pdfSearchBar');
+    const btn = document.getElementById('btnPdfSearch');
+    if (bar) bar.classList.add('hidden');
+    if (btn) btn.classList.remove('active');
+    renderActiveCanvasOnly();
+  }
+
+  function initNewFeaturesPack() {
+    // #4 Onglets multi-documents
+    loadOpenNotebookTabs();
+    syncOpenTabsWithActiveNotebook();
+    if (typeof document !== 'undefined') {
+      const btnTabAdd = document.getElementById('btnDocTabAdd');
+      const popTabAdd = document.getElementById('docTabAddPopover');
+      if (btnTabAdd && popTabAdd) {
+        btnTabAdd.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const willOpen = popTabAdd.classList.contains('hidden');
+          if (willOpen) renderDocTabAddPopover();
+          popTabAdd.classList.toggle('hidden', !willOpen);
+        });
+        document.addEventListener('pointerdown', (ev) => {
+          if (!popTabAdd.classList.contains('hidden') && !ev.target.closest('.doc-tab-add-wrap')) {
+            popTabAdd.classList.add('hidden');
+          }
+        });
+      }
+
+      // #1 Règle graduée virtuelle
+      initVirtualRulerEvents();
+
+      // #3 Modale recadrage d'images
+      initImageCropModalEvents();
+
+      // #6 Bibliothèque d'éléments réutilisables
+      const btnElements = document.getElementById('btnElementsLibrary');
+      const popElements = document.getElementById('elementsPopover');
+      const btnCloseElements = document.getElementById('btnCloseElementsPopover');
+      const btnSaveElLasso = document.getElementById('btnQuickSaveElementLasso');
+      if (btnElements && popElements) {
+        btnElements.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const willOpen = popElements.classList.contains('hidden');
+          if (willOpen) renderElementsPopover();
+          popElements.classList.toggle('hidden', !willOpen);
+          btnElements.classList.toggle('active', willOpen);
+        });
+        document.addEventListener('pointerdown', (ev) => {
+          if (!popElements.classList.contains('hidden') && !ev.target.closest('#elementsPopover') && !ev.target.closest('#btnElementsLibrary')) {
+            popElements.classList.add('hidden');
+            btnElements.classList.remove('active');
+          }
+        });
+      }
+      if (btnCloseElements && popElements) {
+        btnCloseElements.addEventListener('click', () => {
+          popElements.classList.add('hidden');
+          if (btnElements) btnElements.classList.remove('active');
+        });
+      }
+      if (btnSaveElLasso) {
+        btnSaveElLasso.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          saveLassoSelectionAsElement();
+        });
+      }
+
+      // #9 Recherche PDF / Cahier (Ctrl+F)
+      const btnPdfSearch = document.getElementById('btnPdfSearch');
+      const searchInput = document.getElementById('pdfSearchInput');
+      const btnPrev = document.getElementById('btnPdfSearchPrev');
+      const btnNext = document.getElementById('btnPdfSearchNext');
+      const btnCloseSearch = document.getElementById('btnPdfSearchClose');
+      let searchDebounceTimer = null;
+
+      if (btnPdfSearch) {
+        btnPdfSearch.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (pdfSearchState.open) closePdfSearchBar();
+          else openPdfSearchBar();
+        });
+      }
+      if (btnCloseSearch) btnCloseSearch.addEventListener('click', closePdfSearchBar);
+      if (btnPrev) btnPrev.addEventListener('click', () => navigatePdfSearchToIndex(pdfSearchState.activeIndex - 1));
+      if (btnNext) btnNext.addEventListener('click', () => navigatePdfSearchToIndex(pdfSearchState.activeIndex + 1));
+      if (searchInput) {
+        searchInput.addEventListener('input', () => {
+          if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+          searchDebounceTimer = setTimeout(() => {
+            runPdfAndNotebookSearch(searchInput.value);
+          }, 160);
+        });
+        searchInput.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            if (pdfSearchState.matches.length === 0) {
+              runPdfAndNotebookSearch(searchInput.value);
+            } else {
+              navigatePdfSearchToIndex(pdfSearchState.activeIndex + (ev.shiftKey ? -1 : 1));
+            }
+          } else if (ev.key === 'Escape') {
+            ev.preventDefault();
+            closePdfSearchBar();
+          }
+        });
+      }
+    }
+  }
+
+  // ============================================================================
   // MODE HORS-LIGNE (VERSION NAVIGATEUR) : ENREGISTREMENT DU SERVICE WORKER sw.js
   // ============================================================================
   // Uniquement servi en http(s) dans un navigateur : jamais sous Tauri (WebView2,
@@ -20595,6 +22330,24 @@
       duplicateLassoSelection,
       computeSelectionBounds,
       removeAllTapesOnActivePage,
+      toggleVirtualRuler,
+      snapWorldPointToVirtualRuler,
+      getVirtualRulerState: () => ({ ...virtualRulerState }),
+      openNotebookInTab,
+      closeNotebookTab,
+      renderDocTabsBar,
+      saveLassoSelectionAsElement,
+      insertElementIntoActivePage,
+      getSavedElementsLibrary,
+      BUILTIN_VECTOR_ELEMENTS,
+      openImageCropModal,
+      closeImageCropModal,
+      applyImageCrop,
+      openPdfSearchBar,
+      closePdfSearchBar,
+      runPdfAndNotebookSearch,
+      navigatePdfSearchToIndex,
+      getPdfSearchState: () => ({ ...pdfSearchState, matches: [...pdfSearchState.matches] }),
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,
@@ -20614,6 +22367,7 @@
   bindEvents();
   initGoodnotesExtensions();
   initGnTemplateLibraryModal();
+  initNewFeaturesPack();
   updateToolbarActiveState();
   renderWorldTextCards();
   fitPageToViewport();
