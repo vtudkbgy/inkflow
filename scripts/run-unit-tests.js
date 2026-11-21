@@ -941,6 +941,42 @@ async function runTests() {
     assert.ok(shElbowConn.endConnection && shElbowConn.endConnection.shapeId === shCircle.id, 'Le connecteur coudé doit se connecter au port nord du cercle');
     st.shapeType = 'auto';
 
+    // Clic sur une forme dessinée -> sélection, redimensionnement par poignée (avec suivi des traits connectés), conversion de type, remplissage/épaisseur/couleur
+    const [tapCx, tapCy] = toScreen(cCx, cCy);
+    api.handlePointerDown({ pointerId: 929, pointerType: 'pen', button: 0, buttons: 1, clientX: tapCx, clientY: tapCy, pressure: 0.5, preventDefault() {} });
+    api.handlePointerUpOrCancel({ pointerId: 929, pointerType: 'pen', button: 0, buttons: 0, clientX: tapCx + 1, clientY: tapCy + 1, pressure: 0, preventDefault() {} });
+    assert.equal(st.selectedShapeId, shCircle.id, 'Cliquer sur le cercle en outil Formes doit le sélectionner pour édition');
+    const shapeEditBar = sandbox.document.getElementById('shapeEditFloatingBar');
+    assert.ok(shapeEditBar && !shapeEditBar.classList.contains('hidden'), 'La barre flottante #shapeEditFloatingBar doit apparaître sur sélection d’une forme');
+
+    // Redimensionnement via la poignée Est (+40 px) -> le cercle s'élargit et le trait connecté suit automatiquement
+    const prevCircleRight = Math.max(shCircle.x1, shCircle.x2);
+    const prevLineOverX2 = shLineOvershoot.x2;
+    const [eastX, eastY] = toScreen(prevCircleRight, cCy);
+    const [eastDragX, eastDragY] = toScreen(prevCircleRight + 40, cCy);
+    api.handlePointerDown({ pointerId: 930, pointerType: 'pen', button: 0, buttons: 1, clientX: eastX, clientY: eastY, pressure: 0.5, preventDefault() {} });
+    api.handlePointerMove({ pointerId: 930, pointerType: 'pen', button: 0, buttons: 1, clientX: eastDragX, clientY: eastDragY, pressure: 0.5, getCoalescedEvents: () => [], preventDefault() {} });
+    api.handlePointerUpOrCancel({ pointerId: 930, pointerType: 'pen', button: 0, buttons: 0, clientX: eastDragX, clientY: eastDragY, pressure: 0, preventDefault() {} });
+    assert.ok(Math.max(shCircle.x1, shCircle.x2) > prevCircleRight + 30, 'Glisser la poignée Est doit élargir la forme sélectionnée');
+    assert.ok(shLineOvershoot.x2 > prevLineOverX2 + 10, 'Le trait connecté au cercle doit suivre automatiquement le redimensionnement');
+
+    // Changement de type (Cercle -> Rectangle), remplissage, épaisseur et duplication via la barre flottante
+    assert.equal(api.convertSelectedShapeType('rect'), true, 'La conversion du cercle sélectionné en rectangle doit réussir');
+    assert.equal(shCircle.type, 'rect', 'convertSelectedShapeType("rect") doit convertir le cercle en rectangle');
+    const fillEditBtn = sandbox.document.getElementById('btnShapeEditFill');
+    fillEditBtn.dispatchEvent({ type: 'click', target: fillEditBtn, stopPropagation() {} });
+    assert.equal(shCircle.filled, true, 'Le bouton Remplissage doit activer le remplissage de la forme');
+    const prevShapeSz = shCircle.size;
+    const thickEditBtn = sandbox.document.getElementById('btnShapeEditThick');
+    thickEditBtn.dispatchEvent({ type: 'click', target: thickEditBtn, stopPropagation() {} });
+    assert.ok(shCircle.size > prevShapeSz, 'Le bouton + doit augmenter l’épaisseur de la forme');
+    const customColInput = sandbox.document.getElementById('shapeEditCustomColor');
+    customColInput.value = '#dc2626';
+    customColInput.dispatchEvent({ type: 'input', target: customColInput, stopPropagation() {} });
+    assert.equal(shCircle.color, '#dc2626', 'Le sélecteur couleur de la barre d’édition doit recolorer la forme');
+    api.clearSelectedShape(true);
+    assert.equal(st.selectedShapeId, null, 'clearSelectedShape doit désélectionner proprement la forme');
+
     // Gomme mode "segment" + "Surligneur seul" (eraserHighlighterOnly)
     st.eraserMode = 'segment';
     st.eraserHighlighterOnly = true;

@@ -3570,11 +3570,35 @@ html, body {
   to { opacity: 1; transform: scale(1); }
 }
 
+.gn-color-slots-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 310px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 3px;
+}
+
+.gn-color-slots-list::-webkit-scrollbar {
+  display: none;
+}
+
+.gn-sr-color-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .gn-color-circle {
-  width: 28px;
-  height: 28px;
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
   border-radius: 50%;
-  border: 1.5px solid rgba(15, 23, 42, 0.14);
+  border: 1px solid rgba(15, 23, 42, 0.16);
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -3582,22 +3606,23 @@ html, body {
   cursor: pointer;
   padding: 0;
   transition:
-    background-color 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.22s cubic-bezier(0.22, 1, 0.36, 1),
     transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 0.22s ease,
-    color 0.2s ease;
+    box-shadow 0.2s ease,
+    color 0.18s ease;
 }
 
 .gn-color-circle.is-light-color {
-  color: #18181b;
+  color: #3f3f46;
+  border-color: rgba(15, 23, 42, 0.22);
 }
 
 .gn-color-circle:hover {
-  transform: scale(1.1);
+  transform: scale(1.08);
 }
 
 .gn-color-circle:active {
-  transform: scale(0.9);
+  transform: scale(0.92);
 }
 
 .gn-color-circle .gn-color-chevron {
@@ -3607,12 +3632,12 @@ html, body {
 }
 
 .gn-color-circle.active {
-  box-shadow: 0 0 0 4px rgba(15, 23, 42, 0.11);
-  transform: scale(1.04);
+  box-shadow: 0 0 0 6px rgba(15, 23, 42, 0.085);
+  margin: 0 3px;
 }
 
 [data-theme="dark"] .gn-color-circle.active {
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.16);
 }
 
 .gn-color-circle.active .gn-color-chevron {
@@ -3622,46 +3647,53 @@ html, body {
 
 .gn-add-color-btn {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
   border-radius: 50%;
-  border: 2px dashed #3f3f46;
+  border: none;
   background: transparent;
+  color: #18181b;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 2px;
-  transition: transform 0.16s ease, border-color 0.15s ease;
+  padding: 0;
+  transition: transform 0.16s ease, background-color 0.18s ease, color 0.15s ease;
+}
+
+.gn-add-color-btn-sm {
+  width: 28px;
+  height: 28px;
 }
 
 [data-theme="dark"] .gn-add-color-btn {
-  border-color: #a1a1aa;
+  color: #e4e4e7;
+}
+
+[data-theme="dark"] .gn-add-color-btn .gn-add-badge-plus {
+  stroke: #18181b;
 }
 
 .gn-add-color-btn:hover {
-  transform: scale(1.08);
-  border-color: var(--accent-primary);
+  background: rgba(15, 23, 42, 0.07);
+  transform: scale(1.05);
 }
 
-.gn-add-plus {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #18181b;
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 14px;
-  text-align: center;
+[data-theme="dark"] .gn-add-color-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 
-[data-theme="dark"] .gn-add-plus {
-  background: #f4f4f5;
-  color: #18181b;
+.gn-add-color-btn.popover-open {
+  background: rgba(15, 23, 42, 0.10);
+}
+
+[data-theme="dark"] .gn-add-color-btn.popover-open {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.gn-add-color-btn:active {
+  transform: scale(0.93);
 }
 
 /* ==================== GOODNOTES PEN POPOVER CARD ==================== */
@@ -6404,4 +6436,530 @@ html, body {
   .gn-files-header {
     padding: 0 14px;
   }
+}
+
+/* ============================================================================
+   POPOVER SÉLECTEUR DE COULEUR GOODNOTES 6 (PRÉRÉGLAGES 5 COLONNES + PERSONNALISÉ)
+   ============================================================================ */
+.gn-color-popover.hidden {
+  display: none !important;
+}
+
+.gn-color-popover {
+  position: fixed;
+  top: 116px;
+  left: 50%;
+  width: 284px;
+  border-radius: 18px;
+  background: #f6f6f7;
+  color: #141416;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  box-shadow: 0 16px 46px rgba(15, 23, 42, 0.18), 0 3px 10px rgba(15, 23, 42, 0.08);
+  z-index: 9500;
+  user-select: none;
+  padding-bottom: 16px;
+  animation: gnColorPopIn 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-theme="dark"] .gn-color-popover {
+  background: #23262f;
+  color: #f4f4f5;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+
+@keyframes gnColorPopIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.gn-color-popover-caret {
+  position: absolute;
+  top: -7px;
+  left: 142px;
+  width: 14px;
+  height: 14px;
+  background: #f6f6f7;
+  border-top: 1px solid rgba(15, 23, 42, 0.10);
+  border-left: 1px solid rgba(15, 23, 42, 0.10);
+  transform: translateX(-50%) rotate(45deg);
+  pointer-events: none;
+}
+
+[data-theme="dark"] .gn-color-popover-caret {
+  background: #23262f;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.gn-color-popover.caret-bottom .gn-color-popover-caret {
+  top: auto;
+  bottom: -7px;
+  transform: translateX(-50%) rotate(225deg);
+}
+
+.gn-color-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px 10px 18px;
+  min-height: 48px;
+  position: relative;
+}
+
+.gn-color-popover-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gn-color-popover-title {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gn-color-popover-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.gn-color-header-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.15s ease;
+}
+
+.gn-color-header-icon-btn:hover {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="dark"] .gn-color-header-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.gn-color-header-icon-btn.hidden {
+  display: none !important;
+}
+
+.gn-color-slot-menu {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  min-width: 224px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  padding: 5px;
+  z-index: 20;
+}
+
+[data-theme="dark"] .gn-color-slot-menu {
+  background: #2c303b;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.gn-color-slot-menu.hidden {
+  display: none !important;
+}
+
+.gn-color-slot-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  color: inherit;
+}
+
+.gn-color-slot-menu-item.danger {
+  color: #dc2626;
+}
+
+.gn-color-slot-menu-item:hover {
+  background: rgba(220, 38, 38, 0.10);
+}
+
+/* Grille 5 colonnes style GoodNotes (ColorPresetsSelector) */
+.gn-color-presets-view {
+  padding: 6px 14px 4px 14px;
+}
+
+.gn-color-presets-view.hidden,
+.gn-color-custom-view.hidden,
+.gn-color-shape-fill-section.hidden,
+.gn-color-edit-actions.hidden,
+.gn-color-commit-add-btn.hidden {
+  display: none !important;
+}
+
+.gn-color-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 48px);
+  row-gap: 6px;
+  column-gap: 4px;
+  justify-content: center;
+  justify-items: center;
+  align-items: center;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.gn-color-preset-btn {
+  all: unset;
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.14s ease;
+}
+
+.gn-color-preset-btn:hover {
+  background: rgba(15, 23, 42, 0.075);
+}
+
+[data-theme="dark"] .gn-color-preset-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.gn-color-preset-btn.selected {
+  background: rgba(15, 23, 42, 0.10);
+}
+
+[data-theme="dark"] .gn-color-preset-btn.selected {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.gn-color-preset-btn:active {
+  transform: scale(0.92);
+}
+
+.gn-color-preset-dot {
+  grid-area: 1 / 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 0.8px solid rgba(15, 23, 42, 0.18);
+  box-sizing: border-box;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+[data-theme="dark"] .gn-color-preset-dot {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.gn-color-preset-btn:hover .gn-color-preset-dot {
+  transform: scale(1.06);
+}
+
+.gn-color-preset-chevron {
+  grid-area: 1 / 1;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.gn-color-preset-btn.selected .gn-color-preset-chevron {
+  opacity: 1;
+}
+
+/* Bouton Roue Arc-en-Ciel GoodNotes (AddColorButton) */
+.gn-color-rainbow-btn {
+  all: unset;
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.14s ease;
+}
+
+.gn-color-rainbow-btn:hover {
+  background: rgba(15, 23, 42, 0.075);
+}
+
+[data-theme="dark"] .gn-color-rainbow-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.gn-color-rainbow-btn:active {
+  transform: scale(0.92);
+}
+
+.gn-color-rainbow-wheel {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.18) 38%, transparent 66%),
+    conic-gradient(from 0deg, #ff3b30, #ff9500, #ffcc00, #34c759, #00c7be, #007aff, #af52de, #ff2d55, #ff3b30);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12), 0 1px 3px rgba(0, 0, 0, 0.12);
+  transition: transform 0.18s ease;
+}
+
+.gn-color-rainbow-btn:hover .gn-color-rainbow-wheel {
+  transform: scale(1.08);
+}
+
+/* Vue 2 : Éditeur Personnalisé GoodNotes (Saturation/Luminosité + Teinte + HEX) */
+.gn-color-custom-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px 18px 2px 18px;
+}
+
+.gn-color-sat-box {
+  position: relative;
+  width: 100%;
+  height: 132px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  cursor: crosshair;
+  touch-action: none;
+  background-color: hsl(211, 100%, 50%);
+}
+
+.gn-color-sat-white {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, #ffffff, rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+
+.gn-color-sat-black {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, #000000, rgba(0, 0, 0, 0));
+  pointer-events: none;
+}
+
+.gn-color-sat-thumb {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 2px 5px rgba(0, 0, 0, 0.25);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.gn-color-hue-wrap {
+  position: relative;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.gn-color-hue-bar {
+  width: 100%;
+  height: 9px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+.gn-color-hue-thumb {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 18px;
+  border-radius: 3px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.28);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.gn-color-hex-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gn-color-hex-group {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  height: 34px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  background: #ffffff;
+}
+
+[data-theme="dark"] .gn-color-hex-group {
+  background: #1b1e26;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.gn-color-custom-preview {
+  width: 34px;
+  height: 100%;
+  flex-shrink: 0;
+  border-right: 1px solid rgba(15, 23, 42, 0.12);
+  background: #007aff;
+}
+
+.gn-color-hex-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 10px;
+  text-transform: uppercase;
+}
+
+.gn-color-commit-add-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+.gn-color-commit-add-btn:hover {
+  transform: scale(1.07);
+}
+
+.gn-color-commit-circle {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #007aff;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.gn-color-commit-plus {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #007aff;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.gn-color-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gn-color-edit-ok-btn,
+.gn-color-edit-del-btn {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.14s ease, filter 0.14s ease;
+}
+
+.gn-color-edit-ok-btn {
+  background: #007aff;
+}
+
+.gn-color-edit-del-btn {
+  background: #dc2626;
+}
+
+.gn-color-edit-ok-btn:hover,
+.gn-color-edit-del-btn:hover {
+  filter: brightness(1.08);
+  transform: scale(1.04);
+}
+
+.gn-color-popover-divider {
+  height: 1px;
+  background: rgba(15, 23, 42, 0.09);
+  margin: 12px 18px 10px 18px;
+}
+
+[data-theme="dark"] .gn-color-popover-divider {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.gn-color-shape-fill-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* Pastille couleur dans la barre flottante du lasso et des cartes texte */
+.lasso-color-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #007aff;
+  border: 1.5px solid rgba(15, 23, 42, 0.22);
+}
+
+.card-color-dot {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1px solid rgba(15, 23, 42, 0.28);
+  vertical-align: middle;
 }

@@ -2907,13 +2907,13 @@
     highlighterAutoStraighten: false,
     highlighterSmoothing: 0,
     pencilDrawAndHold: true,
-    penColor: '#1e293b',
-    pencilColor: '#111827',
-    highlighterColor: '#facc15',
-    shapeColor: '#1d4ed8',
-    tapeColor: '#f59e0b',
+    penColor: '#000000',
+    pencilColor: '#000000',
+    highlighterColor: '#ffff00',
+    shapeColor: '#000000',
+    tapeColor: '#ff5f67',
     laserColor: '#ef4444',
-    textColor: '#1e293b',
+    textColor: '#000000',
     penSize: 5,
     pencilSize: 5,
     highlighterSize: 22,
@@ -2922,14 +2922,14 @@
     tapeSize: 26,
     laserSize: 6,
     toolMemory: {
-      pen: { color: '#1e293b', size: 5, colorSlots: ['#111827', '#3b82f6', '#dc2626'], sizeSlots: [2.5, 5, 12] },
-      pencil: { color: '#111827', size: 5, colorSlots: ['#111827', '#52525b', '#9ca3af'], sizeSlots: [2.5, 5, 10] },
-      highlighter: { color: '#facc15', size: 22, colorSlots: ['#facc15', '#4ade80', '#f472b6'], sizeSlots: [12, 22, 34] },
-      shape: { color: '#1d4ed8', size: 4, colorSlots: ['#1d4ed8', '#1e293b', '#dc2626'], sizeSlots: [2, 4, 8] },
-      eraser: { color: '#94a3b8', size: 18, colorSlots: [], sizeSlots: [10, 18, 32] },
-      tape: { color: '#f59e0b', size: 26, colorSlots: ['#f59e0b', '#38bdf8', '#a855f7'], sizeSlots: [18, 26, 36] },
-      laser: { color: '#ef4444', size: 6, colorSlots: ['#ef4444', '#3b82f6', '#22c55e'], sizeSlots: [4, 6, 10] },
-      text: { color: '#1e293b', size: 16, colorSlots: ['#1e293b', '#1d4ed8', '#dc2626'], sizeSlots: [14, 16, 22] }
+      pen: { color: '#000000', size: 5, colorSlots: ['#000000', '#007aff', '#dc2626'], activeColorSlotIndex: 0, sizeSlots: [2.5, 5, 12] },
+      pencil: { color: '#000000', size: 5, colorSlots: ['#000000', '#636363', '#9b9b9b'], activeColorSlotIndex: 0, sizeSlots: [2.5, 5, 10] },
+      highlighter: { color: '#ffff00', size: 22, colorSlots: ['#ffff00', '#00ff00', '#00ffff'], activeColorSlotIndex: 0, sizeSlots: [12, 22, 34] },
+      shape: { color: '#000000', size: 4, colorSlots: ['#000000', '#007aff', '#dc2626'], activeColorSlotIndex: 0, sizeSlots: [2, 4, 8] },
+      eraser: { color: '#94a3b8', size: 18, colorSlots: [], activeColorSlotIndex: 0, sizeSlots: [10, 18, 32] },
+      tape: { color: '#ff5f67', size: 26, colorSlots: ['#ff5f67', '#ff9f49', '#f7ca1d'], activeColorSlotIndex: 0, sizeSlots: [18, 26, 36] },
+      laser: { color: '#ef4444', size: 6, colorSlots: ['#ef4444', '#007aff', '#009b55'], activeColorSlotIndex: 0, sizeSlots: [4, 6, 10] },
+      text: { color: '#000000', size: 16, colorSlots: ['#000000', '#007aff', '#d20000'], activeColorSlotIndex: 0, sizeSlots: [14, 16, 22] }
     },
     smoothing: 0.65,
     tipSharpness: 0.5,
@@ -3225,6 +3225,84 @@
     } catch (_) {}
   }
 
+  // Palettes de préréglages exactes GoodNotes 6 (issues de l'analyse REA : pen/shape, pencil, highlighter, tape, text)
+  const GN_DEFAULT_COLOR_PRESETS_BY_TOOL = {
+    pen: [
+      '#000000', '#636363', '#9b9b9b', '#d2d2d2', '#ffffff',
+      '#ff0202', '#82218b', '#f65353', '#ff9797', '#fe9a23',
+      '#007aff', '#03468f', '#009b55', '#7ec636', '#fdff85'
+    ],
+    pencil: [
+      '#000000', '#636363', '#9b9b9b', '#d2d2d2', '#ffffff',
+      '#baa184', '#cfbfa6', '#e2d7c3', '#f8f7eb'
+    ],
+    highlighter: [
+      '#ffff00', '#00ff00', '#00ffff', '#ffa238', '#ff0038',
+      '#fde68a', '#86efac', '#93c5fd', '#f9a8d4', '#c4b5fd'
+    ],
+    tape: [
+      '#ff5f67', '#ff9f49', '#f7ca1d', '#63dd57', '#60d0e2',
+      '#80c1ff', '#cea4fa', '#fc8cc7', '#e4e2dc'
+    ],
+    shape: [
+      '#000000', '#636363', '#9b9b9b', '#d2d2d2', '#ffffff',
+      '#ff0202', '#82218b', '#f65353', '#ff9797', '#fe9a23',
+      '#007aff', '#03468f', '#009b55', '#7ec636', '#fdff85'
+    ],
+    text: [
+      '#000000', '#636363', '#9b9b9b', '#d2d2d2', '#ffffff',
+      '#cc72d3', '#d20000', '#f65353', '#ff9797', '#f59a23',
+      '#007aff', '#03468f', '#007355', '#7ec636', '#fdff85'
+    ],
+    laser: [
+      '#000000', '#636363', '#9b9b9b', '#d2d2d2', '#ffffff',
+      '#ff0202', '#82218b', '#f65353', '#ff9797', '#fe9a23',
+      '#007aff', '#03468f', '#009b55', '#7ec636', '#fdff85'
+    ],
+    cover: [
+      '#000000', '#636363', '#9b9b9b', '#d2d2d2', '#ffffff',
+      '#ff0202', '#82218b', '#f65353', '#ff9797', '#fe9a23',
+      '#007aff', '#03468f', '#009b55', '#7ec636', '#fdff85'
+    ],
+    folder: [
+      '#000000', '#636363', '#9b9b9b', '#d2d2d2', '#ffffff',
+      '#ff0202', '#82218b', '#f65353', '#ff9797', '#fe9a23',
+      '#007aff', '#03468f', '#009b55', '#7ec636', '#fdff85'
+    ]
+  };
+  const GN_MAX_COLOR_SLOTS = 12;
+  const GN_MAX_COLOR_PRESETS = 50;
+  const GN_EXTRA_PRESETS_BY_SCOPE = {
+    cover: [...GN_DEFAULT_COLOR_PRESETS_BY_TOOL.cover],
+    folder: [...GN_DEFAULT_COLOR_PRESETS_BY_TOOL.folder]
+  };
+
+  function normalizeHexColor(hex) {
+    if (typeof hex !== 'string') return null;
+    let s = hex.trim();
+    if (!s.startsWith('#')) s = '#' + s;
+    if (/^#[0-9a-f]{3}$/i.test(s)) {
+      s = '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
+    }
+    if (!/^#[0-9a-f]{6}$/i.test(s)) return null;
+    return s.toLowerCase();
+  }
+
+  function getToolColorPresets(scopeKey) {
+    const key = scopeKey || 'pen';
+    const mem = state.toolMemory && state.toolMemory[key];
+    if (mem) {
+      if (!Array.isArray(mem.colorPresets) || mem.colorPresets.length === 0) {
+        mem.colorPresets = [...(GN_DEFAULT_COLOR_PRESETS_BY_TOOL[key] || GN_DEFAULT_COLOR_PRESETS_BY_TOOL.pen)];
+      }
+      return mem.colorPresets;
+    }
+    if (!GN_EXTRA_PRESETS_BY_SCOPE[key]) {
+      GN_EXTRA_PRESETS_BY_SCOPE[key] = [...(GN_DEFAULT_COLOR_PRESETS_BY_TOOL[key] || GN_DEFAULT_COLOR_PRESETS_BY_TOOL.pen)];
+    }
+    return GN_EXTRA_PRESETS_BY_SCOPE[key];
+  }
+
   function loadToolMemoryFromStorage() {
     try {
       if (typeof localStorage === 'undefined' || !localStorage) return;
@@ -3244,7 +3322,20 @@
           target.size = entry.size;
         }
         if (Array.isArray(entry.colorSlots) && entry.colorSlots.length > 0) {
-          target.colorSlots = entry.colorSlots.filter((c) => typeof c === 'string').slice(0, 6);
+          target.colorSlots = entry.colorSlots
+            .map((c) => normalizeHexColor(c) || (typeof c === 'string' ? c : null))
+            .filter(Boolean)
+            .slice(0, GN_MAX_COLOR_SLOTS);
+        }
+        if (typeof entry.activeColorSlotIndex === 'number' && Number.isInteger(entry.activeColorSlotIndex)) {
+          target.activeColorSlotIndex = Math.max(0, Math.min(Math.max(0, (target.colorSlots?.length || 1) - 1), entry.activeColorSlotIndex));
+        }
+        if (Array.isArray(entry.colorPresets) && entry.colorPresets.length > 0) {
+          const validPresets = entry.colorPresets
+            .map((c) => normalizeHexColor(c))
+            .filter(Boolean)
+            .slice(0, GN_MAX_COLOR_PRESETS);
+          if (validPresets.length > 0) target.colorPresets = validPresets;
         }
         if (Array.isArray(entry.sizeSlots) && entry.sizeSlots.length === 3) {
           const validSizes = entry.sizeSlots.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n >= 0.5 && n <= 64);
@@ -3255,22 +3346,45 @@
     } catch (_) {}
   }
 
-  function setToolColor(tool, hexColor) {
+  function setToolColor(tool, hexColor, opts = {}) {
     if (!hexColor) return;
-    if (tool === 'pencil') state.pencilColor = hexColor;
-    else if (tool === 'highlighter') state.highlighterColor = hexColor;
-    else if (tool === 'shape') state.shapeColor = hexColor;
-    else if (tool === 'tape') state.tapeColor = hexColor;
-    else if (tool === 'laser') state.laserColor = hexColor;
-    else if (tool === 'text') state.textColor = hexColor;
-    else state.penColor = hexColor;
+    const norm = normalizeHexColor(hexColor) || hexColor;
+    if (tool === 'pencil') state.pencilColor = norm;
+    else if (tool === 'highlighter') state.highlighterColor = norm;
+    else if (tool === 'shape') state.shapeColor = norm;
+    else if (tool === 'tape') state.tapeColor = norm;
+    else if (tool === 'laser') state.laserColor = norm;
+    else if (tool === 'text') state.textColor = norm;
+    else state.penColor = norm;
     const mem = state.toolMemory && state.toolMemory[tool];
     if (mem) {
-      mem.color = hexColor;
+      mem.color = norm;
       if (Array.isArray(mem.colorSlots)) {
-        const lower = String(hexColor).toLowerCase();
-        if (!mem.colorSlots.some((c) => String(c).toLowerCase() === lower)) {
-          mem.colorSlots = [hexColor, ...mem.colorSlots.slice(0, 2)];
+        if (opts && opts.addNewSlot) {
+          if (mem.colorSlots.length < GN_MAX_COLOR_SLOTS) {
+            mem.colorSlots.push(norm);
+          } else {
+            mem.colorSlots[mem.colorSlots.length - 1] = norm;
+          }
+          mem.activeColorSlotIndex = mem.colorSlots.length - 1;
+        } else if (opts && typeof opts.slotIndex === 'number' && opts.slotIndex >= 0 && opts.slotIndex < mem.colorSlots.length) {
+          if (!opts.selectOnly) {
+            mem.colorSlots[opts.slotIndex] = norm;
+          }
+          mem.activeColorSlotIndex = opts.slotIndex;
+        } else {
+          const lower = String(norm).toLowerCase();
+          const matchIdx = mem.colorSlots.findIndex((c) => String(c).toLowerCase() === lower);
+          if (matchIdx >= 0) {
+            mem.activeColorSlotIndex = matchIdx;
+          } else {
+            const idx = (typeof mem.activeColorSlotIndex === 'number' && mem.activeColorSlotIndex >= 0 && mem.activeColorSlotIndex < mem.colorSlots.length)
+              ? mem.activeColorSlotIndex
+              : 0;
+            if (mem.colorSlots.length === 0) mem.colorSlots.push(norm);
+            else mem.colorSlots[idx] = norm;
+            mem.activeColorSlotIndex = idx;
+          }
         }
       }
     }
@@ -3278,6 +3392,26 @@
     if (typeof dom !== 'undefined' && dom.colorDotCursor && dom.colorDotCursor.style.display === 'block') {
       dom.colorDotCursor.style.backgroundColor = getActiveCursorColor();
     }
+  }
+
+  function addToolColorSlot(toolKey, hexColor) {
+    const key = (state.toolMemory && state.toolMemory[toolKey]) ? toolKey : 'pen';
+    const norm = normalizeHexColor(hexColor);
+    if (!norm) return -1;
+    setToolColor(key, norm, { addNewSlot: true });
+    return state.toolMemory[key].activeColorSlotIndex;
+  }
+
+  function removeToolColorSlot(toolKey, slotIndex) {
+    const key = (state.toolMemory && state.toolMemory[toolKey]) ? toolKey : 'pen';
+    const mem = state.toolMemory && state.toolMemory[key];
+    if (!mem || !Array.isArray(mem.colorSlots) || mem.colorSlots.length <= 1) return false;
+    if (slotIndex < 0 || slotIndex >= mem.colorSlots.length) return false;
+    mem.colorSlots.splice(slotIndex, 1);
+    const nextIdx = Math.max(0, Math.min(slotIndex, mem.colorSlots.length - 1));
+    mem.activeColorSlotIndex = nextIdx;
+    setToolColor(key, mem.colorSlots[nextIdx], { slotIndex: nextIdx, selectOnly: true });
+    return true;
   }
 
   function setToolSize(tool, sizeVal) {
@@ -3300,9 +3434,12 @@
   const strokePathCache = new WeakMap();
   function getCachedStrokePath(stroke) {
     let cached = strokePathCache.get(stroke);
+    const isPencilStroke = stroke && (stroke.tool === 'pencil' || stroke.penStyle === 'pencil');
+    const pad = isPencilStroke
+      ? Math.max(8, (stroke.size || 5) * 2.4)
+      : Math.max(4, (stroke.size || 5) * 0.85);
     if (!cached) {
       const path2d = buildStrokePath2D(stroke);
-      const pad = Math.max(4, (stroke.size || 5) * 0.85);
       const bounds = (stroke.points && stroke.points.length > 0)
         ? (stroke._bounds || computeStrokeBounds(stroke, pad))
         : null;
@@ -3310,13 +3447,13 @@
       cached = {
         path2d,
         svgPath: null,
+        pencilSamples: null,
         bounds,
         renderMode: stroke._renderMode || ((stroke.tool === 'highlighter' || stroke.pressureMode === 'uniform') ? 'stroke' : 'fill')
       };
       strokePathCache.set(stroke, cached);
     } else {
       if (!cached.bounds && stroke.points && stroke.points.length > 0) {
-        const pad = Math.max(4, (stroke.size || 5) * 0.85);
         cached.bounds = stroke._bounds || computeStrokeBounds(stroke, pad);
         stroke._bounds = cached.bounds;
       }
@@ -4554,6 +4691,7 @@
         <div class="world-card-toolbar">
           <span class="card-drag-handle" title="Glisser pour déplacer cet emplacement sur la page infinie">⠿ ${tb.isLatex ? 'Équation LaTeX' : 'Zone Texte'}</span>
           <div class="card-mini-actions">
+            <button class="card-mini-btn" data-card-act="color" title="Couleur du texte"><span class="card-color-dot" style="background:${tb.color || '#1e293b'}"></span></button>
             <button class="card-mini-btn" data-card-act="font-down" title="Réduire la police">A−</button>
             <button class="card-mini-btn" data-card-act="font-up" title="Agrandir la police">A+</button>
             <button class="card-mini-btn" data-card-act="style" title="Changer le style de fond">🎨</button>
@@ -4588,6 +4726,7 @@
             card.style.left = `${tb.x}px`;
             card.style.top = `${tb.y}px`;
             if (hasAnyLassoSelection()) updateLassoFloatingBarPosition();
+    if (state.selectedShapeId) updateShapeEditFloatingBar();
           };
           let cleaned = false;
           const cleanupDrag = () => {
@@ -4617,7 +4756,16 @@
         btn.addEventListener('click', (ev) => {
           ev.stopPropagation();
           const act = btn.dataset.cardAct;
-          if (act === 'font-down') {
+          if (act === 'color') {
+            openGnColorPopover({
+              mode: 'text-card',
+              toolKey: 'text',
+              scopeKey: 'text',
+              textCardId: tb.id,
+              anchorEl: btn,
+              initialColor: tb.color || '#1e293b'
+            });
+          } else if (act === 'font-down') {
             tb.fontSize = Math.max(11, (tb.fontSize || 16) - 2);
             renderWorldTextCards();
             scheduleSaveActivePage(page);
@@ -5633,54 +5781,511 @@
     return [];
   }
 
-  const pencilGrainPatternCache = new Map();
-  function getPencilGrainPattern(targetCtx, hexColor) {
-    const key = String(hexColor || '#111827').toLowerCase();
-    if (!targetCtx || typeof targetCtx.createPattern !== 'function' || typeof document === 'undefined') {
-      return key;
-    }
-    let off = pencilGrainPatternCache.get(key);
-    if (!off) {
-      try {
-        off = document.createElement('canvas');
-        off.width = 48;
-        off.height = 48;
-        const octx = off.getContext && off.getContext('2d');
-        if (!octx) return key;
-        const c = key.replace('#', '');
-        const full = c.length === 3 ? c.replace(/(.)/g, '$1$1') : c;
-        const num = parseInt(full, 16);
-        const r = Number.isFinite(num) ? ((num >> 16) & 255) : 17;
-        const g = Number.isFinite(num) ? ((num >> 8) & 255) : 24;
-        const b = Number.isFinite(num) ? (num & 255) : 39;
-        // Grain graphite déterministe (grain papier réaliste 60/120 FPS en un seul draw call GPU)
-        for (let y = 0; y < 48; y += 2) {
-          for (let x = 0; x < 48; x += 2) {
-            const h1 = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-            const n1 = h1 - Math.floor(h1);
-            const h2 = Math.sin((x + 17) * 39.346 + (y + 31) * 11.135) * 24634.6345;
-            const n2 = h2 - Math.floor(h2);
-            const v = n1 * 0.65 + n2 * 0.35;
-            if (v > 0.24) {
-              const alpha = Math.min(0.95, (v - 0.2) * 1.12);
-              octx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
-              octx.fillRect(x, y, v > 0.68 ? 2 : 1.5, v > 0.56 ? 2 : 1.5);
+  // ============================================================================
+  // 11A-BIS. MOTEUR CRAYON GRAPHITE RÉALISTE (GRAIN PAPIER MULTI-OCTAVE + PRESSION + INCLINAISON)
+  // ============================================================================
+  const PENCIL_PAPER_TILE_SIZE = 256;
+  const PENCIL_DAB_SPRITE_SIZE = 64;
+  let pencilPaperValleyCanvas = null;
+  const pencilDabSpriteCache = new Map();
+  const pencilLiveBuffer = { canvas: null, ctx: null, width: 0, height: 0, dirty: false };
+  const pencilStaticScratch = { canvas: null, ctx: null, width: 0, height: 0 };
+
+  function parseHexColorRgb(hexColor) {
+    const key = String(hexColor || '#111827').trim().toLowerCase();
+    const c = key.replace('#', '');
+    const full = c.length === 3 ? c.replace(/(.)/g, '$1$1') : c;
+    const num = parseInt(full, 16);
+    if (!Number.isFinite(num)) return { r: 24, g: 24, b: 27 };
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+  }
+
+  function pencilHash2D(ix, iy, seed) {
+    let n = Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + Math.imul(seed, 1442695041);
+    n = (n ^ (n >>> 13)) >>> 0;
+    n = Math.imul(n, 1274126177) >>> 0;
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+  }
+
+  function pencilPeriodicValueNoise(x, y, freq, seed) {
+    const fx = (x / PENCIL_PAPER_TILE_SIZE) * freq;
+    const fy = (y / PENCIL_PAPER_TILE_SIZE) * freq;
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const sx = tx * tx * (3 - 2 * tx);
+    const sy = ty * ty * (3 - 2 * ty);
+    const ix0 = ((x0 % freq) + freq) % freq;
+    const iy0 = ((y0 % freq) + freq) % freq;
+    const ix1 = (ix0 + 1) % freq;
+    const iy1 = (iy0 + 1) % freq;
+    const n00 = pencilHash2D(ix0, iy0, seed);
+    const n10 = pencilHash2D(ix1, iy0, seed);
+    const n01 = pencilHash2D(ix0, iy1, seed);
+    const n11 = pencilHash2D(ix1, iy1, seed);
+    const nx0 = n00 + (n10 - n00) * sx;
+    const nx1 = n01 + (n11 - n01) * sx;
+    return nx0 + (nx1 - nx0) * sy;
+  }
+
+  function getPencilPaperValleyCanvas() {
+    if (pencilPaperValleyCanvas) return pencilPaperValleyCanvas;
+    if (typeof document === 'undefined') return null;
+    try {
+      const sz = PENCIL_PAPER_TILE_SIZE;
+      const off = document.createElement('canvas');
+      off.width = sz;
+      off.height = sz;
+      const octx = off.getContext && off.getContext('2d');
+      if (!octx || typeof octx.createImageData !== 'function') return null;
+
+      const img = octx.createImageData(sz, sz);
+      const data = img.data;
+      for (let y = 0; y < sz; y++) {
+        for (let x = 0; x < sz; x++) {
+          // Grain papier naturel multi-octave (100 % raccordable sans couture sur 256×256)
+          const o1 = pencilPeriodicValueNoise(x, y, 16, 11);
+          const o2 = pencilPeriodicValueNoise(x, y, 32, 37);
+          const o3 = pencilPeriodicValueNoise(x, y, 64, 73);
+          const o4 = pencilPeriodicValueNoise(x, y, 128, 131);
+          const micro = pencilHash2D(x, y, 251);
+          // Très légère trame fibreuse du papier vergé/esquisse
+          const fiberH = pencilPeriodicValueNoise(x * 0.5, y * 2, 64, 307);
+          const fiberV = pencilPeriodicValueNoise(x * 2, y * 0.5, 64, 419);
+          let h = o1 * 0.14 + o2 * 0.26 + o3 * 0.32 + o4 * 0.17 + micro * 0.07 + (fiberH * 0.02 + fiberV * 0.02);
+          // Rehaussement de contraste organique des crêtes et creux du grain papier
+          h = Math.max(0, Math.min(1, (h - 0.15) / 0.70));
+
+          // Masque d'évidement des creux du papier (utilisé avec destination-out) :
+          // - Crêtes du papier (h >= 0.64) : 0 % effacé (le graphite accroche franchement)
+          // - Pentes (0.34..0.64) : transition nette du grain graphite
+          // - Creux (h <= 0.34) : jusqu'à 92 % effacé (pores blancs naturels du papier)
+          let valleyErase = 0;
+          if (h < 0.64) {
+            if (h > 0.34) {
+              const t = (0.64 - h) / 0.30;
+              valleyErase = (t * t * (3 - 2 * t)) * 0.66;
+            } else {
+              const t = (0.34 - h) / 0.34;
+              valleyErase = 0.66 + t * 0.26;
             }
           }
+          const idx = (y * sz + x) * 4;
+          data[idx] = 255;
+          data[idx + 1] = 255;
+          data[idx + 2] = 255;
+          data[idx + 3] = Math.round(Math.max(0, Math.min(255, valleyErase * 255)));
         }
-        if (pencilGrainPatternCache.size >= 32) {
-          const firstKey = pencilGrainPatternCache.keys().next().value;
-          pencilGrainPatternCache.delete(firstKey);
+      }
+      octx.putImageData(img, 0, 0);
+      pencilPaperValleyCanvas = off;
+      return off;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function getPencilPaperValleyPattern(targetCtx) {
+    if (!targetCtx || typeof targetCtx.createPattern !== 'function') return null;
+    const tile = getPencilPaperValleyCanvas();
+    if (!tile) return null;
+    try {
+      const pat = targetCtx.createPattern(tile, 'repeat');
+      if (pat && typeof pat.setTransform === 'function' && typeof DOMMatrix !== 'undefined') {
+        // 256 px mappés sur 128 unités monde = grain ultra-fin 0.5px sur écrans HiDPI 200%
+        pat.setTransform(new DOMMatrix().scale(0.5, 0.5));
+      }
+      return pat;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function getPencilDabSprite(hexColor) {
+    const key = String(hexColor || '#111827').trim().toLowerCase();
+    const cached = pencilDabSpriteCache.get(key);
+    if (cached) return cached;
+    if (typeof document === 'undefined') return null;
+    try {
+      const sz = PENCIL_DAB_SPRITE_SIZE;
+      const off = document.createElement('canvas');
+      off.width = sz;
+      off.height = sz;
+      const octx = off.getContext && off.getContext('2d');
+      if (!octx || typeof octx.createImageData !== 'function') return null;
+
+      const { r, g, b } = parseHexColorRgb(key);
+      const img = octx.createImageData(sz, sz);
+      const data = img.data;
+      const half = sz * 0.5;
+      const maxR = half - 2;
+
+      for (let y = 0; y < sz; y++) {
+        for (let x = 0; x < sz; x++) {
+          const dx = x + 0.5 - half;
+          const dy = y + 0.5 - half;
+          const dist = Math.hypot(dx, dy);
+          const u = dist / maxR;
+          let alpha = 0;
+          if (u < 1.0) {
+            const ang = Math.atan2(dy, dx);
+            // Légère irrégularité organique de la mine taillée (évite un disque géométrique artificiel)
+            const leadShape = 0.93 + 0.07 * (Math.sin(ang * 3 + 0.6) * 0.55 + Math.cos(ang * 5 - 1.2) * 0.45);
+            const un = u / leadShape;
+            if (un < 1.0) {
+              if (un <= 0.40) {
+                // Cœur ferme de la mine pour garder les petits caractères nets et lisibles
+                alpha = 1.0 - 0.12 * (un / 0.40);
+              } else if (un <= 0.80) {
+                // Épaule poudreuse qui se fragmente dans les crêtes du grain papier
+                const t = (un - 0.40) / 0.40;
+                const s = t * t * (3 - 2 * t);
+                alpha = 0.88 * (1 - s) + 0.16 * s;
+              } else {
+                // Frange de poussière graphite ultra-douce en bordure
+                const t = (un - 0.80) / 0.20;
+                alpha = 0.16 * (1 - t) * (1 - t);
+              }
+              const microGrit = 0.86 + 0.14 * pencilHash2D(x, y, 509);
+              alpha *= microGrit;
+            }
+          }
+          const idx = (y * sz + x) * 4;
+          data[idx] = r;
+          data[idx + 1] = g;
+          data[idx + 2] = b;
+          data[idx + 3] = Math.round(Math.max(0, Math.min(255, alpha * 255)));
         }
-        pencilGrainPatternCache.set(key, off);
-      } catch (_) {
-        return key;
+      }
+      octx.putImageData(img, 0, 0);
+      if (pencilDabSpriteCache.size >= 24) {
+        const firstKey = pencilDabSpriteCache.keys().next().value;
+        pencilDabSpriteCache.delete(firstKey);
+      }
+      pencilDabSpriteCache.set(key, off);
+      return off;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function releasePencilBuffersMemory() {
+    if (pencilLiveBuffer.canvas) {
+      releaseCanvasMemory(pencilLiveBuffer.canvas);
+      pencilLiveBuffer.canvas = null;
+      pencilLiveBuffer.ctx = null;
+      pencilLiveBuffer.width = 0;
+      pencilLiveBuffer.height = 0;
+      pencilLiveBuffer.dirty = false;
+    }
+    if (pencilStaticScratch.canvas) {
+      releaseCanvasMemory(pencilStaticScratch.canvas);
+      pencilStaticScratch.canvas = null;
+      pencilStaticScratch.ctx = null;
+      pencilStaticScratch.width = 0;
+      pencilStaticScratch.height = 0;
+    }
+    if (pencilPaperValleyCanvas) {
+      releaseCanvasMemory(pencilPaperValleyCanvas);
+      pencilPaperValleyCanvas = null;
+    }
+    pencilDabSpriteCache.forEach((c) => releaseCanvasMemory(c));
+    pencilDabSpriteCache.clear();
+  }
+
+  function computePencilDabParams(size, pressure, tiltX, tiltY, pressureMode) {
+    const isUniform = pressureMode === 'uniform';
+    const p = isUniform ? 0.56 : Math.max(0.06, Math.min(1.0, typeof pressure === 'number' && Number.isFinite(pressure) ? pressure : 0.52));
+    const tx = typeof tiltX === 'number' && Number.isFinite(tiltX) ? tiltX : 0;
+    const ty = typeof tiltY === 'number' && Number.isFinite(tiltY) ? tiltY : 0;
+    const tiltDeg = Math.hypot(tx, ty);
+    const tiltMag = Math.min(1, tiltDeg / 65);
+    // Activation progressive de l'ombrage latéral (mine inclinée > ~23°)
+    const shadeRaw = Math.max(0, Math.min(1, (tiltMag - 0.35) / 0.52));
+    const shade = shadeRaw * shadeRaw * (3 - 2 * shadeRaw);
+
+    const rBase = Math.max(0.55, isUniform ? size * 0.5 : getStrokeRadius(size, 0.34, p));
+    const rx = rBase * (1.0 + shade * 2.45);
+    const ry = rBase * (1.0 + shade * 0.45);
+    const angle = tiltDeg > 6 ? Math.atan2(ty, tx) : 0;
+
+    // Pression → densité graphite (léger = esquisse 2H aérienne, moyen = HB riche, fort = 4B/6B dense)
+    const pressureDensity = isUniform ? 0.84 : (0.28 + Math.pow(p, 0.70) * 0.70);
+    const density = Math.max(0.16, Math.min(0.97, pressureDensity * (1 - shade * 0.45)));
+
+    return { rBase, rx, ry, angle, shade, density, p };
+  }
+
+  function stampSinglePencilDab(ctx, dabSprite, x, y, params, ds, stepIdx) {
+    const { rBase, rx, ry, angle, shade, density } = params;
+    const jitterAmp = rBase * (shade > 0.15 ? 0.13 : 0.06);
+    const jx = (pencilHash2D(stepIdx, 17, 613) - 0.5) * 2 * jitterAmp;
+    const jy = (pencilHash2D(stepIdx, 43, 719) - 0.5) * 2 * jitterAmp;
+    const px = x + jx;
+    const py = y + jy;
+
+    // Compensation exacte de l'espacement : densité constante quelle que soit la vitesse ou la taille
+    const effSpan = Math.max(1.05, (rx + ry) * 0.66);
+    const dabAlpha = Math.max(0.03, Math.min(0.92, 1 - Math.pow(Math.max(0.02, 1 - density), ds / effSpan)));
+    ctx.globalAlpha = dabAlpha;
+
+    const scaleBoost = 1.26; // Compense la frange douce du sprite 64×64
+    if (shade > 0.03) {
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(angle);
+      const dw = rx * scaleBoost * 2;
+      const dh = ry * scaleBoost * 2;
+      ctx.drawImage(dabSprite, -dw * 0.5, -dh * 0.5, dw, dh);
+      ctx.restore();
+    } else {
+      const drawR = rBase * scaleBoost;
+      ctx.drawImage(dabSprite, px - drawR, py - drawR, drawR * 2, drawR * 2);
+    }
+  }
+
+  function stampPencilCurveSegment(ctx, dabSprite, p0, p1, p2, p3, pencilState, size, pressureMode, taperFactorFn) {
+    const segDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    if (segDist < 1e-4) return;
+    const subSteps = segDist > 3.5 ? Math.min(6, Math.ceil(segDist / 2.8)) : 1;
+
+    let prevX = p1.x;
+    let prevY = p1.y;
+    let prevP = typeof p1.pressure === 'number' ? p1.pressure : (typeof p1.p === 'number' ? p1.p : 0.52);
+    let prevTx = p1.tiltX || 0;
+    let prevTy = p1.tiltY || 0;
+
+    const endP = typeof p2.pressure === 'number' ? p2.pressure : (typeof p2.p === 'number' ? p2.p : 0.52);
+    const endTx = p2.tiltX || 0;
+    const endTy = p2.tiltY || 0;
+
+    for (let s = 1; s <= subSteps; s++) {
+      const t = s / subSteps;
+      const nx = s === subSteps ? p2.x : catmullRomValue(p0.x, p1.x, p2.x, p3.x, t);
+      const ny = s === subSteps ? p2.y : catmullRomValue(p0.y, p1.y, p2.y, p3.y, t);
+      const np = prevP + (endP - prevP) * (s === subSteps ? 1 : 1 / (subSteps - s + 1));
+      const ntx = prevTx + (endTx - prevTx) * (s === subSteps ? 1 : 1 / (subSteps - s + 1));
+      const nty = prevTy + (endTy - prevTy) * (s === subSteps ? 1 : 1 / (subSteps - s + 1));
+
+      const dx = nx - prevX;
+      const dy = ny - prevY;
+      const d = Math.hypot(dx, dy);
+      if (d > 1e-4) {
+        const midParams = computePencilDabParams(size, (prevP + np) * 0.5, (prevTx + ntx) * 0.5, (prevTy + nty) * 0.5, pressureMode);
+        const ds = Math.max(0.62, Math.min(midParams.rBase * 0.34, 3.0));
+        let dist = pencilState.remainderDist;
+        while (dist <= d) {
+          const frac = dist / d;
+          const sx = prevX + dx * frac;
+          const sy = prevY + dy * frac;
+          const sp = prevP + (np - prevP) * frac;
+          const stx = prevTx + (ntx - prevTx) * frac;
+          const sty = prevTy + (nty - prevTy) * frac;
+          const params = computePencilDabParams(size, sp, stx, sty, pressureMode);
+          if (taperFactorFn) {
+            const tf = taperFactorFn(pencilState.traveled + dist);
+            if (tf < 0.999) {
+              params.rBase = Math.max(0.45, params.rBase * (0.55 + 0.45 * tf));
+              params.rx = Math.max(0.45, params.rx * (0.55 + 0.45 * tf));
+              params.ry = Math.max(0.45, params.ry * (0.55 + 0.45 * tf));
+              params.density *= (0.42 + 0.58 * tf);
+            }
+          }
+          stampSinglePencilDab(ctx, dabSprite, sx, sy, params, ds, pencilState.stepIndex++);
+          dist += ds;
+        }
+        pencilState.remainderDist = dist - d;
+        pencilState.traveled += d;
+      }
+      prevX = nx;
+      prevY = ny;
+      prevP = np;
+      prevTx = ntx;
+      prevTy = nty;
+    }
+  }
+
+  function preparePencilRenderPoints(stroke) {
+    const raw = stroke.points || [];
+    if (raw.length <= 2) return raw;
+    const smoothing = Math.max(0, Math.min(1.0, stroke.smoothing ?? 0.65));
+    const filtered = [];
+    for (let i = 0; i < raw.length; i++) {
+      const p = raw[i];
+      if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+      if (filtered.length === 0 || i === raw.length - 1 || Math.hypot(p.x - filtered[filtered.length - 1].x, p.y - filtered[filtered.length - 1].y) >= 1.1) {
+        filtered.push({
+          x: p.x,
+          y: p.y,
+          pressure: typeof p.pressure === 'number' && Number.isFinite(p.pressure) ? Math.max(0.05, Math.min(1, p.pressure)) : 0.52,
+          tiltX: typeof p.tiltX === 'number' && Number.isFinite(p.tiltX) ? p.tiltX : 0,
+          tiltY: typeof p.tiltY === 'number' && Number.isFinite(p.tiltY) ? p.tiltY : 0,
+          t: typeof p.t === 'number' && Number.isFinite(p.t) ? p.t : i * 4
+        });
       }
     }
-    try {
-      return targetCtx.createPattern(off, 'repeat') || key;
-    } catch (_) {
-      return key;
+    if (filtered.length < 4 || stroke._liveStabilized || smoothing <= 0.12) return filtered;
+    const w = Math.min(0.20, smoothing * 0.20);
+    const out = new Array(filtered.length);
+    out[0] = filtered[0];
+    for (let i = 1; i < filtered.length - 1; i++) {
+      const a = filtered[i - 1], b = filtered[i], c = filtered[i + 1];
+      out[i] = {
+        x: b.x * (1 - 2 * w) + (a.x + c.x) * w,
+        y: b.y * (1 - 2 * w) + (a.y + c.y) * w,
+        pressure: b.pressure * 0.56 + (a.pressure + c.pressure) * 0.22,
+        tiltX: b.tiltX * 0.6 + (a.tiltX + c.tiltX) * 0.2,
+        tiltY: b.tiltY * 0.6 + (a.tiltY + c.tiltY) * 0.2,
+        t: b.t
+      };
+    }
+    out[filtered.length - 1] = filtered[filtered.length - 1];
+    return out;
+  }
+
+  function drawPencilStrokeStatic(targetCtx, stroke, cached, isSelected) {
+    const color = stroke.color || '#111827';
+    const size = Math.max(1, stroke.size || 5);
+    const dabSprite = getPencilDabSprite(color);
+    const valleyPattern = getPencilPaperValleyPattern(targetCtx);
+
+    // Fallback léger pour les mocks Canvas en tests unitaires Node.js
+    if (!dabSprite || !valleyPattern || !targetCtx.canvas || typeof targetCtx.getTransform !== 'function') {
+      targetCtx.save();
+      targetCtx.globalAlpha = 0.78;
+      targetCtx.fillStyle = color;
+      targetCtx.strokeStyle = color;
+      if (cached && cached.path2d) {
+        if (cached.renderMode === 'stroke') {
+          targetCtx.lineWidth = size;
+          targetCtx.lineCap = 'round';
+          targetCtx.lineJoin = 'round';
+          targetCtx.stroke(cached.path2d);
+        } else {
+          targetCtx.fill(cached.path2d);
+        }
+      }
+      targetCtx.restore();
+      return;
+    }
+
+    if (!cached.pencilSamples) {
+      cached.pencilSamples = preparePencilRenderPoints(stroke);
+    }
+    const pts = cached.pencilSamples;
+    if (!pts || pts.length === 0) return;
+
+    const bounds = cached.bounds || computeStrokeBounds(stroke, Math.max(8, size * 2.4));
+    const m = targetCtx.getTransform();
+    const corners = [
+      { x: bounds.minX, y: bounds.minY },
+      { x: bounds.maxX, y: bounds.minY },
+      { x: bounds.maxX, y: bounds.maxY },
+      { x: bounds.minX, y: bounds.maxY }
+    ];
+    let dMinX = Infinity, dMinY = Infinity, dMaxX = -Infinity, dMaxY = -Infinity;
+    for (let i = 0; i < 4; i++) {
+      const cx = m.a * corners[i].x + m.c * corners[i].y + m.e;
+      const cy = m.b * corners[i].x + m.d * corners[i].y + m.f;
+      if (cx < dMinX) dMinX = cx;
+      if (cy < dMinY) dMinY = cy;
+      if (cx > dMaxX) dMaxX = cx;
+      if (cy > dMaxY) dMaxY = cy;
+    }
+    const cw = targetCtx.canvas.width || 0;
+    const ch = targetCtx.canvas.height || 0;
+    const px0 = Math.max(0, Math.floor(dMinX) - 2);
+    const py0 = Math.max(0, Math.floor(dMinY) - 2);
+    const px1 = Math.min(cw, Math.ceil(dMaxX) + 2);
+    const py1 = Math.min(ch, Math.ceil(dMaxY) + 2);
+    const pw = px1 - px0;
+    const ph = py1 - py0;
+    if (pw <= 0 || ph <= 0) return;
+
+    if (!pencilStaticScratch.canvas) {
+      pencilStaticScratch.canvas = document.createElement('canvas');
+      pencilStaticScratch.ctx = pencilStaticScratch.canvas.getContext('2d');
+    }
+    const sctx = pencilStaticScratch.ctx;
+    if (!sctx) return;
+    if (pencilStaticScratch.width < pw || pencilStaticScratch.height < ph) {
+      const nw = Math.max(pencilStaticScratch.width, pw);
+      const nh = Math.max(pencilStaticScratch.height, ph);
+      pencilStaticScratch.canvas.width = nw;
+      pencilStaticScratch.canvas.height = nh;
+      pencilStaticScratch.width = nw;
+      pencilStaticScratch.height = nh;
+    }
+
+    sctx.save();
+    sctx.setTransform(1, 0, 0, 1, 0, 0);
+    sctx.clearRect(0, 0, pw, ph);
+    sctx.setTransform(m.a, m.b, m.c, m.d, m.e - px0, m.f - py0);
+    sctx.globalCompositeOperation = 'source-over';
+
+    const pencilState = { remainderDist: 0, stepIndex: 0, traveled: 0 };
+    if (pts.length === 1) {
+      const p0 = pts[0];
+      const params = computePencilDabParams(size, p0.pressure, p0.tiltX, p0.tiltY, stroke.pressureMode);
+      stampSinglePencilDab(sctx, dabSprite, p0.x, p0.y, params, Math.max(0.8, params.rBase * 0.45), 0);
+    } else {
+      let totalLen = 0;
+      for (let i = 1; i < pts.length; i++) {
+        totalLen += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      }
+      const taperLen = totalLen > size * 2.5 ? Math.min(5.5, size * 0.7) : 0;
+      const taperFn = taperLen > 0
+        ? (traveled) => {
+          if (traveled < taperLen) return Math.max(0.25, traveled / taperLen);
+          const rem = totalLen - traveled;
+          if (rem < taperLen) return Math.max(0.25, rem / taperLen);
+          return 1;
+        }
+        : null;
+
+      // Premier point d'accroche graphite
+      const pFirst = pts[0];
+      const firstParams = computePencilDabParams(size, pFirst.pressure, pFirst.tiltX, pFirst.tiltY, stroke.pressureMode);
+      if (taperFn) firstParams.density *= 0.6;
+      stampSinglePencilDab(sctx, dabSprite, pFirst.x, pFirst.y, firstParams, Math.max(0.7, firstParams.rBase * 0.34), pencilState.stepIndex++);
+
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(0, i - 1)];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[Math.min(pts.length - 1, i + 2)];
+        stampPencilCurveSegment(sctx, dabSprite, p0, p1, p2, p3, pencilState, size, stroke.pressureMode, taperFn);
+      }
+    }
+
+    // Application du grain papier stationnaire en coordonnées monde (creuse uniquement les vallées du papier)
+    const scratchValleyPat = getPencilPaperValleyPattern(sctx);
+    if (scratchValleyPat) {
+      sctx.globalCompositeOperation = 'destination-out';
+      sctx.globalAlpha = 1.0;
+      sctx.fillStyle = scratchValleyPat;
+      sctx.fillRect(bounds.minX - 2, bounds.minY - 2, bounds.width + 4, bounds.height + 4);
+    }
+    sctx.restore();
+
+    // Blit du trait graphite texturé sur targetCtx en conservant son clip actif
+    targetCtx.save();
+    targetCtx.setTransform(1, 0, 0, 1, 0, 0);
+    targetCtx.globalCompositeOperation = 'source-over';
+    targetCtx.globalAlpha = 1.0;
+    targetCtx.drawImage(pencilStaticScratch.canvas, 0, 0, pw, ph, px0, py0, pw, ph);
+    targetCtx.restore();
+
+    if (isSelected && cached && cached.path2d) {
+      targetCtx.save();
+      targetCtx.setLineDash([]);
+      targetCtx.globalAlpha = 0.85;
+      targetCtx.globalCompositeOperation = 'source-over';
+      targetCtx.strokeStyle = '#2563eb';
+      targetCtx.lineWidth = 1.2;
+      targetCtx.stroke(cached.path2d);
+      targetCtx.restore();
     }
   }
 
@@ -5693,21 +6298,22 @@
     }
 
     const isPencil = stroke.tool === 'pencil' || stroke.penStyle === 'pencil';
+    if (isPencil) {
+      drawPencilStrokeStatic(targetCtx, stroke, cached, isSelected);
+      return;
+    }
+
     targetCtx.save();
     if (stroke.tool === 'highlighter') {
       targetCtx.globalAlpha = 0.36;
       targetCtx.globalCompositeOperation = isPaperDark ? 'screen' : 'multiply';
-    } else if (isPencil) {
-      targetCtx.globalAlpha = 0.88;
-      targetCtx.globalCompositeOperation = 'source-over';
     } else {
       targetCtx.globalAlpha = 1.0;
       targetCtx.globalCompositeOperation = 'source-over';
     }
 
     const color = stroke.color || '#1e293b';
-    const paintStyle = isPencil ? getPencilGrainPattern(targetCtx, color) : color;
-    targetCtx.fillStyle = paintStyle;
+    targetCtx.fillStyle = color;
 
     if (stroke.points.length === 1) {
       const p0 = stroke.points[0];
@@ -5725,7 +6331,7 @@
     targetCtx.setLineDash(getStrokeLineDash(lineStyle, sz));
     if (path2d) {
       if (renderMode === 'stroke') {
-        targetCtx.strokeStyle = paintStyle;
+        targetCtx.strokeStyle = color;
         targetCtx.lineWidth = sz;
         targetCtx.lineCap = 'round';
         targetCtx.lineJoin = 'round';
@@ -5742,7 +6348,7 @@
         targetCtx.stroke(path2d);
       }
     } else {
-      targetCtx.strokeStyle = paintStyle;
+      targetCtx.strokeStyle = color;
       targetCtx.lineWidth = stroke.size || 5;
       targetCtx.lineCap = 'round';
       targetCtx.lineJoin = 'round';
@@ -6178,12 +6784,167 @@
     if (!activeCtx || !dom.activeInkCanvas) return;
     dom.activeInkCanvas.style.opacity = '1';
     dom.activeInkCanvas.style.mixBlendMode = 'normal';
+    if (pencilLiveBuffer.dirty && pencilLiveBuffer.ctx && pencilLiveBuffer.canvas) {
+      pencilLiveBuffer.ctx.save();
+      pencilLiveBuffer.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      pencilLiveBuffer.ctx.clearRect(0, 0, pencilLiveBuffer.canvas.width, pencilLiveBuffer.canvas.height);
+      pencilLiveBuffer.ctx.restore();
+      pencilLiveBuffer.dirty = false;
+    }
     if (!activeCanvasDirty) return;
     activeCtx.save();
     activeCtx.setTransform(1, 0, 0, 1, 0, 0);
     activeCtx.clearRect(0, 0, dom.activeInkCanvas.width, dom.activeInkCanvas.height);
     activeCtx.restore();
     activeCanvasDirty = false;
+  }
+
+  /**
+   * Rendu incrémental O(1) du Crayon Graphite sur #activeInkCanvas :
+   * - Accumule uniquement les nouveaux dabs doux dans pencilLiveBuffer (O(1))
+   * - Recomposite uniquement le rectangle sale (dirty rect) sur #activeInkCanvas avec le masque
+   *   de grain papier stationnaire en coordonnées monde → zéro superposition sombre aux jonctions
+   *   et rendu 100 % identique pixel pour pixel au relâchement du stylet.
+   */
+  function renderIncrementalPencilTail(stroke, dpr) {
+    const pts = stroke.points;
+    const size = Math.max(1, stroke.size || 5);
+    const color = stroke.color || '#111827';
+    const dabSprite = getPencilDabSprite(color);
+    const cw = dom.activeInkCanvas.width || 0;
+    const ch = dom.activeInkCanvas.height || 0;
+    if (!dabSprite || cw <= 0 || ch <= 0) return false;
+
+    if (!pencilLiveBuffer.canvas) {
+      pencilLiveBuffer.canvas = document.createElement('canvas');
+      pencilLiveBuffer.ctx = pencilLiveBuffer.canvas.getContext('2d');
+    }
+    const lctx = pencilLiveBuffer.ctx;
+    if (!lctx) return false;
+
+    if (pencilLiveBuffer.width !== cw || pencilLiveBuffer.height !== ch) {
+      pencilLiveBuffer.canvas.width = cw;
+      pencilLiveBuffer.canvas.height = ch;
+      pencilLiveBuffer.width = cw;
+      pencilLiveBuffer.height = ch;
+      pencilLiveBuffer.dirty = false;
+    }
+
+    if (!stroke._incrementalStarted) {
+      if (activeCanvasDirty) {
+        activeCtx.save();
+        activeCtx.setTransform(1, 0, 0, 1, 0, 0);
+        activeCtx.clearRect(0, 0, cw, ch);
+        activeCtx.restore();
+      }
+      if (pencilLiveBuffer.dirty) {
+        lctx.save();
+        lctx.setTransform(1, 0, 0, 1, 0, 0);
+        lctx.clearRect(0, 0, cw, ch);
+        lctx.restore();
+      }
+      stroke._incrementalStarted = true;
+      stroke._renderedUpToIndex = 0;
+      stroke._pencilState = { remainderDist: 0, stepIndex: 0, traveled: 0 };
+      dom.activeInkCanvas.style.opacity = '1';
+      dom.activeInkCanvas.style.mixBlendMode = 'normal';
+    }
+
+    const startIdx = stroke._renderedUpToIndex || 0;
+    if (startIdx >= pts.length) return true;
+    if (!stroke._pencilState) {
+      stroke._pencilState = { remainderDist: 0, stepIndex: 0, traveled: 0 };
+    }
+
+    // Calcule le rectangle sale minimal (world + device) couvrant uniquement les nouveaux segments
+    let wMinX = Infinity, wMinY = Infinity, wMaxX = -Infinity, wMaxY = -Infinity;
+    let maxPad = Math.max(8, size * 1.8);
+    const scanStart = Math.max(0, startIdx - 1);
+    for (let i = scanStart; i < pts.length; i++) {
+      const pt = pts[i];
+      if (!pt) continue;
+      if (pt.x < wMinX) wMinX = pt.x;
+      if (pt.y < wMinY) wMinY = pt.y;
+      if (pt.x > wMaxX) wMaxX = pt.x;
+      if (pt.y > wMaxY) wMaxY = pt.y;
+      const tiltDeg = Math.hypot(pt.tiltX || 0, pt.tiltY || 0);
+      if (tiltDeg > 20) {
+        maxPad = Math.max(maxPad, size * 3.4 + 6);
+      }
+    }
+    if (!Number.isFinite(wMinX)) return true;
+
+    wMinX -= maxPad;
+    wMinY -= maxPad;
+    wMaxX += maxPad;
+    wMaxY += maxPad;
+
+    // 1. Tamponne uniquement les nouveaux dabs sur pencilLiveBuffer (O(1))
+    lctx.save();
+    lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    lctx.translate(state.panX, state.panY);
+    lctx.scale(state.zoom, state.zoom);
+    const activePageForClip = getActivePage();
+    if (isBoundedPage(activePageForClip)) {
+      const pb = getPageBounds(activePageForClip);
+      lctx.beginPath();
+      lctx.rect(0, 0, pb.width, pb.height);
+      lctx.clip();
+    }
+    lctx.globalCompositeOperation = 'source-over';
+
+    if (startIdx === 0) {
+      const p0 = pts[0];
+      const firstParams = computePencilDabParams(size, p0.pressure, p0.tiltX, p0.tiltY, stroke.pressureMode);
+      stampSinglePencilDab(lctx, dabSprite, p0.x, p0.y, firstParams, Math.max(0.7, firstParams.rBase * 0.34), stroke._pencilState.stepIndex++);
+    }
+    const segStart = Math.max(1, startIdx);
+    for (let i = segStart; i < pts.length; i++) {
+      const p0 = pts[Math.max(0, i - 2)];
+      const p1 = pts[i - 1];
+      const p2 = pts[i];
+      const p3 = pts[Math.min(pts.length - 1, i + 1)];
+      stampPencilCurveSegment(lctx, dabSprite, p0, p1, p2, p3, stroke._pencilState, size, stroke.pressureMode, null);
+    }
+    lctx.restore();
+    pencilLiveBuffer.dirty = true;
+
+    // 2. Recomposite uniquement la zone sale (dirty rect) sur #activeInkCanvas avec grain papier monde
+    const scaleDev = dpr * state.zoom;
+    const dx0 = Math.max(0, Math.floor((wMinX * state.zoom + state.panX) * dpr) - 2);
+    const dy0 = Math.max(0, Math.floor((wMinY * state.zoom + state.panY) * dpr) - 2);
+    const dx1 = Math.min(cw, Math.ceil((wMaxX * state.zoom + state.panX) * dpr) + 2);
+    const dy1 = Math.min(ch, Math.ceil((wMaxY * state.zoom + state.panY) * dpr) + 2);
+    const dw = dx1 - dx0;
+    const dh = dy1 - dy0;
+
+    if (dw > 0 && dh > 0 && scaleDev > 0) {
+      activeCtx.save();
+      activeCtx.setTransform(1, 0, 0, 1, 0, 0);
+      activeCtx.clearRect(dx0, dy0, dw, dh);
+      activeCtx.globalCompositeOperation = 'source-over';
+      activeCtx.globalAlpha = 1.0;
+      activeCtx.drawImage(pencilLiveBuffer.canvas, dx0, dy0, dw, dh, dx0, dy0, dw, dh);
+
+      const valleyPat = getPencilPaperValleyPattern(activeCtx);
+      if (valleyPat) {
+        activeCtx.beginPath();
+        activeCtx.rect(dx0, dy0, dw, dh);
+        activeCtx.clip();
+        activeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        activeCtx.translate(state.panX, state.panY);
+        activeCtx.scale(state.zoom, state.zoom);
+        activeCtx.globalCompositeOperation = 'destination-out';
+        activeCtx.globalAlpha = 1.0;
+        activeCtx.fillStyle = valleyPat;
+        activeCtx.fillRect(wMinX - 2, wMinY - 2, (wMaxX - wMinX) + 4, (wMaxY - wMinY) + 4);
+      }
+      activeCtx.restore();
+    }
+
+    stroke._renderedUpToIndex = pts.length;
+    activeCanvasDirty = true;
+    return true;
   }
 
   /**
@@ -6201,6 +6962,10 @@
     const thinning = getStrokeThinning(stroke);
     const color = stroke.color || '#1e293b';
     const lineStyle = stroke.lineStyle || 'solid';
+
+    if (isPencil && lineStyle === 'solid') {
+      if (renderIncrementalPencilTail(stroke, dpr)) return;
+    }
 
     // Pour Tirets / Pointillés : dessiner le chemin continu complet sur #activeInkCanvas en direct
     // afin que les tirets et pointillés apparaissent instantanément PENDANT le tracé (sans reset de phase moveTo)
@@ -6271,11 +7036,10 @@
       activeCtx.rect(0, 0, pb.width, pb.height);
       activeCtx.clip();
     }
-    const activePaint = isPencil ? getPencilGrainPattern(activeCtx, color) : color;
-    activeCtx.globalAlpha = isPencil ? 0.88 : 1.0;
+    activeCtx.globalAlpha = isPencil ? 0.78 : 1.0;
     activeCtx.globalCompositeOperation = 'source-over';
-    activeCtx.fillStyle = activePaint;
-    activeCtx.strokeStyle = activePaint;
+    activeCtx.fillStyle = color;
+    activeCtx.strokeStyle = color;
 
     if (startIdx === 0) {
       const p0 = pts[0];
@@ -11705,6 +12469,7 @@
     dom.canvasViewport.classList.toggle('drawing-mode-active', isDrawingTool);
 
     if (state.tool !== 'eraser') dom.eraserCursor.style.display = 'none';
+    if (state.tool !== 'shape' && state.selectedShapeId) clearSelectedShape(true);
     if (dom.colorDotCursor) {
       if (state.tool === 'eraser' || state.tool === 'pan' || state.tool === 'text' || state.isSpacePressed || state.colorWheelOpen) {
         dom.colorDotCursor.style.display = 'none';
@@ -11794,6 +12559,12 @@
 
     const activeSize = getActiveToolSize(state.tool);
     const activeColor = getActiveToolColor(state.tool);
+    const dockSlotsEl = document.getElementById('dockColorSlotsList');
+    const dockAddBtnEl = document.getElementById('dockAddColorBtn');
+    if (dockSlotsEl && showColorGroup) {
+      const dockToolKey = (state.toolMemory && state.toolMemory[state.tool]) ? state.tool : 'pen';
+      renderDynamicColorSlotBar(dockSlotsEl, dockToolKey, dockAddBtnEl);
+    }
     dom.strokeSizeSlider.value = activeSize;
     dom.strokeSizeValue.textContent = `${Number(activeSize).toFixed(1)}px`;
     if (dom.customColorPicker && /^#[0-9a-f]{6}$/i.test(activeColor)) {
@@ -12014,42 +12785,39 @@
     ctx.clearRect(0, 0, w, h);
 
     const col = state.pencilColor || '#111827';
-    const c = String(col).replace('#', '');
-    const full = c.length === 3 ? c.replace(/(.)/g, '$1$1') : c;
-    const num = parseInt(full, 16);
-    const r = Number.isFinite(num) ? ((num >> 16) & 255) : 17;
-    const g = Number.isFinite(num) ? ((num >> 8) & 255) : 24;
-    const b = Number.isFinite(num) ? (num & 255) : 39;
+    const previewSize = Math.max(2.5, Math.min(11, Number(state.pencilSize || 5)));
+    const dabSprite = getPencilDabSprite(col);
+    if (!dabSprite) return;
 
-    const baseHalf = Math.max(1.8, Math.min(4.8, 1.8 + (Number(state.pencilSize || 5) / 16) * 3.0));
-    const hash = (a, k) => {
-      const s = Math.sin(a * 12.9898 + (k + 1) * 78.233) * 43758.5453;
-      return s - Math.floor(s);
-    };
-
-    // Courbe en S inspirée de GoodNotes 6 (Crayon) avec grains graphite déterministes
-    const steps = 165;
+    // Courbe en S fidèle au véritable moteur crayon graphite (pression progressive + grain papier)
+    const previewPts = [];
+    const steps = 42;
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       const x = 24 + t * (w - 48);
       const y = h * 0.52 + Math.sin(t * Math.PI * 1.92 + 0.42) * 26 * (0.78 + 0.22 * Math.sin(t * Math.PI));
-      const taper = Math.sin(Math.pow(t, 0.85) * Math.PI);
-      const rad = Math.max(0.9, baseHalf * (0.35 + 0.75 * taper));
-      const dots = 7;
-      for (let d = 0; d < dots; d++) {
-        const seed = i * 11 + d;
-        const angle = hash(1, seed) * Math.PI * 2;
-        const dist = Math.sqrt(hash(2, seed)) * rad;
-        const gx = x + Math.cos(angle) * dist;
-        const gy = y + Math.sin(angle) * dist;
-        const dr = 0.55 + hash(3, seed) * 1.05;
-        const alpha = (0.16 + hash(4, seed) * 0.44) * (0.55 + 0.45 * taper);
-        ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
-        ctx.beginPath();
-        ctx.arc(gx, gy, dr, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      const pressure = 0.22 + 0.68 * Math.sin(Math.pow(t, 0.85) * Math.PI);
+      previewPts.push({ x, y, pressure, tiltX: 0, tiltY: 0, t: i * 8 });
     }
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    const st = { remainderDist: 0, stepIndex: 0, traveled: 0 };
+    for (let i = 0; i < previewPts.length - 1; i++) {
+      const p0 = previewPts[Math.max(0, i - 1)];
+      const p1 = previewPts[i];
+      const p2 = previewPts[i + 1];
+      const p3 = previewPts[Math.min(previewPts.length - 1, i + 2)];
+      stampPencilCurveSegment(ctx, dabSprite, p0, p1, p2, p3, st, previewSize, 'dynamic', null);
+    }
+    const valleyPat = getPencilPaperValleyPattern(ctx);
+    if (valleyPat) {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.globalAlpha = 1.0;
+      ctx.fillStyle = valleyPat;
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.restore();
   }
 
   function getActiveToolSizeSlots(tool = state.tool) {
@@ -12059,6 +12827,765 @@
       return mem.sizeSlots;
     }
     return [...DEFAULT_TOOL_SIZE_SLOTS[key]];
+  }
+
+  // ============================================================================
+  // SÉLECTEUR DE COULEUR UNIFIÉ STYLE GOODNOTES 6 (PRÉRÉGLAGES 5 COL. + CUSTOM + SLOTS DYNAMIQUES)
+  // ============================================================================
+  const GN_COLOR_POPOVER_TITLES = {
+    pen: 'Couleur Du Stylo',
+    pencil: 'Couleur Du Crayon',
+    highlighter: 'Couleur Du Surligneur',
+    tape: 'Couleur Du Ruban',
+    shape: 'Couleur De Forme',
+    text: 'Couleur Du Texte',
+    laser: 'Couleur Du Pointeur',
+    lasso: 'Changer La Couleur',
+    cover: 'Couleur De Couverture',
+    folder: 'Couleur Du Dossier'
+  };
+
+  const gnColorPopoverState = {
+    open: false,
+    mode: 'add-slot', // 'add-slot' | 'edit-slot' | 'lasso' | 'text-card' | 'notebook-cover' | 'folder-color'
+    toolKey: 'pen',
+    scopeKey: 'pen',
+    slotIndex: -1,
+    anchorEl: null,
+    page: 'presets', // 'presets' | 'custom'
+    customOp: 'add', // 'add' | 'edit'
+    editingPresetIndex: -1,
+    textCardId: null,
+    hsv: { h: 211 / 360, s: 1, v: 1 },
+    hex: '#007aff',
+    slotMenuOpen: false
+  };
+
+  function hexToRgbObj(hex) {
+    const norm = normalizeHexColor(hex);
+    if (!norm) return { r: 0, g: 0, b: 0 };
+    return {
+      r: parseInt(norm.slice(1, 3), 16),
+      g: parseInt(norm.slice(3, 5), 16),
+      b: parseInt(norm.slice(5, 7), 16)
+    };
+  }
+
+  function hexToHsv(hex) {
+    const { r: r255, g: g255, b: b255 } = hexToRgbObj(hex);
+    const r = r255 / 255, g = g255 / 255, b = b255 / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0;
+    const s = max === 0 ? 0 : d / max;
+    const v = max;
+    if (d !== 0) {
+      if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+      else if (max === g) h = ((b - r) / d + 2) / 6;
+      else h = ((r - g) / d + 4) / 6;
+    }
+    return { h, s, v };
+  }
+
+  function hsvToHex(h, s, v) {
+    const hh = ((h % 1) + 1) % 1;
+    const ss = Math.max(0, Math.min(1, s));
+    const vv = Math.max(0, Math.min(1, v));
+    const i = Math.floor(hh * 6);
+    const f = hh * 6 - i;
+    const p = vv * (1 - ss);
+    const q = vv * (1 - f * ss);
+    const t = vv * (1 - (1 - f) * ss);
+    let r = 0, g = 0, b = 0;
+    switch (i % 6) {
+      case 0: r = vv; g = t; b = p; break;
+      case 1: r = q; g = vv; b = p; break;
+      case 2: r = p; g = vv; b = t; break;
+      case 3: r = p; g = q; b = vv; break;
+      case 4: r = t; g = p; b = vv; break;
+      case 5: r = vv; g = p; b = q; break;
+    }
+    const to2 = (x) => Math.round(x * 255).toString(16).padStart(2, '0');
+    return `#${to2(r)}${to2(g)}${to2(b)}`;
+  }
+
+  function getGnColorPopoverState() {
+    return { ...gnColorPopoverState };
+  }
+
+  function positionGnColorPopover(anchorEl) {
+    const pop = document.getElementById('gnColorPopover');
+    const caret = document.getElementById('gnColorPopoverCaret');
+    if (!pop || !anchorEl || typeof anchorEl.getBoundingClientRect !== 'function') return;
+    const aR = anchorEl.getBoundingClientRect();
+    const pR = pop.getBoundingClientRect();
+    const popW = pR.width > 0 ? pR.width : 284;
+    const popH = pR.height > 0 ? pR.height : 290;
+    const vw = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1200;
+    const vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
+
+    const anchorCenterX = aR.left + aR.width * 0.5;
+    let left = Math.round(anchorCenterX - popW * 0.5);
+    left = Math.max(12, Math.min(vw - popW - 12, left));
+
+    let top = Math.round(aR.bottom + 12);
+    let placeAbove = false;
+    if (top + popH > vh - 12 && aR.top - popH - 12 >= 12) {
+      top = Math.round(aR.top - popH - 12);
+      placeAbove = true;
+    } else if (top + popH > vh - 12) {
+      top = Math.max(12, vh - popH - 12);
+    }
+
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+    pop.classList.toggle('caret-bottom', placeAbove);
+    if (caret) {
+      const relX = Math.max(22, Math.min(popW - 22, anchorCenterX - left));
+      caret.style.left = `${Math.round(relX)}px`;
+    }
+  }
+
+  function closeGnColorPopover() {
+    if (!gnColorPopoverState.open) return;
+    if (gnColorPopoverState.anchorEl && gnColorPopoverState.anchorEl.classList) {
+      gnColorPopoverState.anchorEl.classList.remove('popover-open');
+    }
+    gnColorPopoverState.open = false;
+    gnColorPopoverState.slotMenuOpen = false;
+    gnColorPopoverState.anchorEl = null;
+    const pop = document.getElementById('gnColorPopover');
+    if (pop) pop.classList.add('hidden');
+    const slotMenu = document.getElementById('gnColorSlotMenu');
+    if (slotMenu) slotMenu.classList.add('hidden');
+  }
+
+  function addCustomSwatchToModalGroup(containerId, attrName, hex, onSelectFn) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const norm = normalizeHexColor(hex) || hex;
+    const existing = Array.from(container.querySelectorAll(`[${attrName}]`)).find(
+      (b) => (b.getAttribute(attrName) || '').toLowerCase() === norm.toLowerCase()
+    );
+    let targetBtn = existing;
+    if (!targetBtn) {
+      targetBtn = document.createElement('button');
+      targetBtn.type = 'button';
+      targetBtn.className = 'color-swatch';
+      targetBtn.setAttribute(attrName, norm);
+      targetBtn.style.background = norm;
+      targetBtn.title = norm.toUpperCase();
+      targetBtn.addEventListener('click', () => {
+        onSelectFn(norm, targetBtn);
+      });
+      const addBtn = container.querySelector('.gn-add-color-btn');
+      if (addBtn && typeof container.insertBefore === 'function') {
+        container.insertBefore(targetBtn, addBtn);
+      } else if (typeof container.appendChild === 'function') {
+        container.appendChild(targetBtn);
+      }
+    }
+    onSelectFn(norm, targetBtn);
+  }
+
+  function applyColorFromGnPopover(hex, options = {}) {
+    const norm = normalizeHexColor(hex);
+    if (!norm) return;
+    const { mode, toolKey, slotIndex, textCardId } = gnColorPopoverState;
+    const closeAfter = options.close !== false;
+
+    if (mode === 'add-slot') {
+      const addedIdx = addToolColorSlot(toolKey, norm);
+      if (state.tool !== toolKey && toolKey !== 'lasso' && toolKey !== 'cover' && toolKey !== 'folder') {
+        syncCanonicalToToolMemory(state.tool);
+        state.tool = toolKey;
+        applyToolMemoryToCanonical(toolKey);
+      }
+      if (state.tool === 'lasso' && hasAnyLassoSelection()) recolorLassoSelection(norm);
+      updateToolbarActiveState();
+      if (closeAfter) closeGnColorPopover();
+      else {
+        gnColorPopoverState.mode = 'edit-slot';
+        gnColorPopoverState.slotIndex = addedIdx;
+        renderGnColorPopover();
+      }
+      return;
+    }
+
+    if (mode === 'edit-slot') {
+      setToolColor(toolKey, norm, { slotIndex });
+      if (state.tool === 'lasso' && hasAnyLassoSelection()) recolorLassoSelection(norm);
+      updateToolbarActiveState();
+      if (closeAfter) closeGnColorPopover();
+      else renderGnColorPopover();
+      return;
+    }
+
+    if (mode === 'lasso') {
+      recolorLassoSelection(norm);
+      const lDot = document.getElementById('lassoQuickColorDot');
+      if (lDot) lDot.style.background = norm;
+      if (closeAfter) closeGnColorPopover();
+      else renderGnColorPopover();
+      return;
+    }
+
+    if (mode === 'text-card') {
+      const page = getActivePage();
+      const cardObj = page && (page.texts || []).find((x) => x.id === textCardId);
+      if (cardObj) {
+        if (!options.livePreview) pushHistorySnapshot(page);
+        cardObj.color = norm;
+        renderWorldTextCards();
+        scheduleSaveActivePage(page);
+      }
+      if (closeAfter) closeGnColorPopover();
+      else renderGnColorPopover();
+      return;
+    }
+
+    if (mode === 'notebook-cover') {
+      addCustomSwatchToModalGroup('notebookCoverSwatches', 'data-cover', norm, (chosenHex, btnEl) => {
+        state.newNotebookCover = chosenHex;
+        const container = document.getElementById('notebookCoverSwatches');
+        if (container) {
+          container.querySelectorAll('[data-cover]').forEach((s) => s.classList.toggle('active', s === btnEl));
+        }
+      });
+      if (closeAfter) closeGnColorPopover();
+      else renderGnColorPopover();
+      return;
+    }
+
+    if (mode === 'folder-color') {
+      addCustomSwatchToModalGroup('folderColorSwatches', 'data-folder-color', norm, (chosenHex, btnEl) => {
+        state.folderModalColor = chosenHex;
+        const container = document.getElementById('folderColorSwatches');
+        if (container) {
+          container.querySelectorAll('[data-folder-color]').forEach((s) => s.classList.toggle('active', s === btnEl));
+        }
+      });
+      if (closeAfter) closeGnColorPopover();
+      else renderGnColorPopover();
+    }
+  }
+
+  function syncGnColorCustomEditorUi() {
+    const satBox = document.getElementById('gnColorSatBox');
+    const satThumb = document.getElementById('gnColorSatThumb');
+    const hueThumb = document.getElementById('gnColorHueThumb');
+    const preview = document.getElementById('gnColorCustomPreview');
+    const hexInput = document.getElementById('gnColorHexInput');
+    const commitCircle = document.getElementById('gnColorCommitCircle');
+    const { h, s, v } = gnColorPopoverState.hsv;
+    const hex = hsvToHex(h, s, v);
+    gnColorPopoverState.hex = hex;
+
+    if (satBox) satBox.style.backgroundColor = `hsl(${Math.round(h * 360)}, 100%, 50%)`;
+    if (satThumb) {
+      satThumb.style.left = `${(s * 100).toFixed(2)}%`;
+      satThumb.style.top = `${((1 - v) * 100).toFixed(2)}%`;
+      satThumb.style.backgroundColor = hex;
+    }
+    if (hueThumb) {
+      hueThumb.style.left = `${(h * 100).toFixed(2)}%`;
+    }
+    if (preview) preview.style.background = hex;
+    if (commitCircle) commitCircle.style.background = hex;
+    if (hexInput && document.activeElement !== hexInput) {
+      hexInput.value = hex.toUpperCase();
+    }
+  }
+
+  function renderGnColorPopover() {
+    const pop = document.getElementById('gnColorPopover');
+    if (!pop || !gnColorPopoverState.open) return;
+
+    const titleEl = document.getElementById('gnColorPopoverTitle');
+    const backBtn = document.getElementById('btnGnColorBack');
+    const eyeBtn = document.getElementById('btnGnColorEyedropper');
+    const moreBtn = document.getElementById('btnGnColorMoreSlot');
+    const slotMenu = document.getElementById('gnColorSlotMenu');
+    const presetsView = document.getElementById('gnColorPresetsView');
+    const presetsGrid = document.getElementById('gnColorPresetsGrid');
+    const customView = document.getElementById('gnColorCustomView');
+    const commitAddBtn = document.getElementById('btnGnColorCommitAdd');
+    const editActions = document.getElementById('gnColorEditActions');
+    const shapeFillSection = document.getElementById('gnColorShapeFillSection');
+    const shapeFillSw = document.getElementById('gnColorShapeFillSwitch');
+
+    const { mode, toolKey, scopeKey, slotIndex, page, customOp } = gnColorPopoverState;
+    const presets = getToolColorPresets(scopeKey);
+    const mem = state.toolMemory && state.toolMemory[toolKey];
+    const canDeleteSlot = mode === 'edit-slot' && mem && Array.isArray(mem.colorSlots) && mem.colorSlots.length > 1;
+    const isCustom = page === 'custom';
+
+    if (titleEl) {
+      titleEl.textContent = GN_COLOR_POPOVER_TITLES[scopeKey] || GN_COLOR_POPOVER_TITLES[toolKey] || 'Couleur Du Stylo';
+    }
+    if (backBtn) backBtn.classList.toggle('hidden', !isCustom);
+    if (eyeBtn) {
+      const hasEyedropper = typeof window !== 'undefined' && typeof window.EyeDropper === 'function';
+      eyeBtn.classList.toggle('hidden', !isCustom || !hasEyedropper);
+    }
+    if (moreBtn) moreBtn.classList.toggle('hidden', !canDeleteSlot);
+    if (slotMenu) slotMenu.classList.toggle('hidden', !gnColorPopoverState.slotMenuOpen || !canDeleteSlot);
+
+    if (presetsView) presetsView.classList.toggle('hidden', isCustom);
+    if (customView) customView.classList.toggle('hidden', !isCustom);
+
+    if (shapeFillSection) {
+      const showShapeFill = (mode === 'add-slot' || mode === 'edit-slot') && toolKey === 'shape';
+      shapeFillSection.classList.toggle('hidden', !showShapeFill);
+      if (shapeFillSw && showShapeFill) shapeFillSw.checked = Boolean(state.shapeFilled);
+    }
+
+    if (!isCustom && presetsGrid) {
+      presetsGrid.innerHTML = '';
+      let currentSelectedHex = null;
+      if (mode === 'edit-slot' && mem && mem.colorSlots[slotIndex]) {
+        currentSelectedHex = (normalizeHexColor(mem.colorSlots[slotIndex]) || mem.colorSlots[slotIndex]).toLowerCase();
+      } else if (mode === 'text-card') {
+        const pg = getActivePage();
+        const cObj = pg && (pg.texts || []).find((x) => x.id === gnColorPopoverState.textCardId);
+        if (cObj && cObj.color) currentSelectedHex = (normalizeHexColor(cObj.color) || cObj.color).toLowerCase();
+      } else if (mode === 'notebook-cover' && state.newNotebookCover) {
+        currentSelectedHex = (normalizeHexColor(state.newNotebookCover) || '').toLowerCase();
+      } else if (mode === 'folder-color' && state.folderModalColor) {
+        currentSelectedHex = (normalizeHexColor(state.folderModalColor) || '').toLowerCase();
+      }
+
+      presets.forEach((presetHex, pIdx) => {
+        const normP = (normalizeHexColor(presetHex) || presetHex).toLowerCase();
+        const isSel = Boolean(currentSelectedHex && normP === currentSelectedHex && mode !== 'add-slot');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `gn-color-preset-btn${isSel ? ' selected' : ''}`;
+        btn.dataset.presetIndex = String(pIdx);
+        btn.dataset.presetHex = normP;
+        btn.title = isSel ? `${normP.toUpperCase()} — Cliquer pour modifier ce préréglage` : normP.toUpperCase();
+        const light = isLightHexColor(normP);
+        btn.innerHTML = `
+          <span class="gn-color-preset-dot" style="background:${normP}"></span>
+          <svg class="gn-color-preset-chevron" viewBox="0 0 10 6" fill="none" aria-hidden="true">
+            <path d="M2 1.5L5 4.5L8 1.5" stroke="${light ? '#3f3f46' : '#ffffff'}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        `;
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (isSel) {
+            // Re-cliquer sur un préréglage déjà sélectionné ouvre l'éditeur personnalisé GoodNotes (modifier / supprimer)
+            gnColorPopoverState.page = 'custom';
+            gnColorPopoverState.customOp = 'edit';
+            gnColorPopoverState.editingPresetIndex = pIdx;
+            gnColorPopoverState.hex = normP;
+            gnColorPopoverState.hsv = hexToHsv(normP);
+            renderGnColorPopover();
+            positionGnColorPopover(gnColorPopoverState.anchorEl);
+            return;
+          }
+          applyColorFromGnPopover(normP, { close: true });
+        });
+        presetsGrid.appendChild(btn);
+      });
+
+      // Bouton Roue Arc-en-Ciel GoodNotes pour ajouter une couleur personnalisée
+      if (presets.length < GN_MAX_COLOR_PRESETS) {
+        const rainbowBtn = document.createElement('button');
+        rainbowBtn.type = 'button';
+        rainbowBtn.className = 'gn-color-rainbow-btn';
+        rainbowBtn.id = 'btnGnColorOpenCustom';
+        rainbowBtn.title = 'Couleur personnalisée (Spectre / HEX)';
+        rainbowBtn.setAttribute('aria-label', 'Ajouter une couleur personnalisée');
+        rainbowBtn.innerHTML = '<span class="gn-color-rainbow-wheel"></span>';
+        rainbowBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const startHex = currentSelectedHex || getActiveToolColor(toolKey) || '#007aff';
+          gnColorPopoverState.page = 'custom';
+          gnColorPopoverState.customOp = 'add';
+          gnColorPopoverState.editingPresetIndex = -1;
+          gnColorPopoverState.hex = normalizeHexColor(startHex) || '#007aff';
+          gnColorPopoverState.hsv = hexToHsv(gnColorPopoverState.hex);
+          renderGnColorPopover();
+          positionGnColorPopover(gnColorPopoverState.anchorEl);
+        });
+        presetsGrid.appendChild(rainbowBtn);
+      }
+    } else if (isCustom) {
+      if (commitAddBtn) commitAddBtn.classList.toggle('hidden', customOp !== 'add');
+      if (editActions) editActions.classList.toggle('hidden', customOp !== 'edit');
+      syncGnColorCustomEditorUi();
+    }
+  }
+
+  function openGnColorPopover(opts = {}) {
+    const pop = document.getElementById('gnColorPopover');
+    if (!pop) return false;
+
+    // Si on re-clique sur le même bouton ancre alors que le popover est déjà ouvert, on le ferme (toggle GoodNotes)
+    if (gnColorPopoverState.open && opts.anchorEl && gnColorPopoverState.anchorEl === opts.anchorEl && !opts.forceOpen) {
+      closeGnColorPopover();
+      return false;
+    }
+
+    // Ferme les autres popovers concurrents
+    state.gnPenPopoverOpen = false;
+    state.gnPencilPopoverOpen = false;
+    state.gnHighlighterPopoverOpen = false;
+    state.gnStrokePopoverOpen = false;
+    state.gnShapeStrokePopoverOpen = false;
+    if (gnColorPopoverState.anchorEl && gnColorPopoverState.anchorEl.classList) {
+      gnColorPopoverState.anchorEl.classList.remove('popover-open');
+    }
+
+    const mode = opts.mode || 'add-slot';
+    const toolKey = opts.toolKey || (state.toolMemory[state.tool] ? state.tool : 'pen');
+    const scopeKey = opts.scopeKey || (mode === 'lasso' ? 'lasso' : (mode === 'notebook-cover' ? 'cover' : (mode === 'folder-color' ? 'folder' : (mode === 'text-card' ? 'text' : toolKey))));
+
+    gnColorPopoverState.open = true;
+    gnColorPopoverState.mode = mode;
+    gnColorPopoverState.toolKey = toolKey;
+    gnColorPopoverState.scopeKey = scopeKey;
+    gnColorPopoverState.slotIndex = typeof opts.slotIndex === 'number' ? opts.slotIndex : -1;
+    gnColorPopoverState.anchorEl = opts.anchorEl || null;
+    gnColorPopoverState.page = opts.initialPage === 'custom' ? 'custom' : 'presets';
+    gnColorPopoverState.customOp = 'add';
+    gnColorPopoverState.editingPresetIndex = -1;
+    gnColorPopoverState.textCardId = opts.textCardId || null;
+    gnColorPopoverState.slotMenuOpen = false;
+
+    const initHex = normalizeHexColor(opts.initialColor || getActiveToolColor(toolKey)) || '#007aff';
+    gnColorPopoverState.hex = initHex;
+    gnColorPopoverState.hsv = hexToHsv(initHex);
+
+    if (gnColorPopoverState.anchorEl && gnColorPopoverState.anchorEl.classList) {
+      gnColorPopoverState.anchorEl.classList.add('popover-open');
+    }
+    pop.classList.remove('hidden');
+    renderGnColorPopover();
+    positionGnColorPopover(gnColorPopoverState.anchorEl);
+    return true;
+  }
+
+  function renderDynamicColorSlotBar(containerEl, toolKey, addBtnEl) {
+    if (!containerEl) return;
+    const key = (state.toolMemory && state.toolMemory[toolKey]) ? toolKey : 'pen';
+    const mem = state.toolMemory[key];
+    if (!mem) return;
+    if (!Array.isArray(mem.colorSlots) || mem.colorSlots.length === 0) {
+      mem.colorSlots = [mem.color || '#000000', '#007aff', '#dc2626'];
+    }
+    const curColor = (getActiveToolColor(key) || mem.color || '#000000').toLowerCase();
+    let activeIdx = (typeof mem.activeColorSlotIndex === 'number' && mem.activeColorSlotIndex >= 0 && mem.activeColorSlotIndex < mem.colorSlots.length)
+      ? mem.activeColorSlotIndex
+      : mem.colorSlots.findIndex((c) => String(c).toLowerCase() === curColor);
+    if (activeIdx < 0) activeIdx = 0;
+    if ((mem.colorSlots[activeIdx] || '').toLowerCase() !== curColor) {
+      const exactIdx = mem.colorSlots.findIndex((c) => String(c).toLowerCase() === curColor);
+      if (exactIdx >= 0) activeIdx = exactIdx;
+    }
+    mem.activeColorSlotIndex = activeIdx;
+
+    const sig = `${key}|${activeIdx}|${mem.colorSlots.join(',')}`;
+    if (containerEl.dataset && containerEl.dataset.renderedSig === sig && containerEl.children && containerEl.children.length === mem.colorSlots.length) {
+      return;
+    }
+    if (containerEl.dataset) containerEl.dataset.renderedSig = sig;
+    containerEl.innerHTML = '';
+
+    mem.colorSlots.forEach((slotHex, idx) => {
+      const normHex = normalizeHexColor(slotHex) || slotHex;
+      const isAct = idx === activeIdx;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `gn-color-circle${isAct ? ' active' : ''}${isLightHexColor(normHex) ? ' is-light-color' : ''}`;
+      btn.dataset.gnColorSlot = String(idx);
+      btn.dataset.gnColor = normHex;
+      if (key === 'shape' && isAct) btn.id = 'gnShapeColorBtn';
+      btn.style.background = normHex;
+      btn.title = isAct
+        ? `Couleur active (${normHex.toUpperCase()}) — Cliquer pour changer ou supprimer`
+        : `Couleur ${idx + 1} (${normHex.toUpperCase()})`;
+      btn.innerHTML = '<svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (isAct) {
+          openGnColorPopover({
+            mode: 'edit-slot',
+            toolKey: key,
+            slotIndex: idx,
+            anchorEl: btn,
+            initialColor: normHex
+          });
+          return;
+        }
+        closeGnColorPopover();
+        state.gnPenPopoverOpen = false;
+        state.gnPencilPopoverOpen = false;
+        state.gnHighlighterPopoverOpen = false;
+        state.gnStrokePopoverOpen = false;
+        state.gnShapeStrokePopoverOpen = false;
+        setToolColor(key, normHex, { slotIndex: idx, selectOnly: true });
+        if (state.tool === 'lasso' && hasAnyLassoSelection()) recolorLassoSelection(normHex);
+        updateToolbarActiveState();
+      });
+      containerEl.appendChild(btn);
+    });
+
+    if (addBtnEl) {
+      const isFull = mem.colorSlots.length >= GN_MAX_COLOR_SLOTS;
+      addBtnEl.disabled = false;
+      addBtnEl.title = isFull
+        ? `Maximum (${GN_MAX_COLOR_SLOTS}) atteint — cliquer pour ajouter/remplacer une couleur`
+        : 'Ajouter une couleur sélectionnable';
+    }
+  }
+
+  let gnColorPopoverInitialized = false;
+  function initGnColorPopover() {
+    if (gnColorPopoverInitialized) return;
+    gnColorPopoverInitialized = true;
+
+    const pop = document.getElementById('gnColorPopover');
+    if (!pop) return;
+
+    pop.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    pop.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (gnColorPopoverState.slotMenuOpen) {
+        const moreBtn = document.getElementById('btnGnColorMoreSlot');
+        const slotMenu = document.getElementById('gnColorSlotMenu');
+        if (slotMenu && !slotMenu.contains(ev.target) && (!moreBtn || !moreBtn.contains(ev.target))) {
+          gnColorPopoverState.slotMenuOpen = false;
+          slotMenu.classList.add('hidden');
+        }
+      }
+    });
+
+    const backBtn = document.getElementById('btnGnColorBack');
+    if (backBtn) {
+      backBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        gnColorPopoverState.page = 'presets';
+        renderGnColorPopover();
+        positionGnColorPopover(gnColorPopoverState.anchorEl);
+      });
+    }
+
+    const moreBtn = document.getElementById('btnGnColorMoreSlot');
+    if (moreBtn) {
+      moreBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        gnColorPopoverState.slotMenuOpen = !gnColorPopoverState.slotMenuOpen;
+        const slotMenu = document.getElementById('gnColorSlotMenu');
+        if (slotMenu) slotMenu.classList.toggle('hidden', !gnColorPopoverState.slotMenuOpen);
+      });
+    }
+
+    const removeSlotBtn = document.getElementById('btnGnColorRemoveSlot');
+    if (removeSlotBtn) {
+      removeSlotBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (gnColorPopoverState.mode === 'edit-slot') {
+          if (removeToolColorSlot(gnColorPopoverState.toolKey, gnColorPopoverState.slotIndex)) {
+            closeGnColorPopover();
+            updateToolbarActiveState();
+            showToast('Emplacement de couleur supprimé');
+          }
+        }
+      });
+    }
+
+    const eyeBtn = document.getElementById('btnGnColorEyedropper');
+    if (eyeBtn) {
+      eyeBtn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        if (typeof window === 'undefined' || typeof window.EyeDropper !== 'function') return;
+        try {
+          const dropper = new window.EyeDropper();
+          const res = await dropper.open();
+          if (res && res.sRGBHex) {
+            const norm = normalizeHexColor(res.sRGBHex);
+            if (norm) {
+              gnColorPopoverState.hex = norm;
+              gnColorPopoverState.hsv = hexToHsv(norm);
+              syncGnColorCustomEditorUi();
+            }
+          }
+        } catch (_) {}
+      });
+    }
+
+    // 2D Saturation / Brightness picker
+    const satBox = document.getElementById('gnColorSatBox');
+    if (satBox) {
+      let satDragging = false;
+      const updateSatFromEvent = (ev) => {
+        const rect = satBox.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
+        const s = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+        const v = Math.max(0, Math.min(1, 1 - (ev.clientY - rect.top) / rect.height));
+        gnColorPopoverState.hsv.s = s;
+        gnColorPopoverState.hsv.v = v;
+        syncGnColorCustomEditorUi();
+      };
+      satBox.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        satDragging = true;
+        try { satBox.setPointerCapture(ev.pointerId); } catch (_) {}
+        updateSatFromEvent(ev);
+      });
+      satBox.addEventListener('pointermove', (ev) => {
+        if (!satDragging) return;
+        ev.preventDefault();
+        updateSatFromEvent(ev);
+      });
+      const stopSat = (ev) => {
+        if (!satDragging) return;
+        satDragging = false;
+        try { satBox.releasePointerCapture(ev.pointerId); } catch (_) {}
+      };
+      satBox.addEventListener('pointerup', stopSat);
+      satBox.addEventListener('pointercancel', stopSat);
+    }
+
+    // Horizontal Hue Spectrum Bar
+    const hueWrap = document.getElementById('gnColorHueWrap');
+    if (hueWrap) {
+      let hueDragging = false;
+      const updateHueFromEvent = (ev) => {
+        const bar = document.getElementById('gnColorHueBar') || hueWrap;
+        const rect = bar.getBoundingClientRect();
+        if (!rect || rect.width <= 0) return;
+        const h = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+        gnColorPopoverState.hsv.h = h;
+        syncGnColorCustomEditorUi();
+      };
+      hueWrap.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        hueDragging = true;
+        try { hueWrap.setPointerCapture(ev.pointerId); } catch (_) {}
+        updateHueFromEvent(ev);
+      });
+      hueWrap.addEventListener('pointermove', (ev) => {
+        if (!hueDragging) return;
+        ev.preventDefault();
+        updateHueFromEvent(ev);
+      });
+      const stopHue = (ev) => {
+        if (!hueDragging) return;
+        hueDragging = false;
+        try { hueWrap.releasePointerCapture(ev.pointerId); } catch (_) {}
+      };
+      hueWrap.addEventListener('pointerup', stopHue);
+      hueWrap.addEventListener('pointercancel', stopHue);
+    }
+
+    // Hex Input two-way sync
+    const hexInput = document.getElementById('gnColorHexInput');
+    if (hexInput) {
+      hexInput.addEventListener('input', (ev) => {
+        const raw = String(ev.target.value || '').trim();
+        const norm = normalizeHexColor(raw);
+        if (norm) {
+          gnColorPopoverState.hex = norm;
+          gnColorPopoverState.hsv = hexToHsv(norm);
+          syncGnColorCustomEditorUi();
+        }
+      });
+      hexInput.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          if (gnColorPopoverState.customOp === 'add') {
+            document.getElementById('btnGnColorCommitAdd')?.click();
+          } else {
+            document.getElementById('btnGnColorCommitEdit')?.click();
+          }
+        }
+      });
+    }
+
+    // Commit New Custom Color (ajoute aux préréglages ET à la barre sélectionnable)
+    const commitAddBtn = document.getElementById('btnGnColorCommitAdd');
+    if (commitAddBtn) {
+      commitAddBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const hex = normalizeHexColor(gnColorPopoverState.hex) || '#007aff';
+        const presets = getToolColorPresets(gnColorPopoverState.scopeKey);
+        if (!presets.some((c) => c.toLowerCase() === hex.toLowerCase()) && presets.length < GN_MAX_COLOR_PRESETS) {
+          presets.push(hex);
+          saveToolMemoryToStorage();
+        }
+        applyColorFromGnPopover(hex, { close: true });
+      });
+    }
+
+    // Commit Edit Existing Preset (Bouton Valider bleu GoodNotes)
+    const commitEditBtn = document.getElementById('btnGnColorCommitEdit');
+    if (commitEditBtn) {
+      commitEditBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const hex = normalizeHexColor(gnColorPopoverState.hex) || '#007aff';
+        const presets = getToolColorPresets(gnColorPopoverState.scopeKey);
+        const idx = gnColorPopoverState.editingPresetIndex;
+        if (idx >= 0 && idx < presets.length) {
+          presets[idx] = hex;
+          saveToolMemoryToStorage();
+        }
+        applyColorFromGnPopover(hex, { close: true });
+      });
+    }
+
+    // Delete Existing Preset (Bouton Poubelle rouge GoodNotes)
+    const delPresetBtn = document.getElementById('btnGnColorDeletePreset');
+    if (delPresetBtn) {
+      delPresetBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const presets = getToolColorPresets(gnColorPopoverState.scopeKey);
+        const idx = gnColorPopoverState.editingPresetIndex;
+        if (idx >= 0 && idx < presets.length && presets.length > 1) {
+          presets.splice(idx, 1);
+          saveToolMemoryToStorage();
+        }
+        gnColorPopoverState.page = 'presets';
+        renderGnColorPopover();
+        positionGnColorPopover(gnColorPopoverState.anchorEl);
+      });
+    }
+
+    // Switch Remplir la couleur pour Formes
+    const shapeFillSw = document.getElementById('gnColorShapeFillSwitch');
+    if (shapeFillSw) {
+      shapeFillSw.addEventListener('change', (ev) => {
+        state.shapeFilled = Boolean(ev.target.checked);
+        if (dom.shapeFillCheckbox) dom.shapeFillCheckbox.checked = state.shapeFilled;
+      });
+    }
+
+    // Fermeture au clic extérieur et touche Échap
+    document.addEventListener('pointerdown', (ev) => {
+      if (!gnColorPopoverState.open) return;
+      const t = ev.target;
+      if (pop.contains && pop.contains(t)) return;
+      if (gnColorPopoverState.anchorEl && gnColorPopoverState.anchorEl.contains && gnColorPopoverState.anchorEl.contains(t)) return;
+      closeGnColorPopover();
+    });
+
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && gnColorPopoverState.open) {
+        closeGnColorPopover();
+      }
+    });
+
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('resize', () => {
+        if (gnColorPopoverState.open && gnColorPopoverState.anchorEl) {
+          positionGnColorPopover(gnColorPopoverState.anchorEl);
+        }
+      });
+    }
   }
 
   function syncGnPenSubBarUi() {
@@ -12114,8 +13641,11 @@
       shapeBar.querySelectorAll('#gnShapeThicknessBtn .gn-shape-bar').forEach((bar, i) => {
         bar.classList.toggle('active', i === barIdx);
       });
-      const shColBtn = document.getElementById('gnShapeColorBtn');
-      if (shColBtn) shColBtn.style.background = state.shapeColor || '#111827';
+      const shColSlots = document.getElementById('gnShapeColorSlots');
+      const shAddColBtn = document.getElementById('gnShapeAddColorBtn');
+      if (shColSlots) {
+        renderDynamicColorSlotBar(shColSlots, 'shape', shAddColBtn);
+      }
 
       const shPop = document.getElementById('gnShapeStrokePopover');
       if (shPop) {
@@ -12237,25 +13767,12 @@
       alignSubBarCaret(thickBtns[activeSlotIdx], 'gnStrokePopover', 'gnStrokePopoverCaret', state.gnStrokePopoverOpen);
     }
 
-    // 3 pastilles de couleurs dynamiques propres à l'outil actif (Stylo, Crayon, Surligneur, Ruban)
-    const memForColors = state.toolMemory && state.toolMemory[toolKey];
-    const defaultColorsByTool = {
-      pen: ['#111827', '#3b82f6', '#dc2626'],
-      pencil: ['#111827', '#52525b', '#9ca3af'],
-      highlighter: ['#facc15', '#4ade80', '#f472b6'],
-      tape: ['#f59e0b', '#38bdf8', '#a855f7']
-    };
-    const paletteSlots = (memForColors && Array.isArray(memForColors.colorSlots) && memForColors.colorSlots.length >= 3)
-      ? memForColors.colorSlots.slice(0, 3)
-      : (defaultColorsByTool[toolKey] || defaultColorsByTool.pen);
-    const curColor = (getActiveToolColor() || '#111827').toLowerCase();
-    subBar.querySelectorAll('.gn-color-circle').forEach((c, idx) => {
-      const slotHex = paletteSlots[idx] || c.dataset.gnColor || '#111827';
-      c.dataset.gnColor = slotHex;
-      if (c.style) c.style.background = slotHex;
-      c.classList.toggle('is-light-color', isLightHexColor(slotHex));
-      c.classList.toggle('active', slotHex.toLowerCase() === curColor);
-    });
+    // Pastilles de couleurs dynamiques propres à l'outil actif (Stylo, Crayon, Surligneur, Ruban) — style GoodNotes 6
+    const subBarSlotsEl = document.getElementById('gnSubBarColorSlots');
+    const subBarAddBtnEl = document.getElementById('gnSubAddColorBtn');
+    if (subBarSlotsEl) {
+      renderDynamicColorSlotBar(subBarSlotsEl, toolKey, subBarAddBtnEl);
+    }
 
     // Mise à jour du popover Crayon (aperçu graphite + Dessiner et maintenir)
     const pencilHoldSw = document.getElementById('gnPencilHoldToShapeSwitch');
@@ -12641,27 +14158,32 @@
       });
     }
 
-    subBar.querySelectorAll('.gn-color-circle').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        state.gnPenPopoverOpen = false;
-        state.gnPencilPopoverOpen = false;
-        state.gnHighlighterPopoverOpen = false;
-        state.gnStrokePopoverOpen = false;
-        const col = btn.dataset.gnColor;
-        if (btn.classList.contains('active') && dom.customColorPicker) {
-          dom.customColorPicker.click();
-          return;
-        }
-        if (col) {
-          setToolColor(state.tool, col);
-          updateToolbarActiveState();
-        }
-      });
-    });
+    initGnColorPopover();
 
     const addColorBtn = document.getElementById('gnSubAddColorBtn');
-    if (addColorBtn && dom.customColorPicker) {
-      addColorBtn.addEventListener('click', () => dom.customColorPicker.click());
+    if (addColorBtn) {
+      addColorBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const activeToolKey = (state.toolMemory && state.toolMemory[state.tool]) ? state.tool : 'pen';
+        openGnColorPopover({
+          mode: 'add-slot',
+          toolKey: activeToolKey,
+          anchorEl: addColorBtn
+        });
+      });
+    }
+
+    const dockAddColorBtn = document.getElementById('dockAddColorBtn');
+    if (dockAddColorBtn) {
+      dockAddColorBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const activeToolKey = (state.toolMemory && state.toolMemory[state.tool]) ? state.tool : 'pen';
+        openGnColorPopover({
+          mode: state.tool === 'lasso' ? 'lasso' : 'add-slot',
+          toolKey: activeToolKey,
+          anchorEl: dockAddColorBtn
+        });
+      });
     }
 
     document.querySelectorAll('#gnPenTypeGrid .gn-pen-type-card').forEach((card) => {
@@ -12757,9 +14279,10 @@
         });
       }
 
-      const shapeColorBtn = document.getElementById('gnShapeColorBtn');
-      if (shapeColorBtn && dom.customColorPicker) {
-        shapeColorBtn.addEventListener('click', () => {
+      const shapeAddColorBtn = document.getElementById('gnShapeAddColorBtn');
+      if (shapeAddColorBtn) {
+        shapeAddColorBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
           state.gnShapeStrokePopoverOpen = false;
           if (state.tool !== 'shape') {
             syncCanonicalToToolMemory(state.tool);
@@ -12767,7 +14290,11 @@
             applyToolMemoryToCanonical('shape');
           }
           updateToolbarActiveState();
-          dom.customColorPicker.click();
+          openGnColorPopover({
+            mode: 'add-slot',
+            toolKey: 'shape',
+            anchorEl: shapeAddColorBtn
+          });
         });
       }
 
@@ -13286,9 +14813,94 @@
       });
     }
 
+    const btnQuickColorLasso = document.getElementById('btnQuickColorLasso');
+    if (btnQuickColorLasso) {
+      btnQuickColorLasso.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openGnColorPopover({
+          mode: 'lasso',
+          toolKey: 'pen',
+          scopeKey: 'lasso',
+          anchorEl: btnQuickColorLasso,
+          initialColor: getActiveToolColor('pen')
+        });
+      });
+    }
     if (dom.btnQuickDupLasso) dom.btnQuickDupLasso.addEventListener('click', (e) => { e.stopPropagation(); duplicateLassoSelection(); });
     if (dom.btnQuickRecogLasso) dom.btnQuickRecogLasso.addEventListener('click', (e) => { e.stopPropagation(); openRecognitionModal(); });
     if (dom.btnQuickDelLasso) dom.btnQuickDelLasso.addEventListener('click', (e) => { e.stopPropagation(); deleteLassoSelection(); });
+
+    // Barre flottante d'édition de forme sélectionnée (#shapeEditFloatingBar)
+    if (dom.shapeEditFloatingBar) {
+      dom.shapeEditFloatingBar.querySelectorAll('[data-shape-convert]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          convertSelectedShapeType(btn.dataset.shapeConvert);
+        });
+      });
+      const fillBtn = document.getElementById('btnShapeEditFill');
+      if (fillBtn) {
+        fillBtn.addEventListener('click', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          const page = getActivePage();
+          const sh = getSelectedShape(page);
+          if (!page || !sh || !isConnectableTargetShape(sh)) return;
+          pushHistorySnapshot(page);
+          sh.filled = !sh.filled;
+          invalidateStaticInkCache();
+          renderScene();
+          renderActiveCanvasOnly();
+          updateShapeEditFloatingBar();
+          scheduleSaveActivePage(page);
+        });
+      }
+      const adjustShapeThickness = (delta) => {
+        const page = getActivePage();
+        const sh = getSelectedShape(page);
+        if (!page || !sh) return;
+        pushHistorySnapshot(page);
+        sh.size = Math.max(1, Math.min(24, Math.round(((sh.size || 3) + delta) * 2) / 2));
+        invalidateStaticInkCache();
+        renderScene();
+        renderActiveCanvasOnly();
+        updateShapeEditFloatingBar();
+        scheduleSaveActivePage(page);
+      };
+      const thinBtn = document.getElementById('btnShapeEditThin');
+      if (thinBtn) thinBtn.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); adjustShapeThickness(-1); });
+      const thickBtn = document.getElementById('btnShapeEditThick');
+      if (thickBtn) thickBtn.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); adjustShapeThickness(1); });
+
+      const applySelectedShapeColor = (hex) => {
+        const page = getActivePage();
+        const sh = getSelectedShape(page);
+        if (!page || !sh || !hex) return;
+        pushHistorySnapshot(page);
+        sh.color = hex;
+        invalidateStaticInkCache();
+        renderScene();
+        renderActiveCanvasOnly();
+        updateShapeEditFloatingBar();
+        scheduleSaveActivePage(page);
+      };
+      dom.shapeEditFloatingBar.querySelectorAll('[data-shape-color]').forEach((sw) => {
+        sw.addEventListener('click', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          applySelectedShapeColor(sw.dataset.shapeColor);
+        });
+      });
+      const customColorInput = document.getElementById('shapeEditCustomColor');
+      if (customColorInput) {
+        customColorInput.addEventListener('input', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          applySelectedShapeColor(e.target.value);
+        });
+      }
+      const dupBtn = document.getElementById('btnShapeEditDup');
+      if (dupBtn) dupBtn.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); duplicateSelectedShape(); });
+      const delBtn = document.getElementById('btnShapeEditDel');
+      if (delBtn) delBtn.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); deleteSelectedShape(); });
+    }
 
     if (dom.radialColorWheel) {
       dom.radialColorWheel.addEventListener('pointermove', (e) => {
@@ -13723,13 +15335,30 @@
       dom.inputNotebookName.value = '';
       dom.modalNewNotebook.classList.remove('hidden');
     });
-    const closeNb = () => dom.modalNewNotebook.classList.add('hidden');
+    const closeNb = () => {
+      closeGnColorPopover();
+      dom.modalNewNotebook.classList.add('hidden');
+    };
     dom.btnCloseNotebookModal.addEventListener('click', closeNb);
     dom.btnCancelNotebookModal.addEventListener('click', closeNb);
     dom.notebookCoverSwatches.forEach((sw) => sw.addEventListener('click', () => {
       state.newNotebookCover = sw.dataset.cover;
-      dom.notebookCoverSwatches.forEach((s) => s.classList.toggle('active', s === sw));
+      const nbWrap = document.getElementById('notebookCoverSwatches');
+      if (nbWrap) nbWrap.querySelectorAll('[data-cover]').forEach((s) => s.classList.toggle('active', s === sw));
     }));
+    const btnAddNotebookCoverColor = document.getElementById('btnAddNotebookCoverColor');
+    if (btnAddNotebookCoverColor) {
+      btnAddNotebookCoverColor.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openGnColorPopover({
+          mode: 'notebook-cover',
+          toolKey: 'pen',
+          scopeKey: 'cover',
+          anchorEl: btnAddNotebookCoverColor,
+          initialColor: state.newNotebookCover || '#0072ce'
+        });
+      });
+    }
     dom.btnCreateNotebookConfirm.addEventListener('click', async () => {
       const title = dom.inputNotebookName.value.trim() || `Cahier ${state.notebooks.length + 1}`;
       const paperType = dom.selectDefaultPaper.value || 'grid';
@@ -13800,6 +15429,7 @@
           return;
         }
         if (state.colorWheelOpen) { closeRadialColorWheel(true); requestRender(); }
+        else if (state.selectedShapeId) { clearSelectedShape(true); }
         else if (hasAnyLassoSelection()) { clearLassoSelection(); requestRender(); }
         return;
       }
@@ -13807,6 +15437,7 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) performRedo(); else performUndo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); performRedo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleSb(); return; }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedShapeId) { e.preventDefault(); deleteSelectedShape(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && hasAnyLassoSelection()) { e.preventDefault(); deleteLassoSelection(); return; }
       const k = e.key.toLowerCase();
       if (k === 'p') setActiveTool('pen');
@@ -13975,6 +15606,7 @@
     }
     clearActiveCanvas();
     releaseStaticInkCacheMemory();
+    releasePencilBuffersMemory();
     cleanupPdfRenderCache(null, 0);
     for (const pdfId of Array.from(pdfDocInstanceCache.keys())) {
       await destroyPdfDocumentResources(pdfId, false);
@@ -15188,6 +16820,20 @@
       });
     });
 
+    const btnAddFolderColor = document.getElementById('btnAddFolderColor');
+    if (btnAddFolderColor) {
+      btnAddFolderColor.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openGnColorPopover({
+          mode: 'folder-color',
+          toolKey: 'pen',
+          scopeKey: 'folder',
+          anchorEl: btnAddFolderColor,
+          initialColor: state.folderModalColor || '#0072ce'
+        });
+      });
+    }
+
     document.querySelectorAll('#folderSymbolPills [data-folder-icon]').forEach((pill) => {
       pill.addEventListener('click', () => {
         state.folderModalIcon = pill.dataset.folderIcon || 'folder';
@@ -15617,6 +17263,11 @@
       renderScene,
       renderStaticInkLayerOnly,
       renderActiveCanvasOnly,
+      selectShapeForEditing,
+      clearSelectedShape,
+      convertSelectedShapeType,
+      duplicateSelectedShape,
+      deleteSelectedShape,
       mergeCompletedItemIntoStaticCanvas,
       invalidateStaticInkCache,
       clearActiveCanvas,
@@ -15662,6 +17313,13 @@
       getBoundedStackInfo,
       getBoundedDeskBackdropColor,
       PAGE_STACK_GAP,
+      openGnColorPopover,
+      closeGnColorPopover,
+      getGnColorPopoverState,
+      addToolColorSlot,
+      removeToolColorSlot,
+      getToolColorPresets,
+      applyColorFromGnPopover,
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,

@@ -448,7 +448,28 @@ async function runVerification() {
     throw new Error(`La couleur du fond autour de la feuille A4 ne doit pas changer avec la couleur du papier (${deskLightBefore} / ${deskLightAfterDarkPaper} / ${deskLightAfterBlueprint})`);
   }
 
-  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran + Gestionnaire GoodNotes + Pile A4 vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+  // Vérification du sélecteur de couleur GoodNotes 6 (+ ajout d'une couleur sélectionnable + préréglages par outil)
+  const penSlotsBefore = state.toolMemory.pen.colorSlots.length;
+  const openedColorPop = api.openGnColorPopover({ mode: 'add-slot', toolKey: 'pen', anchorEl: elementsById.get('gnSubAddColorBtn') });
+  if (!openedColorPop || !api.getGnColorPopoverState().open) {
+    throw new Error('L\'ouverture du popover couleur GoodNotes via le bouton + a échoué');
+  }
+  api.applyColorFromGnPopover('#82218b', { close: true });
+  if (state.toolMemory.pen.colorSlots.length !== penSlotsBefore + 1 || state.penColor !== '#82218b') {
+    throw new Error('La sélection d\'une couleur depuis le menu + n\'a pas ajouté une nouvelle pastille sélectionnable');
+  }
+  if (api.getGnColorPopoverState().open) {
+    throw new Error('Le popover couleur GoodNotes aurait dû se fermer après ajout de la couleur');
+  }
+  const removedSlot = api.removeToolColorSlot('pen', state.toolMemory.pen.colorSlots.length - 1);
+  if (!removedSlot || state.toolMemory.pen.colorSlots.length !== penSlotsBefore) {
+    throw new Error('La suppression d\'un emplacement de couleur a échoué');
+  }
+  if (api.getToolColorPresets('pen').length < 15 || api.getToolColorPresets('highlighter').length < 5 || api.getToolColorPresets('tape').length < 9) {
+    throw new Error('Les palettes de préréglages GoodNotes par outil sont incomplètes');
+  }
+
+  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran + Gestionnaire GoodNotes + Pile A4 + Couleurs GoodNotes vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {
