@@ -4,26 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>InkFlow — Page Infinie, Notes Manuscrites, LaTeX &amp; Reconnaissance IA</title>
-  <meta name="description" content="Application web et desktop de prise de notes manuscrites inspirée de GoodNotes et Nebo. Page infinie, zoom pincement, reconnaissance d'écriture et d'équations LaTeX, zones de texte clavier et IndexedDB." />
+  <meta name="description" content="Application locale de prise de notes manuscrites sur page infinie ou A4 avec stylet, annotation PDF hors-ligne, reconnaissance d'écriture et d'équations LaTeX." />
   <link rel="icon" type="image/png" href="./assets/inkflow-logo.png" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div class="app-shell" id="appShell">
-    <!-- ==================== BARRE LATÉRALE RÉTRACTABLE (CAHIERS & PAGES — GOODNOTES 6) ==================== -->
+    <!-- ==================== BARRE LATÉRALE RÉTRACTABLE (CAHIERS & PAGES) ==================== -->
     <aside class="sidebar collapsed" id="leftSidebar" aria-label="Gestion des cahiers et des pages">
       <div class="sidebar-header">
         <div class="brand">
           <div class="brand-logo" aria-hidden="true">
             <img src="./assets/inkflow-logo.png" alt="Logo InkFlow" class="brand-logo-img" />
           </div>
-          <div>
-            <h1 class="brand-title">InkFlow</h1>
-            <span class="brand-subtitle">Canevas Infini • LaTeX • ICR</span>
-          </div>
+          <h1 class="brand-title">InkFlow</h1>
         </div>
-        <button class="icon-btn-tiny" id="btnCloseSidebar" title="Réduire la barre latérale (Ctrl+B)">
+        <button class="sidebar-collapse-btn" id="btnCloseSidebar" title="Réduire le menu (Ctrl+B)" aria-label="Réduire le menu">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="3" y="3" width="18" height="18" rx="3"></rect>
             <path d="M9 3v18"></path>
@@ -39,41 +36,45 @@
 
       <div class="sidebar-section" id="sectionNotebooks">
         <div class="section-header-row">
-          <span class="section-label">Documents</span>
+          <span class="section-label">Bibliothèque</span>
           <div class="gn-header-actions">
-            <button class="btn-small-action gn-btn-new-folder" id="btnNewFolder" title="Créer un dossier personnalisé Goodnotes">+ Dossier</button>
-            <button class="btn-small-action gn-btn-new-notebook" id="btnNewNotebook" title="Clic : Nouveau cahier • Double-clic : Note rapide instantanée">+ Cahier</button>
+            <button class="sb-pill-btn sb-pill-icon" id="btnImportPdfSidebar" type="button" title="Importer un PDF (nouveau cahier ou cahier actuel)" aria-label="Importer un PDF">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <path d="M12 18v-6"></path>
+                <path d="m9 15 3-3 3 3"></path>
+              </svg>
+            </button>
+            <button class="sb-pill-btn gn-btn-new-folder" id="btnNewFolder" type="button" title="Créer un dossier">+ Dossier</button>
+            <button class="sb-pill-btn sb-pill-primary gn-btn-new-notebook" id="btnNewNotebook" type="button" title="Clic : Nouveau cahier • Double-clic : Note rapide">+ Cahier</button>
           </div>
         </div>
+
         <div class="gn-library-controls">
           <div class="gn-search-wrap">
             <svg class="gn-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="11" cy="11" r="7"></circle>
               <path d="m20 20-3.8-3.8"></path>
             </svg>
-            <input type="search" id="sidebarSearchInput" class="gn-search-input" placeholder="Rechercher dossiers, cahiers..." aria-label="Rechercher dans la bibliothèque" />
+            <input type="search" id="sidebarSearchInput" class="gn-search-input" placeholder="Rechercher..." aria-label="Rechercher dans la bibliothèque" />
           </div>
+
           <div class="gn-filter-pills" role="group" aria-label="Filtres de bibliothèque">
             <button class="gn-filter-pill active" id="btnFilterAllDocs" data-filter="all">Tous</button>
-            <button class="gn-filter-pill" id="btnFilterFavDocs" data-filter="favorites">⭐ Favoris</button>
-            <button class="gn-filter-pill" id="btnFilterRecentDocs" data-filter="recents">🕒 Récents</button>
-            <button class="gn-filter-pill" id="btnFilterTrashDocs" data-filter="trash">🗑 Corbeille</button>
+            <button class="gn-filter-pill" id="btnFilterFavDocs" data-filter="favorites">Favoris</button>
+            <button class="gn-filter-pill" id="btnFilterRecentDocs" data-filter="recents">Récents</button>
+            <button class="gn-filter-pill" id="btnFilterTrashDocs" data-filter="trash">Corbeille</button>
           </div>
+
           <div class="gn-sort-bar" id="librarySortBar">
             <select id="notebookSortSelect" class="gn-sort-select" aria-label="Trier les documents">
-              <option value="date_desc">Tri : Modifié récemment</option>
-              <option value="name_asc">Tri : Nom (A–Z)</option>
-              <option value="name_desc">Tri : Nom (Z–A)</option>
-              <option value="type">Tri : Type (Dossiers / PDF)</option>
+              <option value="date_desc">Modifié récemment</option>
+              <option value="name_asc">Nom (A–Z)</option>
+              <option value="name_desc">Nom (Z–A)</option>
+              <option value="type">Type (Dossiers / PDF)</option>
             </select>
-            <button class="gn-sort-toggle-btn" id="btnSortDocs" data-sort="date" title="Trier par date ou par nom" aria-label="Trier par date ou par nom">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="m3 8 4-4 4 4"></path>
-                <path d="M7 4v16"></path>
-                <path d="M13 8h8"></path>
-                <path d="M13 12h6"></path>
-                <path d="M13 16h4"></path>
-              </svg>
+            <button class="gn-sort-toggle-btn hidden" id="btnSortDocs" data-sort="date" title="Trier par date ou par nom" aria-label="Trier par date ou par nom">
               <span id="btnSortDocsLabel">Date</span>
             </button>
             <button class="icon-btn-tiny gn-view-toggle-btn" id="btnToggleLibraryView" title="Basculer l'affichage Liste / Grille" aria-label="Basculer l'affichage Liste / Grille">
@@ -86,49 +87,35 @@
             </button>
           </div>
         </div>
+
         <div class="gn-trash-bar hidden" id="trashActionBar">
           <span id="trashCountLabel">Corbeille</span>
           <button class="btn-small-action" id="btnEmptyTrash" style="color:var(--danger);">Vider</button>
         </div>
         <nav class="gn-folder-breadcrumb hidden" id="folderBreadcrumb" aria-label="Chemin du dossier"></nav>
-        <div class="pdf-sidebar-bar">
-          <button class="btn-small-action btn-pdf-import" id="btnImportPdfSidebar" title="Importer un fichier PDF local (nouveau cahier ou cahier actuel)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-              <path d="M12 18v-6"></path>
-              <path d="m9 15 3-3 3 3"></path>
-            </svg>
-            <span>Importer un PDF</span>
-          </button>
-          <button class="btn-small-action btn-pdf-export" id="btnExportPdfSidebar" title="Exporter le cahier annoté en fichier .pdf (pdf-lib)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            <span>Exporter PDF</span>
-          </button>
-        </div>
         <div class="notebook-list" id="notebookList"></div>
       </div>
 
       <div class="sidebar-section hidden" id="sectionPages">
         <div class="section-header-row">
-          <span class="section-label" id="activeNotebookPagesLabel">Pages du cahier</span>
+          <span class="section-label" id="activeNotebookPagesLabel">Pages</span>
           <div class="gn-header-actions">
-            <button class="btn-small-action gn-btn-bookmark-filter" id="btnFilterBookmarkedPages" title="Afficher uniquement les pages marquées d'un signet">🔖</button>
-            <button class="btn-small-action btn-pdf-import" id="btnImportPdfPages" title="Importer des pages PDF dans ce cahier ou un nouveau cahier">+ PDF</button>
-            <button class="btn-small-action gn-btn-new-page" id="btnNewPageSidebar" title="Ajouter une nouvelle page">+ Page</button>
+            <button class="sb-pill-btn sb-pill-icon gn-btn-bookmark-filter" id="btnFilterBookmarkedPages" type="button" title="Afficher uniquement les pages marquées d'un signet" aria-label="Filtrer les signets">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </button>
+            <button class="sb-pill-btn btn-pdf-import" id="btnImportPdfPages" type="button" title="Importer des pages PDF">+ PDF</button>
+            <button class="sb-pill-btn sb-pill-primary gn-btn-new-page" id="btnNewPageSidebar" type="button" title="Ajouter une nouvelle page">+ Page</button>
           </div>
         </div>
         <div class="gn-pages-subtabs" id="pagesSubTabs">
           <button class="gn-subtab-btn active" id="btnPagesSubTabGrid" data-pages-subtab="pages">Miniatures</button>
-          <button class="gn-subtab-btn" id="btnPagesSubTabOutline" data-pages-subtab="outline">Plan / Sommaire</button>
-          <button class="gn-subtab-btn" id="btnPagesSubTabBookmarks" data-pages-subtab="bookmarks">★ Favoris</button>
+          <button class="gn-subtab-btn" id="btnPagesSubTabOutline" data-pages-subtab="outline">Plan</button>
+          <button class="gn-subtab-btn" id="btnPagesSubTabBookmarks" data-pages-subtab="bookmarks">Signets</button>
         </div>
         <div class="gn-outline-wrap hidden" id="outlineSectionWrap">
-          <button class="btn-small-action" id="btnAddOutlineEntry" style="width:100%;justify-content:center;">+ Ajouter la page active au sommaire</button>
+          <button class="sb-pill-btn" id="btnAddOutlineEntry" style="width:100%;justify-content:center;">+ Ajouter la page au sommaire</button>
           <div class="gn-outline-list" id="outlineList"></div>
         </div>
         <div class="pages-grid" id="pagesGrid"></div>
@@ -138,23 +125,43 @@
         <div class="storage-status">
           <div class="status-dot-wrap">
             <span class="status-dot" id="dbStatusDot"></span>
-            <span id="dbStatusText">IndexedDB synchronisé</span>
+            <span id="dbStatusText">Synchronisé</span>
           </div>
-          <span id="strokeCountBadge" class="value-badge">0 éléments</span>
+          <span id="strokeCountBadge" class="sb-count-pill">0 éléments</span>
         </div>
-        <div class="footer-actions">
-          <button class="btn-small-action" id="btnBackupJson" title="Exporter tous les cahiers en fichier .plume.json">Sauvegarder</button>
-          <button class="btn-small-action" id="btnImportJson" title="Importer un fichier .plume.json">Importer</button>
+        <div class="sb-footer-icon-bar">
+          <button class="sb-footer-btn" id="btnExportPdfSidebar" type="button" title="Exporter le cahier annoté en PDF">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>PDF</span>
+          </button>
+          <button class="sb-footer-btn" id="btnOpenGoogleDrive" type="button" title="Sauvegarde &amp; synchronisation Google Drive">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+            </svg>
+            <span>Drive</span>
+          </button>
+          <button class="sb-footer-btn" id="btnBackupJson" type="button" title="Sauvegarder tous les cahiers (.json)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            </svg>
+          </button>
+          <button class="sb-footer-btn" id="btnImportJson" type="button" title="Importer une sauvegarde (.json)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+          </button>
           <input type="file" id="inputImportJson" accept=".json" style="display:none" />
           <input type="file" id="inputImportPdf" accept=".pdf,application/pdf" style="display:none" />
           <input type="file" id="inputInsertImage" accept="image/*" style="display:none" />
+          <button class="hidden" id="btnDesktopInfo" type="button" aria-hidden="true"></button>
         </div>
-        <button class="btn-small-action btn-gdrive-sync" id="btnOpenGoogleDrive" style="width:100%; justify-content:center;" title="Sauvegarde & synchronisation Google Drive (style Goodnotes)">
-          ☁ Sauvegarde Google Drive
-        </button>
-        <button class="btn-small-action" id="btnDesktopInfo" style="width:100%; justify-content:center;">
-          Application Desktop (Electron / PWA)
-        </button>
       </div>
     </aside>
 
@@ -304,7 +311,7 @@
               <span class="gn-sr-label">Export</span>
             </button>
 
-            <button class="tool-btn gn-icon-only gn-files-trigger-btn" id="btnOpenFilesView" title="Mes fichiers — Bibliothèque GoodNotes (Ctrl+Shift+L)" aria-label="Ouvrir la page des fichiers">
+            <button class="tool-btn gn-icon-only gn-files-trigger-btn" id="btnOpenFilesView" title="Mes fichiers — Bibliothèque (Ctrl+Shift+L)" aria-label="Ouvrir la page des fichiers">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4.2l2 2.4h6.8A2.5 2.5 0 0 1 21 9.9v7.6a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-10z" fill="currentColor" fill-opacity="0.16"></path>
                 <line x1="7.5" y1="13" x2="16.5" y2="13" stroke-opacity="0.72"></line>
@@ -367,7 +374,7 @@
 
           <div class="control-group" id="smoothingControlGroup">
             <div class="dock-divider"></div>
-            <div class="segmented-pills" id="penStylePills" title="Style de pointe Goodnotes">
+            <div class="segmented-pills" id="penStylePills" title="Style de pointe">
               <button class="seg-pill active" data-penstyle="fountain">Plume</button>
               <button class="seg-pill" data-penstyle="ballpoint">Bille</button>
               <button class="seg-pill" data-penstyle="brush">Pinceau</button>
@@ -453,7 +460,7 @@
         </div>
 
         <!-- SOUS-BARRE FLOTTANTE STYLE GOODNOTES (Stylo, Crayon, Surligneur, Ruban, Formes | 3 Épaisseurs | Couleurs) -->
-        <div class="gn-pen-subbar hidden" id="gnPenSubBar" role="toolbar" aria-label="Barre rapide style GoodNotes">
+        <div class="gn-pen-subbar hidden" id="gnPenSubBar" role="toolbar" aria-label="Barre rapide d'écriture">
           <div class="gn-subbar-tools">
             <button class="gn-subtool-btn active" id="gnSubToolPen" data-subtool="pen" data-penstyle="fountain" title="Stylo (cliquer pour ouvrir les réglages du stylo)">
               <span class="gn-subtool-icon-wrap">
@@ -860,7 +867,7 @@
         </div>
 
         <!-- SOUS-BARRE FLOTTANTE FORMES (STYLE GOODNOTES) -->
-        <div class="gn-shape-subbar hidden" id="gnShapeSubBar" role="toolbar" aria-label="Outils de formes GoodNotes">
+        <div class="gn-shape-subbar hidden" id="gnShapeSubBar" role="toolbar" aria-label="Outils de formes">
           <!-- Forme libre auto + Connecteurs coudé & courbe -->
           <div class="gn-shapebar-group">
             <button class="gn-shape-btn active" data-gn-shapetype="auto" title="Forme libre instantanée (cercle, carré, flèche sans maintenir)">
@@ -1211,6 +1218,237 @@
             <input type="range" class="gn-wedge-range" id="gnEraserSizeSlider" min="4" max="56" step="1" value="18" aria-label="Taille de la gomme" />
           </div>
         </div>
+
+        <!-- SOUS-BARRE FLOTTANTE TEXTE STYLE GOODNOTES 6 (Police | Taille | Couleur | B I U S | Alignement | Listes | Style de zone | LaTeX) -->
+        <div class="gn-text-subbar hidden" id="gnTextSubBar" role="toolbar" aria-label="Barre de mise en forme du texte">
+          <button class="gn-text-font-pill" id="gnTextFontBtn" type="button" title="Police d'écriture">
+            <span class="gn-text-font-label" id="gnTextFontLabel">Helvetica</span>
+            <svg class="gn-text-caret" width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M1.5 1.2L5 4.7L8.5 1.2"></path>
+            </svg>
+          </button>
+
+          <div class="gn-text-size-pill" id="gnTextSizePill" title="Taille du texte (1 à 200 pt)">
+            <button class="gn-text-size-step" id="gnTextSizeDecBtn" type="button" aria-label="Réduire la taille du texte">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="8" x2="13" y2="8"></line></svg>
+            </button>
+            <input type="text" inputmode="numeric" class="gn-text-size-input" id="gnTextSizeInput" value="24" maxlength="3" autocomplete="off" aria-label="Taille de police en points" />
+            <button class="gn-text-size-step" id="gnTextSizeIncBtn" type="button" aria-label="Augmenter la taille du texte">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="8" y1="3" x2="8" y2="13"></line><line x1="3" y1="8" x2="13" y2="8"></line></svg>
+            </button>
+            <button class="gn-text-size-more" id="gnTextSizeMenuBtn" type="button" title="Curseur de taille de police" aria-label="Ouvrir le curseur de taille de police">
+              <svg width="9" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1.5 1.2L5 4.7L8.5 1.2"></path>
+              </svg>
+            </button>
+          </div>
+
+          <button class="gn-text-color-btn" id="gnTextColorBtn" type="button" title="Couleur du texte" aria-label="Couleur du texte">
+            <span class="gn-text-color-swatch" id="gnTextColorSwatch" style="background:#000000"></span>
+          </button>
+
+          <div class="gn-subbar-divider"></div>
+
+          <div class="gn-text-format-group">
+            <button class="gn-text-icon-btn" id="gnTextBoldBtn" type="button" title="Gras (Ctrl+B)" aria-pressed="false"><strong>B</strong></button>
+            <button class="gn-text-icon-btn" id="gnTextItalicBtn" type="button" title="Italique (Ctrl+I)" aria-pressed="false"><em>I</em></button>
+            <button class="gn-text-icon-btn" id="gnTextUnderlineBtn" type="button" title="Souligné (Ctrl+U)" aria-pressed="false"><span style="text-decoration:underline;text-underline-offset:2px;">U</span></button>
+            <button class="gn-text-icon-btn" id="gnTextStrikeBtn" type="button" title="Barré (Ctrl+Shift+X)" aria-pressed="false"><span style="text-decoration:line-through;">S</span></button>
+          </div>
+
+          <div class="gn-subbar-divider"></div>
+
+          <div class="gn-text-format-group">
+            <button class="gn-text-icon-btn" id="gnTextAlignBtn" type="button" title="Alignement et hauteur de ligne" aria-label="Alignement et hauteur de ligne">
+              <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                <line x1="3" y1="5" x2="17" y2="5"></line>
+                <line x1="3" y1="10" x2="13" y2="10"></line>
+                <line x1="3" y1="15" x2="16" y2="15"></line>
+              </svg>
+            </button>
+            <button class="gn-text-icon-btn" id="gnTextListBtn" type="button" title="Liste à puces ou numérotée" aria-label="Style de liste">
+              <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                <circle cx="4" cy="5.5" r="1.1" fill="currentColor" stroke="none"></circle>
+                <circle cx="4" cy="10" r="1.1" fill="currentColor" stroke="none"></circle>
+                <circle cx="4" cy="14.5" r="1.1" fill="currentColor" stroke="none"></circle>
+                <line x1="8" y1="5.5" x2="17" y2="5.5"></line>
+                <line x1="8" y1="10" x2="17" y2="10"></line>
+                <line x1="8" y1="14.5" x2="17" y2="14.5"></line>
+              </svg>
+            </button>
+            <button class="gn-text-style-trigger" id="gnTextBoxStyleBtn" type="button" title="Style de la zone de texte (fond, bordure, coins arrondis, ombre)">
+              <span class="gn-text-style-preview-box" id="gnTextStylePreviewBox">T</span>
+            </button>
+          </div>
+
+          <div class="gn-subbar-divider"></div>
+
+          <button class="gn-text-latex-btn" id="gnTextLatexBtn" type="button" title="Insérer un bloc d'équation LaTeX (∑)">
+            <span>∑</span>
+          </button>
+        </div>
+
+        <!-- POPOVER POLICE D'ÉCRITURE (GOODNOTES 6) -->
+        <div class="gn-text-popover gn-text-font-popover hidden" id="gnTextFontPopover" role="dialog" aria-label="Choisir une police">
+          <div class="gn-text-popover-title">Police</div>
+          <div class="gn-text-font-list" id="gnTextFontList">
+            <button class="gn-text-font-opt active" type="button" data-gn-font="'Helvetica Neue', Helvetica, Arial, sans-serif" data-gn-font-label="Helvetica" style="font-family:'Helvetica Neue', Helvetica, Arial, sans-serif;">
+              <span>Helvetica Neue</span>
+              <svg class="gn-check-ico" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10.5 8.2 14.8 16.5 6.2"></polyline></svg>
+            </button>
+            <button class="gn-text-font-opt" type="button" data-gn-font="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" data-gn-font-label="Inter" style="font-family:Inter, -apple-system, 'Segoe UI', sans-serif;">
+              <span>Inter (Moderne)</span>
+              <svg class="gn-check-ico" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10.5 8.2 14.8 16.5 6.2"></polyline></svg>
+            </button>
+            <button class="gn-text-font-opt" type="button" data-gn-font="Georgia, 'Times New Roman', serif" data-gn-font-label="Georgia" style="font-family:Georgia, serif;">
+              <span>Georgia (Serif)</span>
+              <svg class="gn-check-ico" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10.5 8.2 14.8 16.5 6.2"></polyline></svg>
+            </button>
+            <button class="gn-text-font-opt" type="button" data-gn-font="'Trebuchet MS', 'Segoe UI', sans-serif" data-gn-font-label="Trebuchet" style="font-family:'Trebuchet MS', sans-serif;">
+              <span>Trebuchet MS</span>
+              <svg class="gn-check-ico" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10.5 8.2 14.8 16.5 6.2"></polyline></svg>
+            </button>
+            <button class="gn-text-font-opt" type="button" data-gn-font="'Segoe Print', 'Comic Sans MS', cursive" data-gn-font-label="Manuscrite" style="font-family:'Segoe Print', 'Comic Sans MS', cursive;">
+              <span>Manuscrite</span>
+              <svg class="gn-check-ico" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10.5 8.2 14.8 16.5 6.2"></polyline></svg>
+            </button>
+            <button class="gn-text-font-opt" type="button" data-gn-font="'Cascadia Code', 'Consolas', 'Courier New', monospace" data-gn-font-label="Monospace" style="font-family:'Consolas', 'Courier New', monospace;">
+              <span>Monospace</span>
+              <svg class="gn-check-ico" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10.5 8.2 14.8 16.5 6.2"></polyline></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- POPOVER TAILLE DU TEXTE (GOODNOTES 6 FontSizeFloatingMenu) -->
+        <div class="gn-text-popover gn-text-size-popover hidden" id="gnTextSizePopover" role="dialog" aria-label="Taille du texte">
+          <div class="gn-text-popover-title">Taille du texte</div>
+          <div class="gn-text-slider-row">
+            <span class="gn-text-val-chip" id="gnTextSizeChip">24 pt</span>
+            <input type="range" class="gn-text-range" id="gnTextSizeSlider" min="8" max="120" step="1" value="24" aria-label="Curseur taille de police" />
+            <div class="gn-text-pill-stepper">
+              <button type="button" id="gnTextSizePopDec" aria-label="Diminuer">−</button>
+              <button type="button" id="gnTextSizePopInc" aria-label="Augmenter">+</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- POPOVER ALIGNEMENT & HAUTEUR DE LIGNE (GOODNOTES 6 TextAlignmentFloatingMenu + LineHeightFloatingMenu) -->
+        <div class="gn-text-popover gn-text-align-popover hidden" id="gnTextAlignPopover" role="dialog" aria-label="Alignement et hauteur de ligne">
+          <div class="gn-text-popover-title">Alignement</div>
+          <div class="gn-text-align-row" id="gnTextAlignGrid">
+            <button class="gn-text-align-btn active" type="button" data-gn-align="left" title="Aligner à gauche">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"></line><line x1="3" y1="10" x2="12" y2="10"></line><line x1="3" y1="15" x2="15" y2="15"></line></svg>
+            </button>
+            <button class="gn-text-align-btn" type="button" data-gn-align="center" title="Centrer">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"></line><line x1="5.5" y1="10" x2="14.5" y2="10"></line><line x1="4" y1="15" x2="16" y2="15"></line></svg>
+            </button>
+            <button class="gn-text-align-btn" type="button" data-gn-align="right" title="Aligner à droite">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"></line><line x1="8" y1="10" x2="17" y2="10"></line><line x1="5" y1="15" x2="17" y2="15"></line></svg>
+            </button>
+          </div>
+          <div class="gn-text-popover-divider"></div>
+          <div class="gn-text-popover-title">Hauteur de ligne</div>
+          <label class="gn-text-switch-row">
+            <span>Automatique</span>
+            <span class="gn-ios-switch">
+              <input type="checkbox" id="gnTextLineHeightAutoSwitch" checked />
+              <span class="gn-ios-slider"></span>
+            </span>
+          </label>
+          <div class="gn-text-slider-row" id="gnTextLineHeightControls">
+            <span class="gn-text-val-chip" id="gnTextLineHeightChip">32 pt</span>
+            <input type="range" class="gn-text-range" id="gnTextLineHeightSlider" min="12" max="120" step="1" value="32" aria-label="Hauteur de ligne en points" />
+            <div class="gn-text-pill-stepper">
+              <button type="button" id="gnTextLineHeightDec" aria-label="Réduire la hauteur de ligne">−</button>
+              <button type="button" id="gnTextLineHeightInc" aria-label="Augmenter la hauteur de ligne">+</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- POPOVER STYLE DE LISTE (GOODNOTES 6 TextListStyleFloatingMenu) -->
+        <div class="gn-text-popover gn-text-list-popover hidden" id="gnTextListPopover" role="dialog" aria-label="Style de liste">
+          <div class="gn-text-align-row" id="gnTextListGrid">
+            <button class="gn-text-align-btn active" type="button" data-gn-list="none" title="Paragraphe normal">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="5.5" x2="17" y2="5.5"></line><line x1="3" y1="10" x2="17" y2="10"></line><line x1="3" y1="14.5" x2="13" y2="14.5"></line></svg>
+            </button>
+            <button class="gn-text-align-btn" type="button" data-gn-list="bullets" title="Liste à puces">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="4" cy="5.5" r="1.2" fill="currentColor" stroke="none"></circle><circle cx="4" cy="10" r="1.2" fill="currentColor" stroke="none"></circle><circle cx="4" cy="14.5" r="1.2" fill="currentColor" stroke="none"></circle><line x1="8" y1="5.5" x2="17" y2="5.5"></line><line x1="8" y1="10" x2="17" y2="10"></line><line x1="8" y1="14.5" x2="17" y2="14.5"></line></svg>
+            </button>
+            <button class="gn-text-align-btn" type="button" data-gn-list="numbered" title="Liste numérotée">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><text x="2.2" y="7.5" font-size="6" fill="currentColor" stroke="none" font-weight="700">1.</text><text x="2.2" y="12.5" font-size="6" fill="currentColor" stroke="none" font-weight="700">2.</text><text x="2.2" y="17.2" font-size="6" fill="currentColor" stroke="none" font-weight="700">3.</text><line x1="9" y1="5.5" x2="17" y2="5.5"></line><line x1="9" y1="10.2" x2="17" y2="10.2"></line><line x1="9" y1="15" x2="17" y2="15"></line></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- POPOVER STYLE DE LA ZONE DE TEXTE (GOODNOTES 6 TextBoxStyleFloatingMenu — Préréglages & Avancé) -->
+        <div class="gn-text-popover gn-text-style-popover hidden" id="gnTextBoxStylePopover" role="dialog" aria-label="Style de la zone de texte">
+          <div class="gn-text-popover-title">Style de la zone de texte</div>
+          <div class="gn-text-style-tabs" role="tablist">
+            <button class="gn-text-style-tab active" id="gnTextStyleTabPresets" type="button" role="tab" aria-selected="true">Préréglages</button>
+            <button class="gn-text-style-tab" id="gnTextStyleTabAdvanced" type="button" role="tab" aria-selected="false">Avancé</button>
+          </div>
+
+          <div class="gn-text-style-presets-view" id="gnTextStylePresetsView">
+            <div class="gn-text-style-presets-grid" id="gnTextStylePresetsGrid" role="grid"></div>
+          </div>
+
+          <div class="gn-text-style-advanced-view hidden" id="gnTextStyleAdvancedView">
+            <div class="gn-text-adv-row">
+              <span>Couleur de fond</span>
+              <div class="gn-text-adv-color-wrap">
+                <button class="gn-text-adv-swatch" id="gnTextAdvBgBtn" type="button" title="Choisir la couleur de fond"></button>
+                <button class="gn-text-adv-clear" id="gnTextAdvBgClear" type="button" title="Fond transparent">✕</button>
+              </div>
+            </div>
+            <div class="gn-text-adv-row">
+              <span>Couleur de bordure</span>
+              <div class="gn-text-adv-color-wrap">
+                <button class="gn-text-adv-swatch" id="gnTextAdvBorderBtn" type="button" title="Choisir la couleur de bordure"></button>
+                <button class="gn-text-adv-clear" id="gnTextAdvBorderClear" type="button" title="Sans bordure">✕</button>
+              </div>
+            </div>
+            <div class="gn-text-adv-row">
+              <span>Coins arrondis</span>
+              <div class="gn-text-adv-stepper-wrap">
+                <span class="gn-text-adv-val" id="gnTextAdvRadiusVal">0 pt</span>
+                <div class="gn-text-pill-stepper">
+                  <button type="button" id="gnTextAdvRadiusDec">−</button>
+                  <button type="button" id="gnTextAdvRadiusInc">+</button>
+                </div>
+              </div>
+            </div>
+            <label class="gn-text-switch-row">
+              <span>Ombre</span>
+              <span class="gn-ios-switch">
+                <input type="checkbox" id="gnTextAdvShadowSwitch" />
+                <span class="gn-ios-slider"></span>
+              </span>
+            </label>
+            <div class="gn-text-adv-row">
+              <span>Bordure</span>
+              <div class="gn-text-adv-stepper-wrap">
+                <span class="gn-text-adv-val" id="gnTextAdvBorderWidthVal">0 pt</span>
+                <div class="gn-text-pill-stepper">
+                  <button type="button" id="gnTextAdvBorderWidthDec">−</button>
+                  <button type="button" id="gnTextAdvBorderWidthInc">+</button>
+                </div>
+              </div>
+            </div>
+            <div class="gn-text-adv-row">
+              <span>Marge interne</span>
+              <div class="gn-text-adv-stepper-wrap">
+                <span class="gn-text-adv-val" id="gnTextAdvPaddingVal">10 pt</span>
+                <div class="gn-text-pill-stepper">
+                  <button type="button" id="gnTextAdvPaddingDec">−</button>
+                  <button type="button" id="gnTextAdvPaddingInc">+</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="gn-text-popover-divider"></div>
+          <button class="gn-text-save-default-btn" id="btnGnTextSaveDefault" type="button">Enregistrer comme style par défaut</button>
+        </div>
       </header>
 
       <!-- POPOVER : 8 FONDS DE PAGE & CANEVAS INFINI -->
@@ -1221,7 +1459,7 @@
         </div>
 
         <div class="form-field">
-          <label>Modèle de papier (11 réglures GoodNotes)</label>
+          <label>Modèle de papier (11 réglures)</label>
           <div class="paper-grid-options">
             <button class="paper-option-btn active" data-paper="grid">⊞ Quadrillé 5×5</button>
             <button class="paper-option-btn" data-paper="seyes">▤ Grands Carreaux Seyès</button>
@@ -1298,7 +1536,7 @@
 
         <!-- Mini barre flottante de sélection lasso (apparaît brièvement quand des éléments sont entourés) -->
         <div class="lasso-floating-actions hidden" id="lassoFloatingActions">
-          <button class="lasso-fab-btn" id="btnQuickColorLasso" title="Changer la couleur (GoodNotes)">
+          <button class="lasso-fab-btn" id="btnQuickColorLasso" title="Changer la couleur">
             <span class="lasso-color-dot" id="lassoQuickColorDot"></span>
           </button>
           <button class="lasso-fab-btn" id="btnQuickDupLasso" title="Dupliquer">⧉</button>
@@ -1369,6 +1607,17 @@
             <button class="shape-edit-btn" id="btnShapeEditDup" type="button" title="Dupliquer la forme">⧉</button>
             <button class="shape-edit-btn danger" id="btnShapeEditDel" type="button" title="Supprimer la forme">✕</button>
           </div>
+        </div>
+
+        <!-- Barre flottante d'édition de zone de texte sélectionnée (GoodNotes ObjectMenu TextBox) -->
+        <div class="text-edit-bar hidden" id="textEditFloatingBar" role="toolbar" aria-label="Actions sur la zone de texte">
+          <button class="text-edit-btn" id="btnTextEditType" type="button" title="Modifier le texte">Modifier</button>
+          <span class="shape-edit-sep"></span>
+          <button class="text-edit-btn" id="btnTextEditStyle" type="button" title="Style de la zone de texte">Style</button>
+          <button class="text-edit-btn" id="btnTextEditLatex" type="button" title="Éditer en équation LaTeX">∑</button>
+          <span class="shape-edit-sep"></span>
+          <button class="text-edit-btn" id="btnTextEditDup" type="button" title="Dupliquer la zone de texte">⧉</button>
+          <button class="text-edit-btn danger" id="btnTextEditDel" type="button" title="Supprimer la zone de texte">✕</button>
         </div>
 
         <!-- ROUE DE COULEURS RADIALE (Maintenir le bouton du lasso sans bouger) -->
@@ -1511,7 +1760,7 @@
   </div>
 
   <!-- ==================== PAGE PLEIN ÉCRAN : GESTIONNAIRE DE FICHIERS GOODNOTES 6 ==================== -->
-  <div class="gn-files-page hidden" id="gnFilesPage" role="dialog" aria-label="Bibliothèque de fichiers GoodNotes" aria-modal="true">
+  <div class="gn-files-page hidden" id="gnFilesPage" role="dialog" aria-label="Bibliothèque de fichiers" aria-modal="true">
     <!-- Barre latérale gauche GoodNotes (Documents, Récents, Favoris, Corbeille) -->
     <aside class="gn-files-sidebar" aria-label="Navigation des fichiers">
       <div class="gn-files-brand">
@@ -1710,7 +1959,7 @@
         </span>
         <span class="gn-files-menu-text">
           <strong>Dossier</strong>
-          <small>Couleur &amp; symbole GoodNotes</small>
+          <small>Couleur &amp; symbole personnalisés</small>
         </span>
       </button>
 
@@ -1772,7 +2021,7 @@
               <path d="M5.5 2.5h6.5l3.5 3.5v11.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1z"></path>
               <path d="M12 2.5v3.5h3.5"></path>
             </svg>
-            <span id="gnTplSizeLabel">Goodnotes Standard</span>
+            <span id="gnTplSizeLabel">Standard</span>
             <svg class="gn-tpl-chevron" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg>
           </button>
           <div class="gn-tpl-dropdown hidden" id="gnTplSizeMenu" role="listbox" aria-label="Format de page"></div>
@@ -1873,9 +2122,9 @@
         <input type="text" id="inputNotebookName" class="form-input" placeholder="Ex : Mathématiques &amp; Algèbre..." />
       </div>
       <div class="form-field">
-        <label>Couleur de couverture GoodNotes</label>
+        <label>Couleur de couverture</label>
         <div class="swatch-group" id="notebookCoverSwatches">
-          <button class="color-swatch active" data-cover="#0072ce" style="background:linear-gradient(135deg,#0072ce,#1d4ed8)" title="Bleu GoodNotes"></button>
+          <button class="color-swatch active" data-cover="#0072ce" style="background:linear-gradient(135deg,#0072ce,#1d4ed8)" title="Bleu Océan"></button>
           <button class="color-swatch" data-cover="#1d4ed8" style="background:#1d4ed8" title="Bleu Royal"></button>
           <button class="color-swatch" data-cover="#0f766e" style="background:linear-gradient(135deg,#0f766e,#00b577)" title="Émeraude"></button>
           <button class="color-swatch" data-cover="#b45309" style="background:linear-gradient(135deg,#b45309,#ea580c)" title="Terre d'Ambre"></button>
@@ -2010,7 +2259,7 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
   <div class="modal-backdrop hidden" id="modalGoogleDrive">
     <div class="modal-card" style="max-width:520px;">
       <div class="modal-header">
-        <h3>☁ Sauvegarde Google Drive (Goodnotes)</h3>
+        <h3>☁ Sauvegarde Google Drive</h3>
         <button class="icon-btn-tiny" id="btnCloseGoogleDriveModal">✕</button>
       </div>
       <div class="gn-gdrive-status-banner" id="gdriveStatusBanner">
@@ -2075,7 +2324,7 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
   <div class="modal-backdrop hidden" id="modalFolderCustomize">
     <div class="modal-card" style="max-width:400px;">
       <div class="modal-header">
-        <h3 id="modalFolderCustomizeTitle">📁 Dossier GoodNotes</h3>
+        <h3 id="modalFolderCustomizeTitle">📁 Dossier</h3>
         <button class="icon-btn-tiny" id="btnCloseFolderCustomizeModal">✕</button>
       </div>
       <div class="form-field">
@@ -2083,7 +2332,7 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
         <input type="text" id="inputFolderCustomizeName" class="form-input" placeholder="Ex : Semestre 1 — Physique..." />
       </div>
       <div class="form-field">
-        <label>Couleur du dossier (9 teintes GoodNotes)</label>
+        <label>Couleur du dossier</label>
         <div class="swatch-group" id="folderColorSwatches" style="flex-wrap:wrap;">
           <button class="color-swatch active" data-folder-color="#0072ce" style="background:#0072ce" title="Bleu"></button>
           <button class="color-swatch" data-folder-color="#d8342c" style="background:#d8342c" title="Rouge"></button>
@@ -2125,7 +2374,7 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
   </div>
 
   <!-- ==================== POPOVER COULEUR UNIFIÉ STYLE GOODNOTES 6 ==================== -->
-  <div class="gn-color-popover hidden" id="gnColorPopover" role="dialog" aria-label="Sélecteur de couleur GoodNotes">
+  <div class="gn-color-popover hidden" id="gnColorPopover" role="dialog" aria-label="Sélecteur de couleur">
     <div class="gn-color-popover-caret" id="gnColorPopoverCaret"></div>
 
     <div class="gn-color-popover-header">
