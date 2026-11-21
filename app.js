@@ -8774,6 +8774,31 @@
     state.lastPointerTime = e.timeStamp || performance.now();
     updateTelemetryHUD(e, 1, pressure, true);
 
+    // Si une sélection Lasso est active (ex. après cercle-lasso, 2e bouton du stylet ou duplication),
+    // cliquer/glisser dans le cadre de sélection déplace ou redimensionne directement les éléments au lieu de dessiner par-dessus
+    if (
+      state.tool !== 'eraser' &&
+      state.tool !== 'pan' &&
+      state.tool !== 'lasso' &&
+      tryStartLassoSelectionTransform(worldPt)
+    ) {
+      cancelPendingPageSave(page.id);
+      if (state.gnPenPopoverOpen || state.gnPencilPopoverOpen || state.gnHighlighterPopoverOpen || state.gnStrokePopoverOpen || state.gnShapeStrokePopoverOpen) {
+        state.gnPenPopoverOpen = false;
+        state.gnPencilPopoverOpen = false;
+        state.gnHighlighterPopoverOpen = false;
+        state.gnStrokePopoverOpen = false;
+        state.gnShapeStrokePopoverOpen = false;
+        updateToolbarActiveState();
+      }
+      state.activePointerId = e.pointerId;
+      state.isDrawing = true;
+      try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+      updateLassoFloatingBarPosition();
+      renderActiveCanvasOnly();
+      return;
+    }
+
     if (state.tool === 'text') {
       createInteractiveTextCardAt(worldPt.x, worldPt.y, '', false, true);
       return;
@@ -9083,6 +9108,11 @@
         renderActiveCanvasOnly();
         updateShapeEditFloatingBar();
       }
+      return;
+    }
+    if (state.lassoAction === 'move' || state.lassoAction === 'scale') {
+      handleLassoPointerMove(clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY)));
+      requestRender();
       return;
     }
     if (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) {
@@ -9485,7 +9515,9 @@
     let mergedDirectlyIntoStatic = false;
     const page = getActivePage();
     if (page) {
-      if ((state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) && state.currentStroke) {
+      if (state.lassoAction === 'move' || state.lassoAction === 'scale') {
+        handleLassoPointerUp();
+      } else if ((state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) && state.currentStroke) {
         if (state.currentStrokeSnappedFromAutoShape && state.currentShape) {
           const snapped = state.currentShape;
           delete snapped.detectedName;
@@ -9980,27 +10012,39 @@
     dom.lassoFloatingActions.classList.remove('hidden');
   }
 
+  function tryStartLassoSelectionTransform(worldPt) {
+    const page = getActivePage();
+    if (!page || !state.selectionBounds || !hasAnyLassoSelection()) return false;
+    const b = state.selectionBounds;
+    const invZoom = 1 / Math.max(0.25, state.zoom);
+    if (Math.hypot(worldPt.x - b.maxX, worldPt.y - b.maxY) <= 18 * invZoom) {
+      pushHistorySnapshot();
+      state.lassoAction = 'scale';
+      state.lassoDragStartWorld = worldPt;
+      state.lassoInitialBounds = { ...b };
+      state.lassoInitialSnapshot = clonePageContent(page);
+      return true;
+    }
+    const pad = 10 * invZoom;
+    if (
+      worldPt.x >= b.minX - pad &&
+      worldPt.x <= b.maxX + pad &&
+      worldPt.y >= b.minY - pad &&
+      worldPt.y <= b.maxY + pad
+    ) {
+      pushHistorySnapshot();
+      state.lassoAction = 'move';
+      state.lassoDragStartWorld = worldPt;
+      state.lassoInitialSnapshot = clonePageContent(page);
+      return true;
+    }
+    return false;
+  }
+
   function handleLassoPointerDown(worldPt) {
     const page = getActivePage();
     if (!page) return;
-    if (state.selectionBounds && hasAnyLassoSelection()) {
-      const b = state.selectionBounds;
-      if (Math.hypot(worldPt.x - b.maxX, worldPt.y - b.maxY) <= 14 / state.zoom) {
-        pushHistorySnapshot();
-        state.lassoAction = 'scale';
-        state.lassoDragStartWorld = worldPt;
-        state.lassoInitialBounds = { ...b };
-        state.lassoInitialSnapshot = clonePageContent(page);
-        return;
-      }
-      if (worldPt.x >= b.minX && worldPt.x <= b.maxX && worldPt.y >= b.minY && worldPt.y <= b.maxY) {
-        pushHistorySnapshot();
-        state.lassoAction = 'move';
-        state.lassoDragStartWorld = worldPt;
-        state.lassoInitialSnapshot = clonePageContent(page);
-        return;
-      }
-    }
+    if (tryStartLassoSelectionTransform(worldPt)) return;
     clearLassoSelection();
     state.lassoAction = 'draw';
     state.lassoStartWorld = worldPt;
@@ -10182,6 +10226,8 @@
     state.selectedIds.strokes = ns; state.selectedIds.shapes = nsh; state.selectedIds.texts = nt;
     invalidateStaticInkCache();
     computeSelectionBounds();
+    updateLassoToolbarBadge();
+    updateLassoFloatingBarPosition();
     renderWorldTextCards();
     requestRender();
     scheduleSaveActivePage();
@@ -12464,8 +12510,8 @@
     dom.canvasViewport.classList.toggle('text-cursor', state.tool === 'text');
     dom.canvasViewport.classList.toggle('eraser-cursor', state.tool === 'eraser');
 
-    // Permet au stylet de dessiner à travers les cartes de texte quand on est en outil Stylo/Crayon/Surligneur/Gomme/Formes/Ruban/Laser
-    const isDrawingTool = state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || state.tool === 'eraser' || state.tool === 'shape' || state.tool === 'tape' || state.tool === 'laser';
+    // Permet au stylet de dessiner ou déplacer la sélection lasso à travers les cartes de texte
+    const isDrawingTool = state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || state.tool === 'eraser' || state.tool === 'shape' || state.tool === 'tape' || state.tool === 'laser' || state.tool === 'lasso';
     dom.canvasViewport.classList.toggle('drawing-mode-active', isDrawingTool);
 
     if (state.tool !== 'eraser') dom.eraserCursor.style.display = 'none';
@@ -17377,6 +17423,8 @@
       removeToolColorSlot,
       getToolColorPresets,
       applyColorFromGnPopover,
+      duplicateLassoSelection,
+      computeSelectionBounds,
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,

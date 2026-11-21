@@ -469,7 +469,63 @@ async function runVerification() {
     throw new Error('Les palettes de préréglages GoodNotes par outil sont incomplètes');
   }
 
-  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran + Gestionnaire GoodNotes + Pile A4 + Couleurs GoodNotes vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+  // Vérification du déplacement d'une sélection Lasso (et après duplication) même lorsque l'outil actif est Stylo
+  state.tool = 'pen';
+  const targetStroke = pdfPages[0].strokes[pdfPages[0].strokes.length - 1];
+  state.selectedIds.strokes.clear();
+  state.selectedIds.shapes.clear();
+  state.selectedIds.texts.clear();
+  state.selectedIds.strokes.add(targetStroke.id);
+  api.computeSelectionBounds();
+  api.duplicateLassoSelection();
+  const strokesCountAfterDup = pdfPages[0].strokes.length;
+  const dupStroke = pdfPages[0].strokes[pdfPages[0].strokes.length - 1];
+  const origDupX = dupStroke.points[0].x;
+  const sb = state.selectionBounds;
+  const dragStartScreenX = ((sb.minX + sb.maxX) * 0.5) * state.zoom + state.panX;
+  const dragStartScreenY = ((sb.minY + sb.maxY) * 0.5) * state.zoom + state.panY;
+  api.handlePointerDown({
+    pointerId: 33,
+    pointerType: 'pen',
+    button: 0,
+    buttons: 1,
+    clientX: dragStartScreenX,
+    clientY: dragStartScreenY,
+    pressure: 0.6,
+    timeStamp: 5000,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  api.handlePointerMove({
+    pointerId: 33,
+    pointerType: 'pen',
+    button: -1,
+    buttons: 1,
+    clientX: dragStartScreenX + 60,
+    clientY: dragStartScreenY + 25,
+    pressure: 0.6,
+    timeStamp: 5020,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  api.handlePointerUpOrCancel({
+    pointerId: 33,
+    pointerType: 'pen',
+    button: 0,
+    buttons: 0,
+    clientX: dragStartScreenX + 60,
+    clientY: dragStartScreenY + 25,
+    pressure: 0,
+    timeStamp: 5040
+  });
+  if (pdfPages[0].strokes.length !== strokesCountAfterDup) {
+    throw new Error('Cliquer dans une sélection Lasso (après copie) en outil Stylo a dessiné un nouveau trait au lieu de déplacer la sélection');
+  }
+  if (Math.abs(dupStroke.points[0].x - origDupX) < 10) {
+    throw new Error('Le glisser-déposer d\'une sélection Lasso dupliquée en outil Stylo n\'a pas déplacé le trait copié');
+  }
+
+  console.log(`✓ [4/4] Import PDF (PDF.js) + Stockage séparé + Export PDF annoté + Plein écran + Gestionnaire GoodNotes + Pile A4 + Couleurs GoodNotes + Déplacement Lasso vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {
