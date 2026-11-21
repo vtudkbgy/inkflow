@@ -2963,6 +2963,30 @@
     gnTapePopoverOpen: false,
     gnStrokePopoverOpen: false,
     gnShapeStrokePopoverOpen: false,
+    textFontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+    textFontLabel: 'Helvetica',
+    textFontSize: 24,
+    textBold: false,
+    textItalic: false,
+    textUnderline: false,
+    textStrike: false,
+    textAlign: 'left',
+    textLineHeightMode: 'automatic',
+    textLineHeightFixed: 32,
+    textListStyle: 'none',
+    textFrameStyle: {
+      backgroundColor: null,
+      borderColor: null,
+      borderWidth: 0,
+      cornerRadius: 0,
+      padding: 10,
+      showShadow: false
+    },
+    selectedTextId: null,
+    editingTextId: null,
+    textBoxCreateDrag: null,
+    gnTextPopover: null,
+    gnTextStyleTab: 'presets',
     tapeForceStraight: false,
     gnEraserModePopoverOpen: false,
     gnEraserAdvPopoverOpen: false,
@@ -3185,7 +3209,69 @@
         }
       }
     }
+    const savedTextToolRaw = localStorage.getItem('inkflow_text_tool_prefs_v1');
+    if (savedTextToolRaw) {
+      const tt = JSON.parse(savedTextToolRaw);
+      if (tt && typeof tt === 'object') {
+        if (typeof tt.textFontFamily === 'string' && tt.textFontFamily.trim()) state.textFontFamily = tt.textFontFamily;
+        if (typeof tt.textFontLabel === 'string' && tt.textFontLabel.trim()) state.textFontLabel = tt.textFontLabel;
+        if (Number.isFinite(tt.textFontSize) && tt.textFontSize >= 1 && tt.textFontSize <= 200) state.textFontSize = Math.round(tt.textFontSize);
+        if (typeof tt.textColor === 'string' && tt.textColor.startsWith('#')) state.textColor = tt.textColor;
+        if (typeof tt.textBold === 'boolean') state.textBold = tt.textBold;
+        if (typeof tt.textItalic === 'boolean') state.textItalic = tt.textItalic;
+        if (typeof tt.textUnderline === 'boolean') state.textUnderline = tt.textUnderline;
+        if (typeof tt.textStrike === 'boolean') state.textStrike = tt.textStrike;
+        if (tt.textAlign === 'left' || tt.textAlign === 'center' || tt.textAlign === 'right') state.textAlign = tt.textAlign;
+        if (tt.textLineHeightMode === 'automatic' || tt.textLineHeightMode === 'fixed') state.textLineHeightMode = tt.textLineHeightMode;
+        if (Number.isFinite(tt.textLineHeightFixed) && tt.textLineHeightFixed >= 8 && tt.textLineHeightFixed <= 200) state.textLineHeightFixed = Math.round(tt.textLineHeightFixed);
+        if (tt.textListStyle === 'none' || tt.textListStyle === 'bullets' || tt.textListStyle === 'numbered') state.textListStyle = tt.textListStyle;
+        if (tt.textFrameStyle && typeof tt.textFrameStyle === 'object') {
+          state.textFrameStyle = {
+            backgroundColor: tt.textFrameStyle.backgroundColor || null,
+            borderColor: tt.textFrameStyle.borderColor || null,
+            borderWidth: Math.max(0, Math.min(20, Number(tt.textFrameStyle.borderWidth) || 0)),
+            cornerRadius: Math.max(0, Math.min(20, Number(tt.textFrameStyle.cornerRadius) || 0)),
+            padding: Math.max(0, Math.min(20, Number.isFinite(Number(tt.textFrameStyle.padding)) ? Number(tt.textFrameStyle.padding) : 10)),
+            showShadow: Boolean(tt.textFrameStyle.showShadow)
+          };
+        }
+      }
+    }
   } catch (_) {}
+
+  // Exact GoodNotes 6 TextBoxStyle presets (REA DocumentLoaderRoute-PMJiTofc.js fO)
+  const GN_TEXT_BOX_STYLE_PRESETS = [
+    { backgroundColor: null, borderColor: null, borderWidth: 0, cornerRadius: 0, padding: 10, showShadow: false },
+    { backgroundColor: '#373b44', borderColor: null, borderWidth: 0, cornerRadius: 7, padding: 10, showShadow: false },
+    { backgroundColor: '#ADFF4F', borderColor: null, borderWidth: 0, cornerRadius: 7, padding: 10, showShadow: false },
+    { backgroundColor: '#FFD8CE', borderColor: null, borderWidth: 0, cornerRadius: 7, padding: 10, showShadow: true },
+    { backgroundColor: '#FFFFFF', borderColor: null, borderWidth: 0, cornerRadius: 7, padding: 10, showShadow: true },
+    { backgroundColor: '#F65353', borderColor: null, borderWidth: 0, cornerRadius: 0, padding: 10, showShadow: false },
+    { backgroundColor: '#FCFF4F', borderColor: null, borderWidth: 0, cornerRadius: 0, padding: 10, showShadow: false },
+    { backgroundColor: '#F2F8FF', borderColor: null, borderWidth: 0, cornerRadius: 0, padding: 10, showShadow: false },
+    { backgroundColor: '#4C5B7F', borderColor: null, borderWidth: 0, cornerRadius: 0, padding: 10, showShadow: false },
+    { backgroundColor: '#FFFFFF', borderColor: null, borderWidth: 0, cornerRadius: 0, padding: 10, showShadow: false }
+  ];
+
+  function saveTextToolPrefs() {
+    try {
+      localStorage.setItem('inkflow_text_tool_prefs_v1', JSON.stringify({
+        textFontFamily: state.textFontFamily,
+        textFontLabel: state.textFontLabel,
+        textFontSize: state.textFontSize,
+        textColor: state.textColor,
+        textBold: state.textBold,
+        textItalic: state.textItalic,
+        textUnderline: state.textUnderline,
+        textStrike: state.textStrike,
+        textAlign: state.textAlign,
+        textLineHeightMode: state.textLineHeightMode,
+        textLineHeightFixed: state.textLineHeightFixed,
+        textListStyle: state.textListStyle,
+        textFrameStyle: { ...state.textFrameStyle }
+      }));
+    } catch (_) {}
+  }
 
   const TOOL_PREFS_STORAGE_KEY = 'inkflow_tool_prefs_v1';
 
@@ -3758,7 +3844,10 @@
         startConnection: sh.startConnection ? { ...sh.startConnection } : undefined,
         endConnection: sh.endConnection ? { ...sh.endConnection } : undefined
       })),
-      texts: (page.texts || []).map((tb) => ({ ...tb })),
+      texts: (page.texts || []).map((tb) => ({
+        ...tb,
+        frameStyle: tb.frameStyle ? { ...tb.frameStyle } : undefined
+      })),
       tapes: (page.tapes || []).map((tp) => ({
         ...tp,
         points: Array.isArray(tp.points) ? tp.points.map((p) => ({ x: p.x, y: p.y })) : undefined
@@ -4693,6 +4782,8 @@
   // ============================================================================
 
   const activeCardListenerCleanups = new Set();
+  let activeTextEditorCommitFn = null;
+  let suppressNextTextBlur = false;
 
   function cleanupWorldTextCardListeners() {
     for (const cleanupFn of Array.from(activeCardListenerCleanups)) {
@@ -4701,135 +4792,378 @@
     activeCardListenerCleanups.clear();
   }
 
+  function resolveTextBoxFrameStyle(tb) {
+    if (tb && tb.frameStyle && typeof tb.frameStyle === 'object') {
+      return {
+        backgroundColor: tb.frameStyle.backgroundColor || null,
+        borderColor: tb.frameStyle.borderColor || null,
+        borderWidth: Math.max(0, Math.min(20, Number(tb.frameStyle.borderWidth) || 0)),
+        cornerRadius: Math.max(0, Math.min(20, Number(tb.frameStyle.cornerRadius) || 0)),
+        padding: Math.max(0, Math.min(20, Number.isFinite(Number(tb.frameStyle.padding)) ? Number(tb.frameStyle.padding) : 10)),
+        showShadow: Boolean(tb.frameStyle.showShadow)
+      };
+    }
+    // Compatibilité rétroactive avec les anciens styles ('transparent', 'card', 'sticky', 'latex')
+    if (tb && tb.isLatex) {
+      return { backgroundColor: 'rgba(245, 243, 255, 0.94)', borderColor: 'rgba(124, 58, 237, 0.30)', borderWidth: 1, cornerRadius: 8, padding: 10, showShadow: true };
+    }
+    if (tb && tb.style === 'sticky') {
+      return { backgroundColor: '#fef9c3', borderColor: 'rgba(202, 138, 4, 0.30)', borderWidth: 1, cornerRadius: 7, padding: 10, showShadow: true };
+    }
+    if (tb && tb.style === 'card') {
+      return { backgroundColor: '#ffffff', borderColor: 'rgba(15, 23, 42, 0.14)', borderWidth: 1, cornerRadius: 7, padding: 10, showShadow: true };
+    }
+    return { backgroundColor: null, borderColor: null, borderWidth: 0, cornerRadius: 0, padding: 10, showShadow: false };
+  }
+
+  function getActiveTextBox(page = getActivePage()) {
+    if (!page || !Array.isArray(page.texts)) return null;
+    const id = state.editingTextId || state.selectedTextId;
+    if (!id) return null;
+    return page.texts.find((t) => t.id === id) || null;
+  }
+
+  function getTextBoxEffectiveTypography(tb) {
+    const fontFamily = (tb && tb.fontFamily) || state.textFontFamily || "'Helvetica Neue', Helvetica, Arial, sans-serif";
+    const fontSize = Math.max(1, Math.min(200, Math.round((tb && Number.isFinite(tb.fontSize) ? tb.fontSize : state.textFontSize) || 24)));
+    const color = (tb && tb.color) || state.textColor || '#000000';
+    const bold = tb && typeof tb.bold === 'boolean' ? tb.bold : Boolean(state.textBold);
+    const italic = tb && typeof tb.italic === 'boolean' ? tb.italic : Boolean(state.textItalic);
+    const underline = tb && typeof tb.underline === 'boolean' ? tb.underline : Boolean(state.textUnderline);
+    const strike = tb && typeof tb.strike === 'boolean' ? tb.strike : Boolean(state.textStrike);
+    const textAlign = (tb && tb.textAlign) || state.textAlign || 'left';
+    const lineHeightMode = (tb && tb.lineHeightMode) || state.textLineHeightMode || 'automatic';
+    const lineHeightFixed = Math.max(8, Math.min(200, Math.round((tb && Number.isFinite(tb.lineHeightFixed) ? tb.lineHeightFixed : state.textLineHeightFixed) || Math.round(fontSize * 1.35))));
+    const listStyle = (tb && tb.listStyle) || state.textListStyle || 'none';
+    const frameStyle = tb ? resolveTextBoxFrameStyle(tb) : { ...state.textFrameStyle };
+    return { fontFamily, fontSize, color, bold, italic, underline, strike, textAlign, lineHeightMode, lineHeightFixed, listStyle, frameStyle };
+  }
+
+  function applyTextBoxVisualStyles(card, tb) {
+    if (!card || !tb) return;
+    const typo = getTextBoxEffectiveTypography(tb);
+    const fs = typo.frameStyle;
+    card.style.left = `${tb.x}px`;
+    card.style.top = `${tb.y}px`;
+    card.style.width = `${Math.max(72, tb.width || 260)}px`;
+    card.style.color = typo.color;
+    card.style.fontFamily = typo.fontFamily;
+    card.style.fontSize = `${typo.fontSize}px`;
+    card.style.fontWeight = typo.bold ? '700' : '400';
+    card.style.fontStyle = typo.italic ? 'italic' : 'normal';
+    const deco = [];
+    if (typo.underline) deco.push('underline');
+    if (typo.strike) deco.push('line-through');
+    card.style.textDecoration = deco.length ? deco.join(' ') : 'none';
+    card.style.textAlign = typo.textAlign;
+    card.style.lineHeight = typo.lineHeightMode === 'fixed' ? `${typo.lineHeightFixed}px` : '1.35';
+    card.style.background = fs.backgroundColor || 'transparent';
+    card.style.borderRadius = `${fs.cornerRadius}px`;
+    card.style.padding = `${fs.padding}px`;
+    if (fs.borderWidth > 0 && fs.borderColor) {
+      card.style.border = `${fs.borderWidth}px solid ${fs.borderColor}`;
+    } else if (fs.borderWidth > 0) {
+      card.style.border = `${fs.borderWidth}px solid rgba(15, 23, 42, 0.25)`;
+    } else {
+      card.style.border = '0 solid transparent';
+    }
+    card.style.boxShadow = fs.showShadow ? '0px 4px 10px rgba(0, 0, 0, 0.22)' : 'none';
+  }
+
+  function formatTextForListStyle(rawText, listStyle) {
+    const lines = String(rawText || '').split('\n');
+    const stripped = lines.map((line) => line.replace(/^\s*(?:•\s+|\d+\.\s+)/, ''));
+    if (listStyle === 'bullets') {
+      return stripped.map((l) => (l.length > 0 ? `• ${l}` : '• ')).join('\n');
+    }
+    if (listStyle === 'numbered') {
+      return stripped.map((l, idx) => `${idx + 1}. ${l}`).join('\n');
+    }
+    return stripped.join('\n');
+  }
+
+  function autoResizeTextCardTextarea(ta) {
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.max(28, ta.scrollHeight)}px`;
+  }
+
+  function updateTextEditFloatingBar() {
+    const bar = document.getElementById('textEditFloatingBar');
+    if (!bar) return;
+    const page = getActivePage();
+    const tb = getActiveTextBox(page);
+    if (!tb || !dom.canvasViewport) {
+      bar.classList.add('hidden');
+      return;
+    }
+    const cardEl = dom.worldObjectsLayer ? dom.worldObjectsLayer.querySelector(`[data-text-id="${tb.id}"]`) : null;
+    const cardHWorld = cardEl && cardEl.offsetHeight ? cardEl.offsetHeight : Math.max(44, (tb.fontSize || 24) * 1.8);
+    const cardWWorld = Math.max(72, tb.width || 260);
+    const vpRect = dom.canvasViewport.getBoundingClientRect();
+    const centerScreenX = state.panX + (tb.x + cardWWorld * 0.5) * state.zoom;
+    const topScreenY = state.panY + tb.y * state.zoom;
+    const bottomScreenY = state.panY + (tb.y + cardHWorld) * state.zoom;
+
+    const btnType = document.getElementById('btnTextEditType');
+    if (btnType) {
+      btnType.textContent = state.editingTextId === tb.id ? 'Terminer' : 'Modifier';
+    }
+
+    bar.classList.remove('hidden');
+    const barW = bar.offsetWidth || 220;
+    const barH = bar.offsetHeight || 36;
+    const clampedX = Math.max(barW * 0.5 + 12, Math.min((vpRect.width || 900) - barW * 0.5 - 12, centerScreenX));
+    let targetY = topScreenY - barH - 22;
+    if (targetY < 10) targetY = bottomScreenY + 14;
+    targetY = Math.max(10, Math.min((vpRect.height || 600) - barH - 10, targetY));
+
+    bar.style.left = `${Math.round(clampedX)}px`;
+    bar.style.top = `${Math.round(targetY)}px`;
+  }
+
+  function clearSelectedTextBox(commitFirst = true) {
+    if (commitFirst && typeof activeTextEditorCommitFn === 'function') {
+      const fn = activeTextEditorCommitFn;
+      activeTextEditorCommitFn = null;
+      fn(true);
+      return;
+    }
+    const hadAny = Boolean(state.selectedTextId || state.editingTextId);
+    state.selectedTextId = null;
+    state.editingTextId = null;
+    if (hadAny) {
+      renderWorldTextCards();
+      updateTextEditFloatingBar();
+      if (typeof syncGnTextSubBarUi === 'function') syncGnTextSubBarUi();
+    }
+  }
+
+  function applyTextPropertyToActiveOrDefault(updater, opts = {}) {
+    const page = getActivePage();
+    const activeTb = getActiveTextBox(page);
+    if (activeTb && page) {
+      if (!opts.skipHistory) pushHistorySnapshot(page);
+      updater(activeTb, true);
+      const cardEl = dom.worldObjectsLayer ? dom.worldObjectsLayer.querySelector(`[data-text-id="${activeTb.id}"]`) : null;
+      if (cardEl) {
+        applyTextBoxVisualStyles(cardEl, activeTb);
+        const ta = cardEl.querySelector('.world-card-textarea');
+        if (ta) {
+          if (opts.syncTextValue) ta.value = activeTb.text || '';
+          autoResizeTextCardTextarea(ta);
+        } else {
+          const rend = cardEl.querySelector('.world-card-rendered');
+          if (rend && opts.syncTextValue) {
+            rend.innerHTML = activeTb.isLatex ? renderLatexToHtml(activeTb.text, true) : renderRichTextWithLatex(activeTb.text);
+          }
+        }
+      } else {
+        renderWorldTextCards();
+      }
+      scheduleSaveActivePage(page);
+      updateTextEditFloatingBar();
+    } else {
+      updater(null, false);
+      saveTextToolPrefs();
+    }
+    if (typeof syncGnTextSubBarUi === 'function') syncGnTextSubBarUi();
+  }
+
   function renderWorldTextCards() {
     if (!dom.worldObjectsLayer) return;
     cleanupWorldTextCardListeners();
+    activeTextEditorCommitFn = null;
     const page = getActivePage();
     dom.worldObjectsLayer.innerHTML = '';
-    if (!page) return;
+    if (!page) {
+      updateTextEditFloatingBar();
+      return;
+    }
 
     (page.texts || []).forEach((tb) => {
       const card = document.createElement('div');
-      const styleClass = tb.isLatex ? 'style-latex' : `style-${tb.style || 'card'}`;
-      const isSelected = state.selectedIds.texts.has(tb.id);
-      card.className = `world-text-card ${styleClass}${isSelected ? ' selected' : ''}`;
-      card.style.left = `${tb.x}px`;
-      card.style.top = `${tb.y}px`;
-      card.style.width = `${tb.width || 280}px`;
-      card.style.color = tb.color || '#1e293b';
+      const isLassoSel = state.selectedIds.texts.has(tb.id);
+      const isActiveSel = state.selectedTextId === tb.id || state.editingTextId === tb.id;
+      card.className = `world-text-card${isLassoSel || isActiveSel ? ' selected' : ''}`;
       card.dataset.textId = tb.id;
-
-      const fontSize = tb.fontSize || 16;
+      applyTextBoxVisualStyles(card, tb);
 
       card.innerHTML = `
-        <div class="world-card-toolbar">
-          <span class="card-drag-handle" title="Glisser pour déplacer cet emplacement sur la page infinie">⠿ ${tb.isLatex ? 'Équation LaTeX' : 'Zone Texte'}</span>
-          <div class="card-mini-actions">
-            <button class="card-mini-btn" data-card-act="color" title="Couleur du texte"><span class="card-color-dot" style="background:${tb.color || '#1e293b'}"></span></button>
-            <button class="card-mini-btn" data-card-act="font-down" title="Réduire la police">A−</button>
-            <button class="card-mini-btn" data-card-act="font-up" title="Agrandir la police">A+</button>
-            <button class="card-mini-btn" data-card-act="style" title="Changer le style de fond">🎨</button>
-            <button class="card-mini-btn" data-card-act="latex" title="Éditer comme formule LaTeX">∑</button>
-            <button class="card-mini-btn danger" data-card-act="delete" title="Supprimer cet emplacement">✕</button>
-          </div>
-        </div>
+        <div class="gn-tb-drag-pill" title="Glisser pour déplacer la zone de texte"></div>
+        <div class="gn-tb-resize-handle left" data-tb-resize="left" title="Redimensionner la largeur"></div>
+        <div class="gn-tb-resize-handle right" data-tb-resize="right" title="Redimensionner la largeur"></div>
         <div class="world-card-body">
-          <div class="world-card-rendered" style="font-size:${fontSize}px;">${
+          <div class="world-card-rendered">${
             tb.isLatex ? renderLatexToHtml(tb.text, true) : renderRichTextWithLatex(tb.text)
           }</div>
         </div>
       `;
 
-      // Dragging the text/LaTeX card around the infinite canvas with automatic listener cleanup
-      const dragHandle = card.querySelector('.card-drag-handle');
-      if (dragHandle) {
-        dragHandle.addEventListener('pointerdown', (ev) => {
-          ev.stopPropagation();
-          ev.preventDefault();
-          pushHistorySnapshot(page);
-          const startX = ev.clientX;
-          const startY = ev.clientY;
-          const origX = tb.x;
-          const origY = tb.y;
-          const pid = ev.pointerId;
-          try { if (typeof pid === 'number') dragHandle.setPointerCapture(pid); } catch (_) {}
+      // Helper : déplacer la zone de texte (depuis la pilule supérieure ou le cadre sélectionné)
+      const startMoveCard = (ev, captureTarget) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        pushHistorySnapshot(page);
+        const startX = ev.clientX;
+        const startY = ev.clientY;
+        const origX = tb.x;
+        const origY = tb.y;
+        const pid = ev.pointerId;
+        try { if (typeof pid === 'number' && captureTarget) captureTarget.setPointerCapture(pid); } catch (_) {}
 
-          const onMove = (mev) => {
-            tb.x = Math.round(origX + (mev.clientX - startX) / state.zoom);
-            tb.y = Math.round(origY + (mev.clientY - startY) / state.zoom);
-            card.style.left = `${tb.x}px`;
-            card.style.top = `${tb.y}px`;
-            if (hasAnyLassoSelection()) updateLassoFloatingBarPosition();
-    if (state.selectedShapeId) updateShapeEditFloatingBar();
-          };
-          let cleaned = false;
-          const cleanupDrag = () => {
-            if (cleaned) return;
-            cleaned = true;
-            activeCardListenerCleanups.delete(cleanupDrag);
-            dragHandle.removeEventListener('pointermove', onMove);
-            dragHandle.removeEventListener('pointerup', onUp);
-            dragHandle.removeEventListener('pointercancel', onUp);
-            dragHandle.removeEventListener('lostpointercapture', onUp);
-            try { if (typeof pid === 'number') dragHandle.releasePointerCapture(pid); } catch (_) {}
-          };
-          const onUp = () => {
-            cleanupDrag();
-            scheduleSaveActivePage(page);
-          };
-          activeCardListenerCleanups.add(cleanupDrag);
-          dragHandle.addEventListener('pointermove', onMove);
-          dragHandle.addEventListener('pointerup', onUp);
-          dragHandle.addEventListener('pointercancel', onUp);
-          dragHandle.addEventListener('lostpointercapture', onUp);
+        const onMove = (mev) => {
+          tb.x = Math.round(origX + (mev.clientX - startX) / state.zoom);
+          tb.y = Math.round(origY + (mev.clientY - startY) / state.zoom);
+          card.style.left = `${tb.x}px`;
+          card.style.top = `${tb.y}px`;
+          updateTextEditFloatingBar();
+          if (hasAnyLassoSelection()) updateLassoFloatingBarPosition();
+          if (state.selectedShapeId) updateShapeEditFloatingBar();
+        };
+        let cleaned = false;
+        const cleanupDrag = () => {
+          if (cleaned) return;
+          cleaned = true;
+          activeCardListenerCleanups.delete(cleanupDrag);
+          captureTarget.removeEventListener('pointermove', onMove);
+          captureTarget.removeEventListener('pointerup', onUp);
+          captureTarget.removeEventListener('pointercancel', onUp);
+          captureTarget.removeEventListener('lostpointercapture', onUp);
+          try { if (typeof pid === 'number') captureTarget.releasePointerCapture(pid); } catch (_) {}
+        };
+        const onUp = () => {
+          cleanupDrag();
+          scheduleSaveActivePage(page);
+          updateTextEditFloatingBar();
+        };
+        activeCardListenerCleanups.add(cleanupDrag);
+        captureTarget.addEventListener('pointermove', onMove);
+        captureTarget.addEventListener('pointerup', onUp);
+        captureTarget.addEventListener('pointercancel', onUp);
+        captureTarget.addEventListener('lostpointercapture', onUp);
+      };
+
+      const dragPill = card.querySelector('.gn-tb-drag-pill');
+      if (dragPill) {
+        dragPill.addEventListener('pointerdown', (ev) => {
+          suppressNextTextBlur = true;
+          setTimeout(() => { suppressNextTextBlur = false; }, 120);
+          startMoveCard(ev, dragPill);
         });
       }
 
-      // Mini actions (Font size, Style, LaTeX modal, Delete)
-      card.querySelectorAll('[data-card-act]').forEach((btn) => {
-        btn.addEventListener('click', (ev) => {
+      // Poignées latérales gauche & droite de redimensionnement largeur (GoodNotes 6)
+      card.querySelectorAll('.gn-tb-resize-handle').forEach((handle) => {
+        handle.addEventListener('pointerdown', (ev) => {
           ev.stopPropagation();
-          const act = btn.dataset.cardAct;
-          if (act === 'color') {
-            openGnColorPopover({
-              mode: 'text-card',
-              toolKey: 'text',
-              scopeKey: 'text',
-              textCardId: tb.id,
-              anchorEl: btn,
-              initialColor: tb.color || '#1e293b'
-            });
-          } else if (act === 'font-down') {
-            tb.fontSize = Math.max(11, (tb.fontSize || 16) - 2);
-            renderWorldTextCards();
+          ev.preventDefault();
+          suppressNextTextBlur = true;
+          setTimeout(() => { suppressNextTextBlur = false; }, 120);
+          pushHistorySnapshot(page);
+          const side = handle.dataset.tbResize;
+          const startX = ev.clientX;
+          const origX = tb.x;
+          const origW = Math.max(72, tb.width || 260);
+          const pid = ev.pointerId;
+          try { if (typeof pid === 'number') handle.setPointerCapture(pid); } catch (_) {}
+
+          const onMove = (mev) => {
+            const dxWorld = (mev.clientX - startX) / state.zoom;
+            if (side === 'right') {
+              tb.width = Math.max(72, Math.round(origW + dxWorld));
+              card.style.width = `${tb.width}px`;
+            } else {
+              const nextW = Math.max(72, Math.round(origW - dxWorld));
+              const appliedDelta = origW - nextW;
+              tb.x = Math.round(origX + appliedDelta);
+              tb.width = nextW;
+              card.style.left = `${tb.x}px`;
+              card.style.width = `${tb.width}px`;
+            }
+            const ta = card.querySelector('.world-card-textarea');
+            if (ta) autoResizeTextCardTextarea(ta);
+            updateTextEditFloatingBar();
+          };
+          let cleaned = false;
+          const cleanupResize = () => {
+            if (cleaned) return;
+            cleaned = true;
+            activeCardListenerCleanups.delete(cleanupResize);
+            handle.removeEventListener('pointermove', onMove);
+            handle.removeEventListener('pointerup', onUp);
+            handle.removeEventListener('pointercancel', onUp);
+            handle.removeEventListener('lostpointercapture', onUp);
+            try { if (typeof pid === 'number') handle.releasePointerCapture(pid); } catch (_) {}
+          };
+          const onUp = () => {
+            cleanupResize();
             scheduleSaveActivePage(page);
-          } else if (act === 'font-up') {
-            tb.fontSize = Math.min(44, (tb.fontSize || 16) + 2);
-            renderWorldTextCards();
-            scheduleSaveActivePage(page);
-          } else if (act === 'style') {
-            const styles = ['card', 'sticky', 'transparent', 'latex'];
-            const nextIdx = (styles.indexOf(tb.style || 'card') + 1) % styles.length;
-            tb.style = styles[nextIdx];
-            tb.isLatex = tb.style === 'latex';
-            renderWorldTextCards();
-            scheduleSaveActivePage(page);
-          } else if (act === 'latex') {
-            openLatexModalForCard(tb);
-          } else if (act === 'delete') {
-            pushHistorySnapshot(page);
-            page.texts = (page.texts || []).filter((x) => x.id !== tb.id);
-            renderWorldTextCards();
-            requestRender();
-            scheduleSaveActivePage(page);
-          }
+            updateTextEditFloatingBar();
+          };
+          activeCardListenerCleanups.add(cleanupResize);
+          handle.addEventListener('pointermove', onMove);
+          handle.addEventListener('pointerup', onUp);
+          handle.addEventListener('pointercancel', onUp);
+          handle.addEventListener('lostpointercapture', onUp);
         });
       });
 
-      // Cliquer dans le corps du texte ouvre immédiatement la saisie clavier directe
+      // Interaction sur le corps de la zone de texte :
+      // - Outil Texte actif : clic = saisie directe immédiate (style GoodNotes 6)
+      // - Autre outil non-dessin (Main) : 1er clic = sélection + déplacement, double-clic = saisie
       const bodyEl = card.querySelector('.world-card-body');
       if (bodyEl) {
+        bodyEl.addEventListener('pointerdown', (ev) => {
+          if (card.classList.contains('editing')) return;
+          ev.stopPropagation();
+          if (state.selectedTextId === tb.id && state.tool !== 'text') {
+            // Déplacement direct par glisser sur une zone déjà sélectionnée
+            const startX = ev.clientX;
+            const startY = ev.clientY;
+            let moved = false;
+            const origX = tb.x;
+            const origY = tb.y;
+            const onMove = (mev) => {
+              if (!moved && Math.hypot(mev.clientX - startX, mev.clientY - startY) < 5) return;
+              if (!moved) {
+                moved = true;
+                pushHistorySnapshot(page);
+              }
+              tb.x = Math.round(origX + (mev.clientX - startX) / state.zoom);
+              tb.y = Math.round(origY + (mev.clientY - startY) / state.zoom);
+              card.style.left = `${tb.x}px`;
+              card.style.top = `${tb.y}px`;
+              updateTextEditFloatingBar();
+            };
+            const onUp = () => {
+              window.removeEventListener('pointermove', onMove);
+              window.removeEventListener('pointerup', onUp);
+              window.removeEventListener('pointercancel', onUp);
+              if (moved) scheduleSaveActivePage(page);
+            };
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
+          }
+        });
         bodyEl.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (card.classList.contains('editing')) return;
+          if (state.tool === 'text') {
+            enterCardKeyboardEditMode(card, tb, page);
+          } else {
+            if (state.selectedTextId === tb.id) {
+              enterCardKeyboardEditMode(card, tb, page);
+            } else {
+              state.selectedTextId = tb.id;
+              state.editingTextId = null;
+              renderWorldTextCards();
+              if (typeof syncGnTextSubBarUi === 'function') syncGnTextSubBarUi();
+            }
+          }
+        });
+        bodyEl.addEventListener('dblclick', (ev) => {
           ev.stopPropagation();
           enterCardKeyboardEditMode(card, tb, page);
         });
@@ -4925,31 +5259,52 @@
 
       dom.worldObjectsLayer.appendChild(wrap);
     });
+
+    updateTextEditFloatingBar();
+    if (typeof syncGnTextSubBarUi === 'function') syncGnTextSubBarUi();
   }
 
   function enterCardKeyboardEditMode(card, tb, ownerPage = getActivePage()) {
-    if (card.classList.contains('editing')) return;
+    if (!card || !tb || card.classList.contains('editing')) return;
+    if (typeof activeTextEditorCommitFn === 'function') {
+      const prevCommit = activeTextEditorCommitFn;
+      activeTextEditorCommitFn = null;
+      prevCommit(false);
+    }
     const targetPage = ownerPage || getActivePage();
+    state.selectedTextId = tb.id;
+    state.editingTextId = tb.id;
     card.classList.add('editing');
+    card.classList.add('selected');
     const bodyEl = card.querySelector('.world-card-body');
-    const fontSize = tb.fontSize || 16;
+    if (!bodyEl) return;
+
+    // Affiche automatiquement la sous-barre de mise en forme GoodNotes quand on édite du texte
+    if (state.tool === 'text' && !state.toolOptionsOpen) {
+      state.toolOptionsOpen = true;
+      updateToolbarActiveState();
+    }
 
     bodyEl.innerHTML = '';
     const ta = document.createElement('textarea');
     ta.className = 'world-card-textarea';
-    ta.style.fontSize = `${fontSize}px`;
     ta.value = tb.text || '';
     ta.placeholder = tb.isLatex
       ? 'Code LaTeX (ex: \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a})'
-      : 'Écrivez au clavier... (Utilisez $...$ pour insérer du LaTeX)';
-    ta.rows = Math.max(2, (tb.text || '').split('\n').length);
+      : 'Saisir du texte…';
+    ta.rows = Math.max(1, (tb.text || '').split('\n').length);
 
     bodyEl.appendChild(ta);
+    autoResizeTextCardTextarea(ta);
+
     const focusTimer = setTimeout(() => {
       ta.focus();
+      autoResizeTextCardTextarea(ta);
       if (typeof ta.setSelectionRange === 'function') {
         ta.setSelectionRange(ta.value.length, ta.value.length);
       }
+      updateTextEditFloatingBar();
+      if (typeof syncGnTextSubBarUi === 'function') syncGnTextSubBarUi();
     }, 10);
 
     let committed = false;
@@ -4957,64 +5312,191 @@
       if (committed) return;
       committed = true;
       clearTimeout(focusTimer);
+      if (activeTextEditorCommitFn === commitEdit) activeTextEditorCommitFn = null;
       activeCardListenerCleanups.delete(cleanupTa);
       ta.removeEventListener('blur', onBlur);
+      ta.removeEventListener('input', onInput);
       ta.removeEventListener('keydown', onKeyDown);
       card.classList.remove('editing');
-      const newVal = ta.value.trim();
-      if (!newVal && targetPage) {
+      const newVal = ta.value.replace(/\s+$/, '');
+      if (!newVal.trim() && targetPage) {
         targetPage.texts = (targetPage.texts || []).filter((x) => x.id !== tb.id);
+        if (state.selectedTextId === tb.id) state.selectedTextId = null;
+        if (state.editingTextId === tb.id) state.editingTextId = null;
       } else {
         tb.text = newVal;
-        if (ta.offsetWidth > 120) tb.width = Math.round(ta.offsetWidth + 20);
+        if (state.editingTextId === tb.id) state.editingTextId = null;
+        if (reRender && state.selectedTextId === tb.id) state.selectedTextId = null;
       }
       if (targetPage) scheduleSaveActivePage(targetPage);
       if (reRender && getActivePage() === targetPage) {
         renderWorldTextCards();
         requestRender();
       }
+      updateTextEditFloatingBar();
+      if (typeof syncGnTextSubBarUi === 'function') syncGnTextSubBarUi();
     };
-    const onBlur = () => commitEdit(true);
+
+    const onInput = () => {
+      tb.text = ta.value;
+      autoResizeTextCardTextarea(ta);
+      updateTextEditFloatingBar();
+    };
+
+    const onBlur = (bev) => {
+      if (suppressNextTextBlur) {
+        setTimeout(() => {
+          if (!committed && document.body.contains(ta)) ta.focus();
+        }, 0);
+        return;
+      }
+      const nextTarget = bev && bev.relatedTarget;
+      if (nextTarget && typeof nextTarget.closest === 'function' && (
+        nextTarget.closest('.gn-text-subbar') ||
+        nextTarget.closest('.gn-text-popover') ||
+        nextTarget.closest('#gnColorPopover') ||
+        nextTarget.closest('.text-edit-bar') ||
+        nextTarget.closest('.world-text-card')
+      )) {
+        return;
+      }
+      if (state.gnTextPopover || (gnColorPopoverState && gnColorPopoverState.open)) {
+        return;
+      }
+      commitEdit(true);
+    };
+
     const onKeyDown = (kev) => {
       kev.stopPropagation();
-      if ((kev.ctrlKey || kev.metaKey) && kev.key === 'Enter') {
+      const mod = kev.ctrlKey || kev.metaKey;
+      if (mod && kev.key === 'Enter') {
         kev.preventDefault();
-        ta.blur();
-      } else if (kev.key === 'Escape') {
-        ta.blur();
+        commitEdit(true);
+        return;
+      }
+      if (kev.key === 'Escape') {
+        kev.preventDefault();
+        commitEdit(true);
+        return;
+      }
+      if (mod && !kev.altKey) {
+        const lower = (kev.key || '').toLowerCase();
+        if (lower === 'b') {
+          kev.preventDefault();
+          applyTextPropertyToActiveOrDefault((t) => { t.bold = !t.bold; });
+          return;
+        }
+        if (lower === 'i') {
+          kev.preventDefault();
+          applyTextPropertyToActiveOrDefault((t) => { t.italic = !t.italic; });
+          return;
+        }
+        if (lower === 'u') {
+          kev.preventDefault();
+          applyTextPropertyToActiveOrDefault((t) => { t.underline = !t.underline; });
+          return;
+        }
+        if (lower === 'x' && kev.shiftKey) {
+          kev.preventDefault();
+          applyTextPropertyToActiveOrDefault((t) => { t.strike = !t.strike; });
+          return;
+        }
+      }
+      // Continuation automatique de liste à puces ou numérotée sur Entrée (style GoodNotes 6)
+      if (kev.key === 'Enter' && !kev.shiftKey && !mod) {
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        if (typeof start === 'number' && start === end) {
+          const before = ta.value.slice(0, start);
+          const lineStart = before.lastIndexOf('\n') + 1;
+          const curLine = before.slice(lineStart);
+          const bulletMatch = curLine.match(/^(\s*•\s+)(.*)$/);
+          const numMatch = curLine.match(/^(\s*)(\d+)\.\s+(.*)$/);
+          if (bulletMatch) {
+            kev.preventDefault();
+            if (!bulletMatch[2].trim()) {
+              // Ligne vide à puce -> quitter la liste proprement
+              ta.value = ta.value.slice(0, lineStart) + ta.value.slice(end);
+              ta.selectionStart = ta.selectionEnd = lineStart;
+            } else {
+              const ins = `\n${bulletMatch[1]}`;
+              ta.value = ta.value.slice(0, start) + ins + ta.value.slice(end);
+              ta.selectionStart = ta.selectionEnd = start + ins.length;
+            }
+            onInput();
+            return;
+          }
+          if (numMatch) {
+            kev.preventDefault();
+            if (!numMatch[3].trim()) {
+              ta.value = ta.value.slice(0, lineStart) + ta.value.slice(end);
+              ta.selectionStart = ta.selectionEnd = lineStart;
+            } else {
+              const nextNum = parseInt(numMatch[2], 10) + 1;
+              const ins = `\n${numMatch[1]}${nextNum}. `;
+              ta.value = ta.value.slice(0, start) + ins + ta.value.slice(end);
+              ta.selectionStart = ta.selectionEnd = start + ins.length;
+            }
+            onInput();
+            return;
+          }
+        }
       }
     };
+
     const cleanupTa = () => commitEdit(false);
+    activeTextEditorCommitFn = commitEdit;
     activeCardListenerCleanups.add(cleanupTa);
 
     ta.addEventListener('blur', onBlur);
+    ta.addEventListener('input', onInput);
     ta.addEventListener('keydown', onKeyDown);
+    updateTextEditFloatingBar();
+    if (typeof syncGnTextSubBarUi === 'function') syncGnTextSubBarUi();
   }
 
-  function createInteractiveTextCardAt(worldX, worldY, initialText = '', isLatex = false, autoEdit = true) {
+  function createInteractiveTextCardAt(worldX, worldY, initialText = '', isLatex = false, autoEdit = true, customWidth = null) {
     const page = getActivePage();
     if (!page) return null;
-    pushHistorySnapshot();
+    pushHistorySnapshot(page);
+    const defaultFrame = isLatex
+      ? { backgroundColor: 'rgba(245, 243, 255, 0.94)', borderColor: 'rgba(124, 58, 237, 0.28)', borderWidth: 1, cornerRadius: 8, padding: 10, showShadow: true }
+      : { ...state.textFrameStyle };
+    const startText = (!isLatex && !initialText && state.textListStyle === 'bullets')
+      ? '• '
+      : (!isLatex && !initialText && state.textListStyle === 'numbered' ? '1. ' : initialText);
+
     const newCard = {
       id: createUid('tx'),
       x: Math.round(worldX),
       y: Math.round(worldY),
-      width: isLatex ? 320 : 290,
-      text: initialText,
-      color: state.penColor || '#1e293b',
-      fontSize: isLatex ? 18 : Math.max(15, Math.round(state.penSize * 3)),
-      style: isLatex ? 'latex' : 'card',
+      width: Math.max(72, Math.round(customWidth || (isLatex ? 320 : 260))),
+      text: startText,
+      color: state.textColor || '#000000',
+      fontFamily: state.textFontFamily || "'Helvetica Neue', Helvetica, Arial, sans-serif",
+      fontSize: isLatex ? 20 : Math.max(1, Math.min(200, Math.round(state.textFontSize || 24))),
+      bold: isLatex ? false : Boolean(state.textBold),
+      italic: isLatex ? false : Boolean(state.textItalic),
+      underline: isLatex ? false : Boolean(state.textUnderline),
+      strike: isLatex ? false : Boolean(state.textStrike),
+      textAlign: isLatex ? 'center' : (state.textAlign || 'left'),
+      lineHeightMode: state.textLineHeightMode || 'automatic',
+      lineHeightFixed: state.textLineHeightFixed || 32,
+      listStyle: isLatex ? 'none' : (state.textListStyle || 'none'),
+      frameStyle: defaultFrame,
+      style: isLatex ? 'latex' : 'transparent',
       isLatex: Boolean(isLatex)
     };
     if (!page.texts) page.texts = [];
     page.texts.push(newCard);
+    state.selectedTextId = newCard.id;
     renderWorldTextCards();
     requestRender();
-    scheduleSaveActivePage();
+    scheduleSaveActivePage(page);
 
     if (autoEdit && dom.worldObjectsLayer) {
       const cardEl = dom.worldObjectsLayer.querySelector(`[data-text-id="${newCard.id}"]`);
-      if (cardEl) enterCardKeyboardEditMode(cardEl, newCard);
+      if (cardEl) enterCardKeyboardEditMode(cardEl, newCard, page);
     }
     return newCard;
   }
@@ -6175,17 +6657,104 @@
   }
 
   function drawTextBlocksOnCanvas(targetCtx, texts) {
-    // Utilisé uniquement pour les miniatures et exports PNG/PDF (l'affichage principal utilise les cartes DOM interactives)
+    // Utilisé pour les miniatures et exports PNG (l'affichage principal utilise les cartes DOM interactives)
     (texts || []).forEach((tb) => {
       targetCtx.save();
-      const fontSize = tb.fontSize || 16;
-      targetCtx.font = `500 ${fontSize}px Inter, -apple-system, sans-serif`;
-      targetCtx.fillStyle = tb.color || '#1e293b';
+      const typo = getTextBoxEffectiveTypography(tb);
+      const fs = typo.frameStyle;
+      const boxW = Math.max(72, tb.width || 260);
+      const pad = fs.padding || 0;
+      const innerW = Math.max(24, boxW - pad * 2);
+      const fontWeight = typo.bold ? '700 ' : '400 ';
+      const fontStyle = typo.italic ? 'italic ' : '';
+      targetCtx.font = `${fontStyle}${fontWeight}${typo.fontSize}px ${typo.fontFamily}`;
       targetCtx.textBaseline = 'top';
-      const lines = String(tb.text || '').split('\n');
-      const lh = fontSize * 1.4;
-      lines.forEach((line, idx) => {
-        targetCtx.fillText(line, tb.x + 8, tb.y + 8 + idx * lh);
+
+      // Découpage par lignes + retour à la ligne automatique sur boxW
+      const rawParas = String(tb.text || '').split('\n');
+      const wrappedLines = [];
+      for (const para of rawParas) {
+        if (!para) {
+          wrappedLines.push('');
+          continue;
+        }
+        const words = para.split(' ');
+        let cur = '';
+        for (const w of words) {
+          const cand = cur ? `${cur} ${w}` : w;
+          if (cur && targetCtx.measureText(cand).width > innerW) {
+            wrappedLines.push(cur);
+            cur = w;
+          } else {
+            cur = cand;
+          }
+        }
+        wrappedLines.push(cur);
+      }
+
+      const lh = typo.lineHeightMode === 'fixed' ? typo.lineHeightFixed : Math.round(typo.fontSize * 1.35);
+      const boxH = Math.max(lh + pad * 2, wrappedLines.length * lh + pad * 2);
+
+      // Fond / bordure / ombre GoodNotes TextBoxStyle
+      if (fs.backgroundColor || fs.borderWidth > 0) {
+        targetCtx.save();
+        if (fs.showShadow) {
+          targetCtx.shadowColor = 'rgba(0, 0, 0, 0.22)';
+          targetCtx.shadowBlur = 10;
+          targetCtx.shadowOffsetX = 0;
+          targetCtx.shadowOffsetY = 4;
+        }
+        targetCtx.beginPath();
+        if (typeof targetCtx.roundRect === 'function' && fs.cornerRadius > 0) {
+          targetCtx.roundRect(tb.x, tb.y, boxW, boxH, fs.cornerRadius);
+        } else {
+          targetCtx.rect(tb.x, tb.y, boxW, boxH);
+        }
+        if (fs.backgroundColor) {
+          targetCtx.fillStyle = fs.backgroundColor;
+          targetCtx.fill();
+        }
+        targetCtx.restore();
+        if (fs.borderWidth > 0) {
+          targetCtx.beginPath();
+          if (typeof targetCtx.roundRect === 'function' && fs.cornerRadius > 0) {
+            targetCtx.roundRect(tb.x, tb.y, boxW, boxH, fs.cornerRadius);
+          } else {
+            targetCtx.rect(tb.x, tb.y, boxW, boxH);
+          }
+          targetCtx.strokeStyle = fs.borderColor || 'rgba(15, 23, 42, 0.25)';
+          targetCtx.lineWidth = fs.borderWidth;
+          targetCtx.stroke();
+        }
+      }
+
+      targetCtx.fillStyle = typo.color || '#000000';
+      targetCtx.textAlign = typo.textAlign || 'left';
+      const baseTextX = typo.textAlign === 'center'
+        ? tb.x + boxW * 0.5
+        : (typo.textAlign === 'right' ? tb.x + boxW - pad : tb.x + pad);
+
+      wrappedLines.forEach((line, idx) => {
+        const ly = tb.y + pad + idx * lh;
+        targetCtx.fillText(line, baseTextX, ly);
+        if ((typo.underline || typo.strike) && line.length > 0) {
+          const w = targetCtx.measureText(line).width;
+          const lx = typo.textAlign === 'center' ? baseTextX - w * 0.5 : (typo.textAlign === 'right' ? baseTextX - w : baseTextX);
+          targetCtx.strokeStyle = typo.color || '#000000';
+          targetCtx.lineWidth = Math.max(1, typo.fontSize * 0.065);
+          if (typo.underline) {
+            targetCtx.beginPath();
+            targetCtx.moveTo(lx, ly + typo.fontSize * 1.04);
+            targetCtx.lineTo(lx + w, ly + typo.fontSize * 1.04);
+            targetCtx.stroke();
+          }
+          if (typo.strike) {
+            targetCtx.beginPath();
+            targetCtx.moveTo(lx, ly + typo.fontSize * 0.55);
+            targetCtx.lineTo(lx + w, ly + typo.fontSize * 0.55);
+            targetCtx.stroke();
+          }
+        }
       });
       targetCtx.restore();
     });
@@ -8095,12 +8664,13 @@
       return;
     }
 
-    // Cas 2 : Forme géométrique, Édition de forme, Guides de connexion GoodNotes, Ruban d'étude, Pointeur Laser ou Lasso
+    // Cas 2 : Forme géométrique, Édition de forme, Guides de connexion GoodNotes, Aperçu Zone de Texte, Ruban d'étude, Pointeur Laser ou Lasso
     const hasOverlay = Boolean(
       state.currentStroke ||
       state.currentShape ||
       hasShapeConnGuide ||
       selectedShape ||
+      state.textBoxCreateDrag ||
       state.currentTape ||
       state.laserTrail.length > 0 ||
       state.lassoPolygon.length > 1 ||
@@ -8110,6 +8680,7 @@
       clearActiveCanvas();
       updateLassoFloatingBarPosition();
       updateShapeEditFloatingBar();
+      updateTextEditFloatingBar();
       renderPerfStats.activeRenderCount++;
       renderPerfStats.lastActiveRenderMs = performance.now() - t0;
       return;
@@ -8129,6 +8700,21 @@
     if (selectedShape) {
       drawShapeEditingOverlay(activeCtx, selectedShape);
     }
+    if (state.textBoxCreateDrag) {
+      const td = state.textBoxCreateDrag;
+      const rx = Math.min(td.startWorld.x, td.curWorld.x);
+      const ry = Math.min(td.startWorld.y, td.curWorld.y);
+      const rw = Math.max(24, Math.abs(td.curWorld.x - td.startWorld.x));
+      const rh = Math.max(36, Math.abs(td.curWorld.y - td.startWorld.y));
+      activeCtx.save();
+      activeCtx.fillStyle = 'rgba(0, 114, 206, 0.06)';
+      activeCtx.strokeStyle = '#0072ce';
+      activeCtx.lineWidth = 1.5 / Math.max(0.25, state.zoom);
+      activeCtx.setLineDash([6 / Math.max(0.25, state.zoom), 4 / Math.max(0.25, state.zoom)]);
+      activeCtx.fillRect(rx, ry, rw, rh);
+      activeCtx.strokeRect(rx, ry, rw, rh);
+      activeCtx.restore();
+    }
     if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape) {
       drawSingleStroke(activeCtx, state.currentStroke, effectiveDark, false);
     }
@@ -8147,6 +8733,7 @@
 
     updateLassoFloatingBarPosition();
     updateShapeEditFloatingBar();
+    updateTextEditFloatingBar();
     renderPerfStats.activeRenderCount++;
     renderPerfStats.lastActiveRenderMs = performance.now() - t0;
   }
@@ -8691,6 +9278,9 @@
       }
     } else {
       updateLassoFloatingBarPosition();
+    }
+    if (state.selectedTextId || state.editingTextId) {
+      updateTextEditFloatingBar();
     }
 
     renderPerfStats.staticRenderCount++;
@@ -9339,6 +9929,9 @@
       e.target.closest('.world-text-card') ||
       e.target.closest('.lasso-floating-actions') ||
       e.target.closest('.shape-edit-bar') ||
+      e.target.closest('.text-edit-bar') ||
+      e.target.closest('.gn-text-subbar') ||
+      e.target.closest('.gn-text-popover') ||
       e.target.closest('.radial-color-wheel')
     )) {
       return;
@@ -9498,8 +10091,28 @@
     }
 
     if (state.tool === 'text') {
-      createInteractiveTextCardAt(worldPt.x, worldPt.y, '', false, true);
+      if (state.gnTextPopover) {
+        state.gnTextPopover = null;
+        updateToolbarActiveState();
+      }
+      // Si une zone de texte est déjà en cours d'édition ou sélectionnée, un clic sur la page la valide et la désélectionne proprement (comme GoodNotes 6) sans créer une zone fantôme
+      if (state.editingTextId || state.selectedTextId) {
+        clearSelectedTextBox(true);
+        return;
+      }
+      // Permet soit un clic rapide (zone de texte instantanée), soit un cliquer-glisser pour tracer la largeur voulue (GoodNotes NewTextBoxPreviewRenderer)
+      state.activePointerId = e.pointerId;
+      state.isDrawing = true;
+      state.textBoxCreateDrag = {
+        startWorld: { x: worldPt.x, y: worldPt.y },
+        curWorld: { x: worldPt.x, y: worldPt.y },
+        startScreen: { x: e.clientX, y: e.clientY }
+      };
+      try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
       return;
+    }
+    if (state.selectedTextId || state.editingTextId) {
+      clearSelectedTextBox(true);
     }
 
     // Annule le minuteur de sauvegarde différée (500 ms) si un nouveau trait commence pour ne jamais bloquer le Main Thread pendant l'écriture
@@ -9799,6 +10412,13 @@
     if (!coalesced || coalesced.length === 0) coalesced = [e];
 
     const activePageForMove = getActivePage();
+    if (state.textBoxCreateDrag) {
+      const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
+      state.textBoxCreateDrag.curWorld = { x: wPt.x, y: wPt.y };
+      renderActiveCanvasOnly();
+      return;
+    }
+
     if (state.shapeEditDrag) {
       const selSh = getSelectedShape(activePageForMove);
       if (selSh && activePageForMove) {
@@ -10176,6 +10796,25 @@
 
     if (!state.isDrawing) return;
     if (state.activePointerId !== null && e.pointerId !== undefined && e.pointerId !== state.activePointerId) return;
+
+    if (state.textBoxCreateDrag) {
+      const td = state.textBoxCreateDrag;
+      state.textBoxCreateDrag = null;
+      state.isDrawing = false;
+      state.activePointerId = null;
+      try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      clearActiveCanvas();
+      const dragScreenDist = Math.hypot((e.clientX ?? td.startScreen.x) - td.startScreen.x, (e.clientY ?? td.startScreen.y) - td.startScreen.y);
+      if (dragScreenDist >= 14) {
+        const minX = Math.min(td.startWorld.x, td.curWorld.x);
+        const minY = Math.min(td.startWorld.y, td.curWorld.y);
+        const draggedW = Math.max(120, Math.round(Math.abs(td.curWorld.x - td.startWorld.x)));
+        createInteractiveTextCardAt(minX, minY, '', false, true, draggedW);
+      } else {
+        createInteractiveTextCardAt(td.startWorld.x, td.startWorld.y, '', false, true, 260);
+      }
+      return;
+    }
 
     if (state.shapeEditDrag) {
       const pageForEdit = getActivePage();
@@ -13230,13 +13869,17 @@
       syncCanonicalToToolMemory(state.tool);
       state.tool = t;
       applyToolMemoryToCanonical(t);
-      // Ouvre directement la sous-barre flottante GoodNotes au clic utilisateur sur Formes ou Gomme (mais reste fermé par défaut au démarrage / autres outils)
-      state.toolOptionsOpen = Boolean((t === 'shape' || t === 'eraser') && toggleOptionsIfSame);
+      // Ouvre directement la sous-barre flottante GoodNotes au clic utilisateur sur Formes, Gomme ou Texte (mais reste fermé par défaut au démarrage / autres outils)
+      state.toolOptionsOpen = Boolean((t === 'shape' || t === 'eraser' || t === 'text') && toggleOptionsIfSame);
     }
     if (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter') {
       state.previousWritingTool = state.tool;
     }
     if (state.tool !== 'lasso') clearLassoSelection();
+    if (state.tool !== 'text' && (state.editingTextId || state.selectedTextId)) {
+      clearSelectedTextBox(true);
+    }
+    if (state.tool !== 'text') state.gnTextPopover = null;
     updateToolbarActiveState();
     triggerToolOptionsPulse();
     requestRender();
@@ -13285,10 +13928,12 @@
     const isGnPenBarTool = state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || state.tool === 'tape';
     const isGnShapeBarTool = state.tool === 'shape';
     const isGnEraserBarTool = state.tool === 'eraser';
+    const isGnTextBarTool = state.tool === 'text';
     const showGnSubBar = Boolean(state.toolOptionsOpen && isGnPenBarTool);
     const showGnShapeBar = Boolean(state.toolOptionsOpen && isGnShapeBarTool);
     const showGnEraserBar = Boolean(state.toolOptionsOpen && isGnEraserBarTool);
-    const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan' && !isGnPenBarTool && !isGnShapeBarTool && !isGnEraserBarTool);
+    const showGnTextBar = Boolean(state.toolOptionsOpen && isGnTextBarTool);
+    const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan' && !isGnPenBarTool && !isGnShapeBarTool && !isGnEraserBarTool && !isGnTextBarTool);
     dom.toolOptionsDock.classList.toggle('hidden', !showDock);
     const gnSubBarEl = document.getElementById('gnPenSubBar');
     if (gnSubBarEl) gnSubBarEl.classList.toggle('hidden', !showGnSubBar);
@@ -13296,6 +13941,8 @@
     if (gnShapeBarEl) gnShapeBarEl.classList.toggle('hidden', !showGnShapeBar);
     const gnEraserBarEl = document.getElementById('gnEraserSubBar');
     if (gnEraserBarEl) gnEraserBarEl.classList.toggle('hidden', !showGnEraserBar);
+    const gnTextBarEl = document.getElementById('gnTextSubBar');
+    if (gnTextBarEl) gnTextBarEl.classList.toggle('hidden', !showGnTextBar);
     if (!showGnSubBar) {
       state.gnPenPopoverOpen = false;
       state.gnPencilPopoverOpen = false;
@@ -13310,6 +13957,9 @@
       state.gnEraserModePopoverOpen = false;
       state.gnEraserAdvPopoverOpen = false;
       state.gnEraserSizePopoverOpen = false;
+    }
+    if (!showGnTextBar && !state.selectedTextId && !state.editingTextId) {
+      state.gnTextPopover = null;
     }
     const gnPopoverEl = document.getElementById('gnPenPopover');
     const showGnPopover = Boolean(showGnSubBar && state.gnPenPopoverOpen);
@@ -13335,6 +13985,17 @@
     if (gnEraserAdvPopoverEl) gnEraserAdvPopoverEl.classList.toggle('hidden', !Boolean(showGnEraserBar && state.gnEraserAdvPopoverOpen));
     const gnEraserSizePopoverEl = document.getElementById('gnEraserSizePopover');
     if (gnEraserSizePopoverEl) gnEraserSizePopoverEl.classList.toggle('hidden', !Boolean(showGnEraserBar && state.gnEraserSizePopoverOpen));
+    const gnTextPopMap = {
+      font: 'gnTextFontPopover',
+      size: 'gnTextSizePopover',
+      align: 'gnTextAlignPopover',
+      list: 'gnTextListPopover',
+      style: 'gnTextBoxStylePopover'
+    };
+    Object.keys(gnTextPopMap).forEach((k) => {
+      const el = document.getElementById(gnTextPopMap[k]);
+      if (el) el.classList.toggle('hidden', state.gnTextPopover !== k);
+    });
     if (!showGnPopover) {
       const gesturesEl = document.getElementById('gnPenGesturesView');
       if (gesturesEl) gesturesEl.classList.add('hidden');
@@ -13343,9 +14004,10 @@
     }
     if (typeof syncGnPenSubBarUi === 'function') syncGnPenSubBarUi();
     if (typeof syncGnEraserSubBarUi === 'function') syncGnEraserSubBarUi();
+    if (typeof syncGnTextSubBarUi === 'function') syncGnTextSubBarUi();
     if (dom.btnToggleToolOptions) {
-      dom.btnToggleToolOptions.classList.toggle('open', showDock || showGnSubBar || showGnShapeBar || showGnEraserBar);
-      dom.btnToggleToolOptions.setAttribute('aria-expanded', String(showDock || showGnSubBar || showGnShapeBar || showGnEraserBar));
+      dom.btnToggleToolOptions.classList.toggle('open', showDock || showGnSubBar || showGnShapeBar || showGnEraserBar || showGnTextBar);
+      dom.btnToggleToolOptions.setAttribute('aria-expanded', String(showDock || showGnSubBar || showGnShapeBar || showGnEraserBar || showGnTextBar));
       dom.btnToggleToolOptions.disabled = state.tool === 'pan';
     }
 
@@ -13643,6 +14305,8 @@
     tape: 'Couleur Du Ruban',
     shape: 'Couleur De Forme',
     text: 'Couleur Du Texte',
+    'text-box-bg': 'Couleur De Fond',
+    'text-box-border': 'Couleur De Bordure',
     laser: 'Couleur Du Pointeur',
     lasso: 'Changer La Couleur',
     cover: 'Couleur De Couverture',
@@ -13834,15 +14498,44 @@
       return;
     }
 
-    if (mode === 'text-card') {
-      const page = getActivePage();
-      const cardObj = page && (page.texts || []).find((x) => x.id === textCardId);
-      if (cardObj) {
-        if (!options.livePreview) pushHistorySnapshot(page);
-        cardObj.color = norm;
-        renderWorldTextCards();
-        scheduleSaveActivePage(page);
-      }
+    if (mode === 'text-card' || mode === 'text-default') {
+      state.textColor = norm;
+      if (state.toolMemory && state.toolMemory.text) state.toolMemory.text.color = norm;
+      applyTextPropertyToActiveOrDefault((tb) => {
+        if (tb) tb.color = norm;
+      }, { skipHistory: Boolean(options.livePreview) });
+      saveTextToolPrefs();
+      if (closeAfter) closeGnColorPopover();
+      else renderGnColorPopover();
+      return;
+    }
+
+    if (mode === 'text-box-bg') {
+      applyTextPropertyToActiveOrDefault((tb) => {
+        if (tb) {
+          tb.frameStyle = { ...resolveTextBoxFrameStyle(tb), backgroundColor: norm };
+        } else {
+          state.textFrameStyle = { ...state.textFrameStyle, backgroundColor: norm };
+        }
+      }, { skipHistory: Boolean(options.livePreview) });
+      if (closeAfter) closeGnColorPopover();
+      else renderGnColorPopover();
+      return;
+    }
+
+    if (mode === 'text-box-border') {
+      applyTextPropertyToActiveOrDefault((tb) => {
+        if (tb) {
+          const curFs = resolveTextBoxFrameStyle(tb);
+          tb.frameStyle = { ...curFs, borderColor: norm, borderWidth: Math.max(1, curFs.borderWidth || 0) };
+        } else {
+          state.textFrameStyle = {
+            ...state.textFrameStyle,
+            borderColor: norm,
+            borderWidth: Math.max(1, state.textFrameStyle.borderWidth || 0)
+          };
+        }
+      }, { skipHistory: Boolean(options.livePreview) });
       if (closeAfter) closeGnColorPopover();
       else renderGnColorPopover();
       return;
@@ -13992,10 +14685,16 @@
       let currentSelectedHex = null;
       if (mode === 'edit-slot' && mem && mem.colorSlots[slotIndex]) {
         currentSelectedHex = (normalizeHexColor(mem.colorSlots[slotIndex]) || mem.colorSlots[slotIndex]).toLowerCase();
-      } else if (mode === 'text-card') {
-        const pg = getActivePage();
-        const cObj = pg && (pg.texts || []).find((x) => x.id === gnColorPopoverState.textCardId);
-        if (cObj && cObj.color) currentSelectedHex = (normalizeHexColor(cObj.color) || cObj.color).toLowerCase();
+      } else if (mode === 'text-card' || mode === 'text-default') {
+        const activeTb = getActiveTextBox(getActivePage());
+        const col = (activeTb && activeTb.color) || state.textColor || '#000000';
+        currentSelectedHex = (normalizeHexColor(col) || col).toLowerCase();
+      } else if (mode === 'text-box-bg') {
+        const typo = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage()));
+        if (typo.frameStyle.backgroundColor) currentSelectedHex = (normalizeHexColor(typo.frameStyle.backgroundColor) || '').toLowerCase();
+      } else if (mode === 'text-box-border') {
+        const typo = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage()));
+        if (typo.frameStyle.borderColor) currentSelectedHex = (normalizeHexColor(typo.frameStyle.borderColor) || '').toLowerCase();
       } else if (mode === 'notebook-cover' && state.newNotebookCover) {
         currentSelectedHex = (normalizeHexColor(state.newNotebookCover) || '').toLowerCase();
       } else if (mode === 'folder-color' && state.folderModalColor) {
@@ -15392,8 +16091,668 @@
     }
   }
 
+  // ============================================================================
+  // SOUS-BARRE TEXTE GOODNOTES 6 & POPOVERS (REA DocumentLoaderRoute-PMJiTofc.js)
+  // ============================================================================
+  function positionGnTextPopover(popEl, anchorEl) {
+    if (!popEl || !anchorEl || typeof anchorEl.getBoundingClientRect !== 'function') return;
+    const ar = anchorEl.getBoundingClientRect();
+    const popW = popEl.offsetWidth || 288;
+    const popH = popEl.offsetHeight || 220;
+    const vw = window.innerWidth || 1280;
+    const vh = window.innerHeight || 720;
+    let left = ar.left + ar.width * 0.5 - popW * 0.5;
+    left = Math.max(10, Math.min(vw - popW - 10, left));
+    let top = ar.bottom + 8;
+    if (top + popH > vh - 12 && ar.top - popH - 8 > 10) {
+      top = ar.top - popH - 8;
+    }
+    popEl.style.left = `${Math.round(left)}px`;
+    popEl.style.top = `${Math.round(top)}px`;
+  }
+
+  function findMatchingTextBoxPresetIndex(fs) {
+    if (!fs) return 0;
+    const normBg = fs.backgroundColor ? String(fs.backgroundColor).toLowerCase() : null;
+    const normBd = fs.borderColor ? String(fs.borderColor).toLowerCase() : null;
+    return GN_TEXT_BOX_STYLE_PRESETS.findIndex((p) => {
+      const pBg = p.backgroundColor ? p.backgroundColor.toLowerCase() : null;
+      const pBd = p.borderColor ? p.borderColor.toLowerCase() : null;
+      return pBg === normBg &&
+        pBd === normBd &&
+        Number(p.borderWidth || 0) === Number(fs.borderWidth || 0) &&
+        Number(p.cornerRadius || 0) === Number(fs.cornerRadius || 0) &&
+        Number(p.padding ?? 10) === Number(fs.padding ?? 10) &&
+        Boolean(p.showShadow) === Boolean(fs.showShadow);
+    });
+  }
+
+  function renderGnTextBoxStylePresetsGrid(activeFrameStyle) {
+    const grid = document.getElementById('gnTextStylePresetsGrid');
+    if (!grid) return;
+    const selIdx = findMatchingTextBoxPresetIndex(activeFrameStyle);
+    grid.innerHTML = '';
+    GN_TEXT_BOX_STYLE_PRESETS.forEach((preset, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `gn-tb-preset-btn${selIdx === idx ? ' active' : ''}`;
+      btn.title = idx === 0 ? 'Transparent (sans fond)' : `Préréglage ${idx}`;
+
+      const tile = document.createElement('span');
+      tile.className = 'gn-tb-preset-tile';
+      if (idx === 0) {
+        tile.style.background = 'linear-gradient(135deg, #ffffff 44%, #ef4444 47%, #ef4444 53%, #ffffff 56%)';
+        tile.style.borderRadius = '6px';
+        tile.style.border = '1.5px solid rgba(15, 23, 42, 0.22)';
+      } else {
+        tile.style.background = preset.backgroundColor || 'transparent';
+        tile.style.borderRadius = `${preset.cornerRadius || 0}px`;
+        tile.style.boxShadow = preset.showShadow
+          ? '0px 3px 5px rgba(0,0,0,0.24), inset 0 0 0 1.5px rgba(15,23,42,0.16)'
+          : 'inset 0 0 0 1.5px rgba(15,23,42,0.16)';
+      }
+      btn.appendChild(tile);
+
+      if (selIdx === idx) {
+        const chk = document.createElement('span');
+        chk.className = 'gn-tb-preset-check';
+        chk.innerHTML = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9.5" fill="rgba(64,59,59,0.42)"/><path d="M6.25 10l2.5 2.5 5-5" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        btn.appendChild(chk);
+      }
+
+      btn.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        suppressNextTextBlur = true;
+        setTimeout(() => { suppressNextTextBlur = false; }, 120);
+      });
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const darkPreset = preset.backgroundColor && ['#373b44', '#4c5b7f'].includes(preset.backgroundColor.toLowerCase());
+        applyTextPropertyToActiveOrDefault((tb) => {
+          const nextFs = { ...preset };
+          if (tb) {
+            tb.frameStyle = nextFs;
+            tb.style = nextFs.backgroundColor ? 'card' : 'transparent';
+            if (darkPreset && (!tb.color || tb.color.toLowerCase() === '#000000' || tb.color.toLowerCase() === '#1e293b')) {
+              tb.color = '#ffffff';
+            } else if (!darkPreset && tb.color && tb.color.toLowerCase() === '#ffffff') {
+              tb.color = '#000000';
+            }
+          } else {
+            state.textFrameStyle = nextFs;
+            if (darkPreset && state.textColor.toLowerCase() === '#000000') state.textColor = '#ffffff';
+            else if (!darkPreset && state.textColor.toLowerCase() === '#ffffff') state.textColor = '#000000';
+          }
+        });
+      });
+
+      grid.appendChild(btn);
+    });
+  }
+
+  function syncGnTextSubBarUi() {
+    const activeTb = getActiveTextBox(getActivePage());
+    const typo = getTextBoxEffectiveTypography(activeTb);
+    const fs = typo.frameStyle;
+
+    // Libellé police
+    const fontLabelEl = document.getElementById('gnTextFontLabel');
+    if (fontLabelEl) {
+      let label = state.textFontLabel || 'Helvetica';
+      const fontList = document.getElementById('gnTextFontList');
+      if (fontList) {
+        fontList.querySelectorAll('.gn-text-font-opt').forEach((opt) => {
+          const isMatch = opt.dataset.gnFont === typo.fontFamily;
+          opt.classList.toggle('active', isMatch);
+          if (isMatch && opt.dataset.gnFontLabel) label = opt.dataset.gnFontLabel;
+        });
+      }
+      fontLabelEl.textContent = label;
+    }
+
+    // Taille du texte
+    const sizeInput = document.getElementById('gnTextSizeInput');
+    if (sizeInput && document.activeElement !== sizeInput) {
+      sizeInput.value = String(typo.fontSize);
+    }
+    const sizeChip = document.getElementById('gnTextSizeChip');
+    if (sizeChip) sizeChip.textContent = `${typo.fontSize} pt`;
+    const sizeSlider = document.getElementById('gnTextSizeSlider');
+    if (sizeSlider) sizeSlider.value = String(Math.max(8, Math.min(120, typo.fontSize)));
+
+    // Couleur du texte
+    const colorSwatch = document.getElementById('gnTextColorSwatch');
+    if (colorSwatch) colorSwatch.style.background = typo.color || '#000000';
+
+    // B / I / U / S
+    const toggleActive = (id, on) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.toggle('active', Boolean(on));
+        el.setAttribute('aria-pressed', String(Boolean(on)));
+      }
+    };
+    toggleActive('gnTextBoldBtn', typo.bold);
+    toggleActive('gnTextItalicBtn', typo.italic);
+    toggleActive('gnTextUnderlineBtn', typo.underline);
+    toggleActive('gnTextStrikeBtn', typo.strike);
+
+    // Popover triggers active state
+    const setPopTrigger = (id, key) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('active', state.gnTextPopover === key);
+    };
+    setPopTrigger('gnTextFontBtn', 'font');
+    setPopTrigger('gnTextSizeMenuBtn', 'size');
+    setPopTrigger('gnTextAlignBtn', 'align');
+    setPopTrigger('gnTextListBtn', 'list');
+    setPopTrigger('gnTextBoxStyleBtn', 'style');
+
+    // Alignement & Hauteur de ligne
+    const alignGrid = document.getElementById('gnTextAlignGrid');
+    if (alignGrid) {
+      alignGrid.querySelectorAll('[data-gn-align]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.gnAlign === typo.textAlign);
+      });
+    }
+    const lhAutoSw = document.getElementById('gnTextLineHeightAutoSwitch');
+    if (lhAutoSw) lhAutoSw.checked = typo.lineHeightMode !== 'fixed';
+    const lhControls = document.getElementById('gnTextLineHeightControls');
+    if (lhControls) lhControls.classList.toggle('disabled', typo.lineHeightMode !== 'fixed');
+    const lhChip = document.getElementById('gnTextLineHeightChip');
+    if (lhChip) lhChip.textContent = `${typo.lineHeightFixed} pt`;
+    const lhSlider = document.getElementById('gnTextLineHeightSlider');
+    if (lhSlider) lhSlider.value = String(Math.max(12, Math.min(120, typo.lineHeightFixed)));
+
+    // Style de liste
+    const listGrid = document.getElementById('gnTextListGrid');
+    if (listGrid) {
+      listGrid.querySelectorAll('[data-gn-list]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.gnList === typo.listStyle);
+      });
+    }
+
+    // Aperçu miniature bouton Style de zone
+    const previewBox = document.getElementById('gnTextStylePreviewBox');
+    if (previewBox) {
+      previewBox.style.background = fs.backgroundColor || 'transparent';
+      previewBox.style.borderColor = fs.borderColor || (fs.backgroundColor ? 'rgba(15,23,42,0.22)' : '');
+      previewBox.style.borderRadius = `${Math.min(7, fs.cornerRadius || 4)}px`;
+      previewBox.style.color = fs.backgroundColor && ['#373b44', '#4c5b7f', '#f65353'].includes(String(fs.backgroundColor).toLowerCase()) ? '#ffffff' : '';
+    }
+
+    // Onglets & champs du Popover Style de zone de texte
+    const isAdv = state.gnTextStyleTab === 'advanced';
+    const tabPre = document.getElementById('gnTextStyleTabPresets');
+    const tabAdv = document.getElementById('gnTextStyleTabAdvanced');
+    const viewPre = document.getElementById('gnTextStylePresetsView');
+    const viewAdv = document.getElementById('gnTextStyleAdvancedView');
+    if (tabPre) { tabPre.classList.toggle('active', !isAdv); tabPre.setAttribute('aria-selected', String(!isAdv)); }
+    if (tabAdv) { tabAdv.classList.toggle('active', isAdv); tabAdv.setAttribute('aria-selected', String(isAdv)); }
+    if (viewPre) viewPre.classList.toggle('hidden', isAdv);
+    if (viewAdv) viewAdv.classList.toggle('hidden', !isAdv);
+
+    renderGnTextBoxStylePresetsGrid(fs);
+
+    const advBgBtn = document.getElementById('gnTextAdvBgBtn');
+    if (advBgBtn) {
+      advBgBtn.style.background = fs.backgroundColor || 'linear-gradient(135deg, #ffffff 45%, #ef4444 48%, #ef4444 52%, #ffffff 55%)';
+    }
+    const advBorderBtn = document.getElementById('gnTextAdvBorderBtn');
+    if (advBorderBtn) {
+      advBorderBtn.style.background = fs.borderColor || 'linear-gradient(135deg, #ffffff 45%, #ef4444 48%, #ef4444 52%, #ffffff 55%)';
+    }
+    const advRadiusVal = document.getElementById('gnTextAdvRadiusVal');
+    if (advRadiusVal) advRadiusVal.textContent = `${fs.cornerRadius || 0} pt`;
+    const advShadowSw = document.getElementById('gnTextAdvShadowSwitch');
+    if (advShadowSw) advShadowSw.checked = Boolean(fs.showShadow);
+    const advBorderWVal = document.getElementById('gnTextAdvBorderWidthVal');
+    if (advBorderWVal) advBorderWVal.textContent = `${fs.borderWidth || 0} pt`;
+    const advPadVal = document.getElementById('gnTextAdvPaddingVal');
+    if (advPadVal) advPadVal.textContent = `${fs.padding ?? 10} pt`;
+  }
+
+  function bindGoodNotesTextSubBarEvents() {
+    const keepFocusGuard = (el) => {
+      if (!el) return;
+      el.addEventListener('pointerdown', (ev) => {
+        if (ev.target && (ev.target.tagName === 'INPUT' || ev.target.tagName === 'SELECT')) {
+          suppressNextTextBlur = true;
+          setTimeout(() => { suppressNextTextBlur = false; }, 220);
+          return;
+        }
+        ev.preventDefault();
+        suppressNextTextBlur = true;
+        setTimeout(() => { suppressNextTextBlur = false; }, 160);
+      });
+    };
+
+    const subBar = document.getElementById('gnTextSubBar');
+    keepFocusGuard(subBar);
+    ['gnTextFontPopover', 'gnTextSizePopover', 'gnTextAlignPopover', 'gnTextListPopover', 'gnTextBoxStylePopover', 'textEditFloatingBar'].forEach((id) => {
+      keepFocusGuard(document.getElementById(id));
+    });
+
+    const toggleTextPopover = (key, anchorEl) => {
+      const next = state.gnTextPopover === key ? null : key;
+      state.gnTextPopover = next;
+      updateToolbarActiveState();
+      if (next) {
+        const map = { font: 'gnTextFontPopover', size: 'gnTextSizePopover', align: 'gnTextAlignPopover', list: 'gnTextListPopover', style: 'gnTextBoxStylePopover' };
+        const pop = document.getElementById(map[next]);
+        if (pop && anchorEl) positionGnTextPopover(pop, anchorEl);
+      }
+    };
+
+    const setFontSizeVal = (nextVal) => {
+      const clamped = Math.max(1, Math.min(200, Math.round(nextVal)));
+      applyTextPropertyToActiveOrDefault((tb) => {
+        if (tb) tb.fontSize = clamped;
+        else state.textFontSize = clamped;
+      });
+    };
+
+    const fontBtn = document.getElementById('gnTextFontBtn');
+    if (fontBtn) fontBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleTextPopover('font', fontBtn); });
+
+    const fontList = document.getElementById('gnTextFontList');
+    if (fontList) {
+      fontList.querySelectorAll('.gn-text-font-opt').forEach((opt) => {
+        opt.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const fam = opt.dataset.gnFont;
+          const lbl = opt.dataset.gnFontLabel || 'Helvetica';
+          state.textFontFamily = fam;
+          state.textFontLabel = lbl;
+          applyTextPropertyToActiveOrDefault((tb) => {
+            if (tb) tb.fontFamily = fam;
+          });
+          state.gnTextPopover = null;
+          updateToolbarActiveState();
+        });
+      });
+    }
+
+    const sizeDec = document.getElementById('gnTextSizeDecBtn');
+    const sizeInc = document.getElementById('gnTextSizeIncBtn');
+    const sizeInput = document.getElementById('gnTextSizeInput');
+    const sizeMenuBtn = document.getElementById('gnTextSizeMenuBtn');
+    const sizeSlider = document.getElementById('gnTextSizeSlider');
+    const sizePopDec = document.getElementById('gnTextSizePopDec');
+    const sizePopInc = document.getElementById('gnTextSizePopInc');
+
+    if (sizeDec) sizeDec.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cur = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage())).fontSize;
+      setFontSizeVal(cur - 1);
+    });
+    if (sizeInc) sizeInc.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cur = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage())).fontSize;
+      setFontSizeVal(cur + 1);
+    });
+    if (sizePopDec) sizePopDec.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cur = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage())).fontSize;
+      setFontSizeVal(cur - 1);
+    });
+    if (sizePopInc) sizePopInc.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cur = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage())).fontSize;
+      setFontSizeVal(cur + 1);
+    });
+    if (sizeInput) {
+      sizeInput.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const n = parseInt(sizeInput.value, 10);
+          if (Number.isFinite(n)) setFontSizeVal(n);
+          sizeInput.blur();
+        }
+      });
+      sizeInput.addEventListener('change', () => {
+        const n = parseInt(sizeInput.value, 10);
+        if (Number.isFinite(n)) setFontSizeVal(n);
+        else syncGnTextSubBarUi();
+      });
+    }
+    if (sizeSlider) {
+      sizeSlider.addEventListener('input', () => {
+        const n = parseInt(sizeSlider.value, 10);
+        if (Number.isFinite(n)) setFontSizeVal(n);
+      });
+    }
+    if (sizeMenuBtn) sizeMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleTextPopover('size', sizeMenuBtn); });
+
+    const colorBtn = document.getElementById('gnTextColorBtn');
+    if (colorBtn) {
+      colorBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.gnTextPopover = null;
+        updateToolbarActiveState();
+        const activeTb = getActiveTextBox(getActivePage());
+        openGnColorPopover({
+          mode: activeTb ? 'text-card' : 'text-default',
+          toolKey: 'text',
+          scopeKey: 'text',
+          textCardId: activeTb ? activeTb.id : null,
+          anchorEl: colorBtn,
+          initialColor: (activeTb && activeTb.color) || state.textColor || '#000000'
+        });
+      });
+    }
+
+    const bindFmtToggle = (id, prop, stateKey) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        applyTextPropertyToActiveOrDefault((tb) => {
+          if (tb) tb[prop] = !tb[prop];
+          else state[stateKey] = !state[stateKey];
+        });
+      });
+    };
+    bindFmtToggle('gnTextBoldBtn', 'bold', 'textBold');
+    bindFmtToggle('gnTextItalicBtn', 'italic', 'textItalic');
+    bindFmtToggle('gnTextUnderlineBtn', 'underline', 'textUnderline');
+    bindFmtToggle('gnTextStrikeBtn', 'strike', 'textStrike');
+
+    const alignBtn = document.getElementById('gnTextAlignBtn');
+    if (alignBtn) alignBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleTextPopover('align', alignBtn); });
+
+    const alignGrid = document.getElementById('gnTextAlignGrid');
+    if (alignGrid) {
+      alignGrid.querySelectorAll('[data-gn-align]').forEach((b) => {
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const al = b.dataset.gnAlign;
+          applyTextPropertyToActiveOrDefault((tb) => {
+            if (tb) tb.textAlign = al;
+            else state.textAlign = al;
+          });
+        });
+      });
+    }
+
+    const lhAutoSw = document.getElementById('gnTextLineHeightAutoSwitch');
+    const lhSlider = document.getElementById('gnTextLineHeightSlider');
+    const lhDec = document.getElementById('gnTextLineHeightDec');
+    const lhInc = document.getElementById('gnTextLineHeightInc');
+    const setFixedLineHeight = (val) => {
+      const clamped = Math.max(12, Math.min(200, Math.round(val)));
+      applyTextPropertyToActiveOrDefault((tb) => {
+        if (tb) { tb.lineHeightMode = 'fixed'; tb.lineHeightFixed = clamped; }
+        else { state.textLineHeightMode = 'fixed'; state.textLineHeightFixed = clamped; }
+      });
+    };
+    if (lhAutoSw) {
+      lhAutoSw.addEventListener('change', () => {
+        const mode = lhAutoSw.checked ? 'automatic' : 'fixed';
+        applyTextPropertyToActiveOrDefault((tb) => {
+          if (tb) tb.lineHeightMode = mode;
+          else state.textLineHeightMode = mode;
+        });
+      });
+    }
+    if (lhSlider) lhSlider.addEventListener('input', () => setFixedLineHeight(parseInt(lhSlider.value, 10) || 32));
+    if (lhDec) lhDec.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cur = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage())).lineHeightFixed;
+      setFixedLineHeight(cur - 2);
+    });
+    if (lhInc) lhInc.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cur = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage())).lineHeightFixed;
+      setFixedLineHeight(cur + 2);
+    });
+
+    const listBtn = document.getElementById('gnTextListBtn');
+    if (listBtn) listBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleTextPopover('list', listBtn); });
+
+    const listGrid = document.getElementById('gnTextListGrid');
+    if (listGrid) {
+      listGrid.querySelectorAll('[data-gn-list]').forEach((b) => {
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const ls = b.dataset.gnList || 'none';
+          applyTextPropertyToActiveOrDefault((tb) => {
+            if (tb) {
+              tb.listStyle = ls;
+              tb.text = formatTextForListStyle(tb.text, ls);
+            } else {
+              state.textListStyle = ls;
+            }
+          }, { syncTextValue: true });
+          state.gnTextPopover = null;
+          updateToolbarActiveState();
+        });
+      });
+    }
+
+    const styleBtn = document.getElementById('gnTextBoxStyleBtn');
+    if (styleBtn) styleBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleTextPopover('style', styleBtn); });
+
+    const tabPre = document.getElementById('gnTextStyleTabPresets');
+    const tabAdv = document.getElementById('gnTextStyleTabAdvanced');
+    if (tabPre) tabPre.addEventListener('click', (e) => { e.stopPropagation(); state.gnTextStyleTab = 'presets'; syncGnTextSubBarUi(); });
+    if (tabAdv) tabAdv.addEventListener('click', (e) => { e.stopPropagation(); state.gnTextStyleTab = 'advanced'; syncGnTextSubBarUi(); });
+
+    const advBgBtn = document.getElementById('gnTextAdvBgBtn');
+    if (advBgBtn) {
+      advBgBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const typo = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage()));
+        openGnColorPopover({
+          mode: 'text-box-bg',
+          toolKey: 'text',
+          scopeKey: 'text-box-bg',
+          anchorEl: advBgBtn,
+          initialColor: typo.frameStyle.backgroundColor || '#ffffff'
+        });
+      });
+    }
+    const advBgClear = document.getElementById('gnTextAdvBgClear');
+    if (advBgClear) {
+      advBgClear.addEventListener('click', (e) => {
+        e.stopPropagation();
+        applyTextPropertyToActiveOrDefault((tb) => {
+          if (tb) tb.frameStyle = { ...resolveTextBoxFrameStyle(tb), backgroundColor: null };
+          else state.textFrameStyle = { ...state.textFrameStyle, backgroundColor: null };
+        });
+      });
+    }
+    const advBorderBtn = document.getElementById('gnTextAdvBorderBtn');
+    if (advBorderBtn) {
+      advBorderBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const typo = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage()));
+        openGnColorPopover({
+          mode: 'text-box-border',
+          toolKey: 'text',
+          scopeKey: 'text-box-border',
+          anchorEl: advBorderBtn,
+          initialColor: typo.frameStyle.borderColor || '#0072ce'
+        });
+      });
+    }
+    const advBorderClear = document.getElementById('gnTextAdvBorderClear');
+    if (advBorderClear) {
+      advBorderClear.addEventListener('click', (e) => {
+        e.stopPropagation();
+        applyTextPropertyToActiveOrDefault((tb) => {
+          if (tb) tb.frameStyle = { ...resolveTextBoxFrameStyle(tb), borderColor: null, borderWidth: 0 };
+          else state.textFrameStyle = { ...state.textFrameStyle, borderColor: null, borderWidth: 0 };
+        });
+      });
+    }
+
+    const stepFrameNum = (field, delta) => {
+      applyTextPropertyToActiveOrDefault((tb) => {
+        const curFs = tb ? resolveTextBoxFrameStyle(tb) : { ...state.textFrameStyle };
+        const nextVal = Math.max(0, Math.min(20, (Number(curFs[field]) || 0) + delta));
+        const nextFs = { ...curFs, [field]: nextVal };
+        if (field === 'borderWidth' && nextVal > 0 && !nextFs.borderColor) {
+          nextFs.borderColor = '#cbd5e1';
+        }
+        if (tb) tb.frameStyle = nextFs;
+        else state.textFrameStyle = nextFs;
+      });
+    };
+    const bindStep = (id, field, delta) => {
+      const b = document.getElementById(id);
+      if (b) b.addEventListener('click', (e) => { e.stopPropagation(); stepFrameNum(field, delta); });
+    };
+    bindStep('gnTextAdvRadiusDec', 'cornerRadius', -1);
+    bindStep('gnTextAdvRadiusInc', 'cornerRadius', 1);
+    bindStep('gnTextAdvBorderWidthDec', 'borderWidth', -1);
+    bindStep('gnTextAdvBorderWidthInc', 'borderWidth', 1);
+    bindStep('gnTextAdvPaddingDec', 'padding', -1);
+    bindStep('gnTextAdvPaddingInc', 'padding', 1);
+
+    const advShadowSw = document.getElementById('gnTextAdvShadowSwitch');
+    if (advShadowSw) {
+      advShadowSw.addEventListener('change', () => {
+        applyTextPropertyToActiveOrDefault((tb) => {
+          const curFs = tb ? resolveTextBoxFrameStyle(tb) : { ...state.textFrameStyle };
+          const nextFs = { ...curFs, showShadow: Boolean(advShadowSw.checked) };
+          if (tb) tb.frameStyle = nextFs;
+          else state.textFrameStyle = nextFs;
+        });
+      });
+    }
+
+    const saveDefBtn = document.getElementById('btnGnTextSaveDefault');
+    if (saveDefBtn) {
+      saveDefBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const typo = getTextBoxEffectiveTypography(getActiveTextBox(getActivePage()));
+        state.textFontFamily = typo.fontFamily;
+        state.textFontSize = typo.fontSize;
+        state.textColor = typo.color;
+        state.textBold = typo.bold;
+        state.textItalic = typo.italic;
+        state.textUnderline = typo.underline;
+        state.textStrike = typo.strike;
+        state.textAlign = typo.textAlign;
+        state.textLineHeightMode = typo.lineHeightMode;
+        state.textLineHeightFixed = typo.lineHeightFixed;
+        state.textListStyle = typo.listStyle;
+        state.textFrameStyle = { ...typo.frameStyle };
+        saveTextToolPrefs();
+        showToast('Style de texte enregistré par défaut');
+      });
+    }
+
+    const latexBtn = document.getElementById('gnTextLatexBtn');
+    if (latexBtn) {
+      latexBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const activeTb = getActiveTextBox(getActivePage());
+        if (activeTb) {
+          openLatexModalForCard(activeTb);
+        } else {
+          const vpRect = dom.canvasViewport ? dom.canvasViewport.getBoundingClientRect() : { width: 900, height: 600 };
+          const centerW = screenToWorld(vpRect.width * 0.5, vpRect.height * 0.42);
+          const card = createInteractiveTextCardAt(centerW.x - 160, centerW.y - 24, '', true, false);
+          if (card) openLatexModalForCard(card);
+        }
+      });
+    }
+
+    // Barre contextuelle flottante au-dessus de la zone de texte (#textEditFloatingBar)
+    const btnEditType = document.getElementById('btnTextEditType');
+    if (btnEditType) {
+      btnEditType.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const page = getActivePage();
+        const tb = getActiveTextBox(page);
+        if (!tb) return;
+        if (state.editingTextId === tb.id) {
+          clearSelectedTextBox(true);
+        } else {
+          const cardEl = dom.worldObjectsLayer ? dom.worldObjectsLayer.querySelector(`[data-text-id="${tb.id}"]`) : null;
+          if (cardEl) enterCardKeyboardEditMode(cardEl, tb, page);
+        }
+      });
+    }
+    const btnEditStyle = document.getElementById('btnTextEditStyle');
+    if (btnEditStyle) {
+      btnEditStyle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleTextPopover('style', btnEditStyle);
+      });
+    }
+    const btnEditLatex = document.getElementById('btnTextEditLatex');
+    if (btnEditLatex) {
+      btnEditLatex.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tb = getActiveTextBox(getActivePage());
+        if (tb) openLatexModalForCard(tb);
+      });
+    }
+    const btnEditDup = document.getElementById('btnTextEditDup');
+    if (btnEditDup) {
+      btnEditDup.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const page = getActivePage();
+        const tb = getActiveTextBox(page);
+        if (!page || !tb) return;
+        pushHistorySnapshot(page);
+        const dup = {
+          ...tb,
+          id: createUid('tx'),
+          x: Math.round(tb.x + 26),
+          y: Math.round(tb.y + 26),
+          frameStyle: tb.frameStyle ? { ...tb.frameStyle } : undefined
+        };
+        page.texts.push(dup);
+        state.selectedTextId = dup.id;
+        state.editingTextId = null;
+        renderWorldTextCards();
+        scheduleSaveActivePage(page);
+        showToast('Zone de texte dupliquée');
+      });
+    }
+    const btnEditDel = document.getElementById('btnTextEditDel');
+    if (btnEditDel) {
+      btnEditDel.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const page = getActivePage();
+        const tb = getActiveTextBox(page);
+        if (!page || !tb) return;
+        pushHistorySnapshot(page);
+        activeTextEditorCommitFn = null;
+        page.texts = (page.texts || []).filter((x) => x.id !== tb.id);
+        state.selectedTextId = null;
+        state.editingTextId = null;
+        state.gnTextPopover = null;
+        renderWorldTextCards();
+        requestRender();
+        scheduleSaveActivePage(page);
+      });
+    }
+
+    // Fermeture des popovers Texte au clic extérieur
+    document.addEventListener('pointerdown', (e) => {
+      if (!state.gnTextPopover) return;
+      if (e.target && typeof e.target.closest === 'function' && (
+        e.target.closest('.gn-text-popover') ||
+        e.target.closest('.gn-text-subbar') ||
+        e.target.closest('.text-edit-bar') ||
+        e.target.closest('#gnColorPopover')
+      )) {
+        return;
+      }
+      state.gnTextPopover = null;
+      updateToolbarActiveState();
+    });
+  }
+
   function bindEvents() {
     bindGoodNotesPenSubBarEvents();
+    bindGoodNotesTextSubBarEvents();
     dom.inkCanvas.addEventListener('pointerdown', handlePointerDown, { passive: false });
     dom.inkCanvas.addEventListener('pointermove', handlePointerMove, { passive: false });
     dom.inkCanvas.addEventListener('pointerup', handlePointerUpOrCancel);
