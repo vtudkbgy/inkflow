@@ -882,7 +882,7 @@
 
           <!-- Épaisseur empilée (3 niveaux) + Pastille couleur active -->
           <div class="gn-shapebar-group">
-            <button class="gn-shape-thick-btn" id="gnShapeThicknessBtn" title="Épaisseur du contour (cliquer pour changer : Fin / Moyen / Épais)">
+            <button class="gn-shape-thick-btn" id="gnShapeThicknessBtn" type="button" title="Réglages Du Trait (style, épaisseur, coins, pointes des flèches)">
               <span class="gn-shape-bar gn-shape-bar-1 active"></span>
               <span class="gn-shape-bar gn-shape-bar-2"></span>
               <span class="gn-shape-bar gn-shape-bar-3"></span>
@@ -890,6 +890,114 @@
             <button class="gn-color-circle active" id="gnShapeColorBtn" style="background:#111827" title="Couleur de la forme">
               <svg class="gn-color-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
+          </div>
+        </div>
+
+        <!-- POPOVER RÉGLAGES DU TRAIT DES FORMES (STYLE GOODNOTES 6 — CONTINU/TIRETS/POINTILLÉS + ÉPAISSEUR + COINS ARRONDIS + POINTES DES FLÈCHES) -->
+        <div class="gn-stroke-popover gn-shape-stroke-popover hidden" id="gnShapeStrokePopover" role="dialog" aria-label="Réglages Du Trait des formes">
+          <div class="gn-stroke-popover-caret" id="gnShapeStrokePopoverCaret"></div>
+
+          <div class="gn-stroke-header">
+            <span class="gn-stroke-title">Réglages Du Trait</span>
+            <div class="gn-stroke-header-right">
+              <span class="gn-stroke-mm" id="gnShapeStrokeMmReadout">0.40 mm</span>
+              <button class="gn-stroke-reset-btn" id="btnGnShapeStrokeReset" type="button" title="Réinitialiser les réglages du trait" aria-label="Réinitialiser les réglages du trait">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9"></path>
+                  <polyline points="4.5 4.2 4.5 9 9.3 9"></polyline>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="gn-line-style-grid" id="gnShapeLineStyleGrid">
+            <button class="gn-line-style-card active" data-gn-shapelinestyle="solid" type="button">
+              <svg width="28" height="14" viewBox="0 0 28 14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                <line x1="4" y1="7" x2="24" y2="7"></line>
+              </svg>
+              <span>Continu</span>
+            </button>
+            <button class="gn-line-style-card" data-gn-shapelinestyle="dashed" type="button">
+              <svg width="28" height="14" viewBox="0 0 28 14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                <line x1="3.5" y1="7" x2="8" y2="7"></line>
+                <line x1="11.8" y1="7" x2="16.2" y2="7"></line>
+                <line x1="20" y1="7" x2="24.5" y2="7"></line>
+              </svg>
+              <span>Tirets</span>
+            </button>
+            <button class="gn-line-style-card" data-gn-shapelinestyle="dotted" type="button">
+              <svg width="28" height="14" viewBox="0 0 28 14" fill="currentColor" stroke="none" aria-hidden="true">
+                <circle cx="4" cy="7" r="1.45"></circle>
+                <circle cx="9" cy="7" r="1.45"></circle>
+                <circle cx="14" cy="7" r="1.45"></circle>
+                <circle cx="19" cy="7" r="1.45"></circle>
+                <circle cx="24" cy="7" r="1.45"></circle>
+              </svg>
+              <span>Pointillés</span>
+            </button>
+          </div>
+
+          <div class="gn-stroke-section-label">Épaisseur Du Stylo</div>
+
+          <div class="gn-wedge-slider-wrap">
+            <svg class="gn-wedge-track" viewBox="0 0 280 22" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M 3 10.2 L 272 3.2 A 7.8 7.8 0 0 1 272 18.8 L 3 11.8 A 0.8 0.8 0 0 1 3 10.2 Z"></path>
+            </svg>
+            <input type="range" class="gn-wedge-range" id="gnShapeStrokeSizeSlider" min="1" max="24" step="0.5" value="4" aria-label="Épaisseur du trait de forme" />
+          </div>
+
+          <div class="gn-stroke-section-label gn-shape-stroke-sublabel">Coins</div>
+          <label class="gn-shape-stroke-switch-row">
+            <span class="gn-shape-stroke-switch-label">Arrondis</span>
+            <span class="gn-ios-switch">
+              <input type="checkbox" id="gnShapeRoundedCornersSwitch" checked />
+              <span class="gn-ios-slider"></span>
+            </span>
+          </label>
+
+          <div class="gn-stroke-section-label gn-shape-stroke-sublabel">Pointes Des Flèches</div>
+          <div class="gn-arrowhead-grid">
+            <div class="gn-arrowhead-col" id="gnShapeStartArrowCol" role="radiogroup" aria-label="Pointe de début">
+              <button class="gn-arrowhead-opt active" type="button" data-arrow-side="start" data-arrow-style="none">
+                <span class="gn-arrowhead-text">Aucun</span>
+                <svg class="gn-arrow-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 12.5 9.5 18 20 7"></polyline></svg>
+              </button>
+              <button class="gn-arrowhead-opt" type="button" data-arrow-side="start" data-arrow-style="open" title="Flèche ouverte au début">
+                <svg class="gn-arrowhead-preview" width="84" height="18" viewBox="0 0 84 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="11 3 4 9 11 15"></polyline>
+                  <line x1="5" y1="9" x2="80" y2="9"></line>
+                </svg>
+                <svg class="gn-arrow-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 12.5 9.5 18 20 7"></polyline></svg>
+              </button>
+              <button class="gn-arrowhead-opt" type="button" data-arrow-side="start" data-arrow-style="filled" title="Flèche pleine au début">
+                <svg class="gn-arrowhead-preview" width="84" height="18" viewBox="0 0 84 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="3 9 12 3.2 12 14.8" fill="currentColor" stroke="none"></polygon>
+                  <line x1="11" y1="9" x2="80" y2="9"></line>
+                </svg>
+                <svg class="gn-arrow-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 12.5 9.5 18 20 7"></polyline></svg>
+              </button>
+            </div>
+
+            <div class="gn-arrowhead-col" id="gnShapeEndArrowCol" role="radiogroup" aria-label="Pointe de fin">
+              <button class="gn-arrowhead-opt active" type="button" data-arrow-side="end" data-arrow-style="none">
+                <span class="gn-arrowhead-text">Aucun</span>
+                <svg class="gn-arrow-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 12.5 9.5 18 20 7"></polyline></svg>
+              </button>
+              <button class="gn-arrowhead-opt" type="button" data-arrow-side="end" data-arrow-style="open" title="Flèche ouverte à la fin">
+                <svg class="gn-arrowhead-preview" width="84" height="18" viewBox="0 0 84 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="4" y1="9" x2="79" y2="9"></line>
+                  <polyline points="73 3 80 9 73 15"></polyline>
+                </svg>
+                <svg class="gn-arrow-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 12.5 9.5 18 20 7"></polyline></svg>
+              </button>
+              <button class="gn-arrowhead-opt" type="button" data-arrow-side="end" data-arrow-style="filled" title="Flèche pleine à la fin">
+                <svg class="gn-arrowhead-preview" width="84" height="18" viewBox="0 0 84 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="4" y1="9" x2="73" y2="9"></line>
+                  <polygon points="81 9 72 3.2 72 14.8" fill="currentColor" stroke="none"></polygon>
+                </svg>
+                <svg class="gn-arrow-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 12.5 9.5 18 20 7"></polyline></svg>
+              </button>
+            </div>
           </div>
         </div>
 

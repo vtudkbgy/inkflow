@@ -905,6 +905,42 @@ async function runTests() {
     assert.equal(pg.strokes.length, strokesBeforeShapes, 'L’outil Formes principal ne doit jamais laisser de trait brut non converti');
     assert.equal(pg.shapes.length, shapesBeforeShapes + 5, 'Les 5 gestes en outil Formes doivent tous avoir produit une forme géométrique');
 
+    // Connexion magnétique automatique des traits vers un cercle (GoodNotes ConnectionPoints / intersectionPoint)
+    const circlePts = [];
+    for (let i = 0; i <= 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      circlePts.push([420 + Math.cos(a) * 50, 420 + Math.sin(a) * 50]);
+    }
+    const shCircle = drawShapeGesture(925, circlePts);
+    assert.equal(shCircle.type, 'ellipse', 'Le cercle tracé en outil Formes doit être reconnu comme ellipse/cercle');
+    const cCx = (shCircle.x1 + shCircle.x2) * 0.5;
+    const cCy = (shCircle.y1 + shCircle.y2) * 0.5;
+    const cRx = Math.abs(shCircle.x2 - shCircle.x1) * 0.5;
+    const cRy = Math.abs(shCircle.y2 - shCircle.y1) * 0.5;
+    // Trait tracé vers le cercle (s'arrêtant un peu avant le bord gauche -> doit s'aimanter exactement au bord)
+    const toScreen = (wx, wy) => [wx * st.zoom + st.panX, wy * st.zoom + st.panY];
+    const shLineShort = drawShapeGesture(926, [toScreen(cCx - cRx - 95, cCy), toScreen(cCx - cRx - 14, cCy)]);
+    assert.equal(shLineShort.type, 'line', 'Le trait vers le cercle doit devenir une ligne');
+    assert.ok(shLineShort.endConnection && shLineShort.endConnection.shapeId === shCircle.id, 'Le trait arrêté près du cercle doit se connecter automatiquement au cercle');
+    const normEndShort = Math.hypot((shLineShort.x2 - cCx) / cRx, (shLineShort.y2 - cCy) / cRy);
+    assert.ok(Math.abs(normEndShort - 1) < 0.05, 'L’extrémité du trait doit reposer exactement sur le bord du cercle');
+    // Trait tracé en diagonale entrant légèrement à l'intérieur du cercle -> doit être coupé net sur le bord (intersectionPoint)
+    const shLineOvershoot = drawShapeGesture(927, [toScreen(cCx + cRx + 80, cCy - 80), toScreen(cCx + 10, cCy - 10)]);
+    assert.ok(shLineOvershoot.endConnection && shLineOvershoot.endConnection.shapeId === shCircle.id, 'Un trait entrant légèrement dans le cercle doit se connecter au bord du cercle');
+    const normEndOver = Math.hypot((shLineOvershoot.x2 - cCx) / cRx, (shLineOvershoot.y2 - cCy) / cRy);
+    assert.ok(Math.abs(normEndOver - 1) < 0.05, 'L’extrémité du trait entrant doit être rognée exactement sur le bord du cercle');
+    // Connecteur coudé direct (#gnShapeSubBar elbowArrow) vers le cercle
+    st.shapeType = 'elbowArrow';
+    const [elStartX, elStartY] = toScreen(cCx, cCy - cRy - 80);
+    const [elEndX, elEndY] = toScreen(cCx + 3, cCy - cRy - 10);
+    api.handlePointerDown({ pointerId: 928, pointerType: 'pen', button: 0, buttons: 1, clientX: elStartX, clientY: elStartY, pressure: 0.5, preventDefault() {} });
+    api.handlePointerMove({ pointerId: 928, pointerType: 'pen', button: 0, buttons: 1, clientX: elEndX, clientY: elEndY, pressure: 0.5, getCoalescedEvents: () => [], preventDefault() {} });
+    api.handlePointerUpOrCancel({ pointerId: 928, pointerType: 'pen', button: 0, buttons: 0, clientX: elEndX, clientY: elEndY, pressure: 0, preventDefault() {} });
+    const shElbowConn = pg.shapes[pg.shapes.length - 1];
+    assert.equal(shElbowConn.type, 'elbowArrow', 'Le connecteur coudé doit être créé');
+    assert.ok(shElbowConn.endConnection && shElbowConn.endConnection.shapeId === shCircle.id, 'Le connecteur coudé doit se connecter au port nord du cercle');
+    st.shapeType = 'auto';
+
     // Gomme mode "segment" + "Surligneur seul" (eraserHighlighterOnly)
     st.eraserMode = 'segment';
     st.eraserHighlighterOnly = true;

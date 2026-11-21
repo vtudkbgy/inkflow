@@ -1359,58 +1359,451 @@
     return snapped;
   }
 
-  // SideSnapping / NearbyShape (magnétisme vers les sommets et extrémités des formes existantes)
-  function snapShapeToNearbyShapes(shape, existingShapes, snapRadius = 16) {
-    if (!shape || !Array.isArray(existingShapes) || existingShapes.length === 0) return shape;
-    const anchors = [];
-    for (let i = 0; i < existingShapes.length; i++) {
-      const sh = existingShapes[i];
-      if (!sh) continue;
-      if (Array.isArray(sh.vertices) && sh.vertices.length >= 2) {
-        for (const v of sh.vertices) anchors.push(v);
-      } else if (sh.type === 'line' || sh.type === 'arrow' || sh.type === 'elbowArrow' || sh.type === 'curvedArrow') {
-        anchors.push({ x: sh.x1, y: sh.y1 }, { x: sh.x2, y: sh.y2 });
-      } else if (sh.type === 'rect' || sh.type === 'roundedRect') {
-        const minX = Math.min(sh.x1, sh.x2), maxX = Math.max(sh.x1, sh.x2);
-        const minY = Math.min(sh.y1, sh.y2), maxY = Math.max(sh.y1, sh.y2);
-        const cx = (minX + maxX) * 0.5, cy = (minY + maxY) * 0.5;
-        anchors.push(
-          { x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY },
-          { x: cx, y: minY }, { x: maxX, y: cy }, { x: cx, y: maxY }, { x: minX, y: cy }
-        );
-      } else if (sh.type === 'diamond') {
-        const cx = (sh.x1 + sh.x2) * 0.5, cy = (sh.y1 + sh.y2) * 0.5;
-        anchors.push(
-          { x: cx, y: Math.min(sh.y1, sh.y2) }, { x: Math.max(sh.x1, sh.x2), y: cy },
-          { x: cx, y: Math.max(sh.y1, sh.y2) }, { x: Math.min(sh.x1, sh.x2), y: cy }
-        );
-      } else if (sh.type === 'ellipse') {
-        const cx = (sh.x1 + sh.x2) * 0.5, cy = (sh.y1 + sh.y2) * 0.5;
-        anchors.push(
-          { x: cx, y: Math.min(sh.y1, sh.y2) }, { x: Math.max(sh.x1, sh.x2), y: cy },
-          { x: cx, y: Math.max(sh.y1, sh.y2) }, { x: Math.min(sh.x1, sh.x2), y: cy }
-        );
+  // ============================================================================
+  // MOTEUR DE CONNEXION MAGNETIQUE DES FORMES (GoodNotes ShapeToolConnectionPointsViewModel
+  // + SerializedLineNotesItem.LineConnection + intersectionPoint + SideSnapping)
+  // ============================================================================
+
+  function isConnectableTargetShape(sh) {
+    if (!sh) return false;
+    return sh.type === 'ellipse' || sh.type === 'rect' || sh.type === 'roundedRect' ||
+      sh.type === 'diamond' || sh.type === 'triangle' || sh.type === 'polygon';
+  }
+
+  function isConnectorShape(sh) {
+    if (!sh) return false;
+    return sh.type === 'line' || sh.type === 'arrow' || sh.type === 'elbowArrow' ||
+      sh.type === 'curvedArrow' || sh.type === 'polyline' || sh.type === 'arc';
+  }
+
+  function isConnectorToolMode() {
+    if (state.tool !== 'shape') return false;
+    return state.shapeType === 'auto' || state.shapeType === 'line' || state.shapeType === 'arrow' ||
+      state.shapeType === 'elbowArrow' || state.shapeType === 'curvedArrow';
+  }
+
+  function getClosedShapeLocalFrame(sh) {
+    if (sh.type === 'ellipse' || sh.type === 'rect' || sh.type === 'roundedRect') {
+      const cx = (sh.x1 + sh.x2) * 0.5;
+      const cy = (sh.y1 + sh.y2) * 0.5;
+      const hw = Math.max(1, Math.abs(sh.x2 - sh.x1) * 0.5);
+      const hh = Math.max(1, Math.abs(sh.y2 - sh.y1) * 0.5);
+      return { cx, cy, hw, hh, angle: sh.angle || 0 };
+    }
+    const bb = getShapeBoundingBox(sh);
+    const cx = (bb.minX + bb.maxX) * 0.5;
+    const cy = (bb.minY + bb.maxY) * 0.5;
+    const hw = Math.max(1, (bb.maxX - bb.minX) * 0.5);
+    const hh = Math.max(1, (bb.maxY - bb.minY) * 0.5);
+    return { cx, cy, hw, hh, angle: 0 };
+  }
+
+  function getClosedShapePolygonVertices(sh) {
+    if (sh.type === 'triangle' || sh.type === 'diamond' || sh.type === 'polygon') {
+      return getShapeVertices(sh);
+    }
+    if (sh.type === 'rect' || sh.type === 'roundedRect') {
+      const { cx, cy, hw, hh, angle } = getClosedShapeLocalFrame(sh);
+      const cosA = Math.cos(angle), sinA = Math.sin(angle);
+      const toW = (lx, ly) => ({ x: cx + lx * cosA - ly * sinA, y: cy + lx * sinA + ly * cosA });
+      return [toW(-hw, -hh), toW(hw, -hh), toW(hw, hh), toW(-hw, hh)];
+    }
+    return null;
+  }
+
+  function worldPointToShapeNormalizedAnchor(sh, pt) {
+    const { cx, cy, hw, hh, angle } = getClosedShapeLocalFrame(sh);
+    const dx = pt.x - cx, dy = pt.y - cy;
+    const cosA = Math.cos(-angle), sinA = Math.sin(-angle);
+    const lx = dx * cosA - dy * sinA;
+    const ly = dx * sinA + dy * cosA;
+    return { nx: lx / hw, ny: ly / hh };
+  }
+
+  function resolveShapeAnchorWorldPoint(sh, conn) {
+    if (!sh || !conn) return null;
+    const { cx, cy, hw, hh, angle } = getClosedShapeLocalFrame(sh);
+    const lx = conn.nx * hw;
+    const ly = conn.ny * hh;
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    return {
+      x: cx + lx * cosA - ly * sinA,
+      y: cy + lx * sinA + ly * cosA
+    };
+  }
+
+  // Ports cardinaux (N, E, S, W + sommets / milieux d'arêtes façon GoodNotes ConnectionPointsPreview)
+  function getShapeConnectionPorts(sh) {
+    if (!isConnectableTargetShape(sh)) return [];
+    const { cx, cy, hw, hh, angle } = getClosedShapeLocalFrame(sh);
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    const fromLocal = (nx, ny) => {
+      const lx = nx * hw, ly = ny * hh;
+      return { x: cx + lx * cosA - ly * sinA, y: cy + lx * sinA + ly * cosA, nx, ny };
+    };
+    if (sh.type === 'ellipse') {
+      return [fromLocal(0, -1), fromLocal(1, 0), fromLocal(0, 1), fromLocal(-1, 0)];
+    }
+    if (sh.type === 'rect' || sh.type === 'roundedRect') {
+      return [
+        fromLocal(0, -1), fromLocal(1, 0), fromLocal(0, 1), fromLocal(-1, 0),
+        fromLocal(-1, -1), fromLocal(1, -1), fromLocal(1, 1), fromLocal(-1, 1)
+      ];
+    }
+    const verts = getClosedShapePolygonVertices(sh);
+    if (!verts || verts.length < 3) return [];
+    const ports = [];
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i], b = verts[(i + 1) % verts.length];
+      const na = worldPointToShapeNormalizedAnchor(sh, a);
+      ports.push({ x: a.x, y: a.y, nx: na.nx, ny: na.ny });
+      const mid = { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 };
+      const nm = worldPointToShapeNormalizedAnchor(sh, mid);
+      ports.push({ x: mid.x, y: mid.y, nx: nm.nx, ny: nm.ny });
+    }
+    return ports;
+  }
+
+  function intersectRayWithSegment(o, d, a, b) {
+    const sx = b.x - a.x, sy = b.y - a.y;
+    const denom = d.x * sy - d.y * sx;
+    if (Math.abs(denom) < 1e-6) return null;
+    const qx = a.x - o.x, qy = a.y - o.y;
+    const t = (qx * sy - qy * sx) / denom;
+    const u = (qx * d.y - qy * d.x) / denom;
+    if (u >= -1e-4 && u <= 1 + 1e-4) return { t, x: o.x + t * d.x, y: o.y + t * d.y };
+    return null;
+  }
+
+  // Projection exacte sur le bord (cercle/ellipse ou polygone) + intersection de rayon (trim overshoot / extend short gap)
+  function projectPointAndRayToShapeBoundary(sh, pt, fromPt = null, snapRadius = 30) {
+    if (!isConnectableTargetShape(sh)) return null;
+
+    if (sh.type === 'ellipse') {
+      const { cx, cy, hw: rx, hh: ry, angle } = getClosedShapeLocalFrame(sh);
+      const cosNeg = Math.cos(-angle), sinNeg = Math.sin(-angle);
+      const cosPos = Math.cos(angle), sinPos = Math.sin(angle);
+      const toUnit = (p) => {
+        const dx = p.x - cx, dy = p.y - cy;
+        return {
+          x: (dx * cosNeg - dy * sinNeg) / rx,
+          y: (dx * sinNeg + dy * cosNeg) / ry
+        };
+      };
+      const fromUnit = (u) => ({
+        x: cx + (u.x * rx) * cosPos - (u.y * ry) * sinPos,
+        y: cy + (u.x * rx) * sinPos + (u.y * ry) * cosPos
+      });
+
+      const uPt = toUnit(pt);
+      const ptNorm = Math.hypot(uPt.x, uPt.y);
+      const isInside = ptNorm < 1.0;
+
+      // Intersection exacte rayon -> cercle unité si l'autre extrémité est hors du cercle
+      if (fromPt) {
+        const uFrom = toUnit(fromPt);
+        const fromNorm = Math.hypot(uFrom.x, uFrom.y);
+        const segLenWorld = Math.hypot(pt.x - fromPt.x, pt.y - fromPt.y);
+        if (fromNorm > 1.03 && segLenWorld > 4) {
+          const dx = uPt.x - uFrom.x;
+          const dy = uPt.y - uFrom.y;
+          const a = dx * dx + dy * dy;
+          const b = 2 * (uFrom.x * dx + uFrom.y * dy);
+          const c = uFrom.x * uFrom.x + uFrom.y * uFrom.y - 1;
+          const disc = b * b - 4 * a * c;
+          if (disc >= 0 && a > 1e-6) {
+            const sqrtD = Math.sqrt(disc);
+            const tHit = (-b - sqrtD) / (2 * a); // premier point d'entrée sur le bord du cercle
+            const maxT = 1 + (snapRadius / Math.max(8, segLenWorld));
+            if (tHit >= 0 && tHit <= maxT) {
+              const hx = uFrom.x + tHit * dx;
+              const hy = uFrom.y + tHit * dy;
+              const hn = Math.max(1e-6, Math.hypot(hx, hy));
+              const nx = hx / hn, ny = hy / hn;
+              const worldHit = fromUnit({ x: nx, y: ny });
+              const hitDist = Math.hypot(pt.x - worldHit.x, pt.y - worldHit.y);
+              if (isInside || hitDist <= snapRadius * 1.25) {
+                return { x: worldHit.x, y: worldHit.y, nx, ny, dist: isInside ? 0 : hitDist, isInside, hitByRay: true };
+              }
+            }
+          }
+        }
+      }
+
+      // Projection orthogonale directe sur le bord du cercle/ellipse
+      let nx = 1, ny = 0;
+      if (ptNorm > 1e-5) {
+        nx = uPt.x / ptNorm;
+        ny = uPt.y / ptNorm;
+      } else if (fromPt) {
+        const uFrom = toUnit(fromPt);
+        const fn = Math.hypot(uFrom.x, uFrom.y);
+        if (fn > 1e-5) { nx = uFrom.x / fn; ny = uFrom.y / fn; }
+      }
+      const rimWorld = fromUnit({ x: nx, y: ny });
+      const dist = Math.hypot(pt.x - rimWorld.x, pt.y - rimWorld.y);
+      return { x: rimWorld.x, y: rimWorld.y, nx, ny, dist, isInside, hitByRay: false };
+    }
+
+    // Polygones, rectangles, losanges, triangles
+    const verts = getClosedShapePolygonVertices(sh);
+    if (!verts || verts.length < 3) return null;
+    const isInside = pointInPolygon(pt.x, pt.y, verts);
+
+    if (fromPt && !pointInPolygon(fromPt.x, fromPt.y, verts)) {
+      const segLen = Math.hypot(pt.x - fromPt.x, pt.y - fromPt.y);
+      if (segLen > 4) {
+        const d = { x: pt.x - fromPt.x, y: pt.y - fromPt.y };
+        const maxT = 1 + (snapRadius / Math.max(8, segLen));
+        let bestHit = null;
+        for (let i = 0; i < verts.length; i++) {
+          const hit = intersectRayWithSegment(fromPt, d, verts[i], verts[(i + 1) % verts.length]);
+          if (hit && hit.t >= 0 && hit.t <= maxT) {
+            if (!bestHit || hit.t < bestHit.t) bestHit = hit;
+          }
+        }
+        if (bestHit) {
+          const hitDist = Math.hypot(pt.x - bestHit.x, pt.y - bestHit.y);
+          if (isInside || hitDist <= snapRadius * 1.25) {
+            const norm = worldPointToShapeNormalizedAnchor(sh, bestHit);
+            return { x: bestHit.x, y: bestHit.y, nx: norm.nx, ny: norm.ny, dist: isInside ? 0 : hitDist, isInside, hitByRay: true };
+          }
+        }
       }
     }
-    if (anchors.length === 0) return shape;
-    const snapPt = (pt) => {
-      let best = null, bestD = snapRadius;
-      for (let i = 0; i < anchors.length; i++) {
-        const d = Math.hypot(pt.x - anchors[i].x, pt.y - anchors[i].y);
-        if (d < bestD) { bestD = d; best = anchors[i]; }
+
+    let bestPt = null, bestDist = Infinity;
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i], b = verts[(i + 1) % verts.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const lenSq = dx * dx + dy * dy;
+      const t = lenSq < 1e-6 ? 0 : Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / lenSq));
+      const px = a.x + t * dx, py = a.y + t * dy;
+      const dist = Math.hypot(pt.x - px, pt.y - py);
+      if (dist < bestDist) { bestDist = dist; bestPt = { x: px, y: py }; }
+    }
+    if (!bestPt) return null;
+    const norm = worldPointToShapeNormalizedAnchor(sh, bestPt);
+    return { x: bestPt.x, y: bestPt.y, nx: norm.nx, ny: norm.ny, dist: bestDist, isInside, hitByRay: false };
+  }
+
+  function findShapeConnectionSnap(pt, existingShapes, options = {}) {
+    if (!pt || !Array.isArray(existingShapes) || existingShapes.length === 0) return null;
+    const fromPt = options.fromPt || null;
+    const zoomFactor = Math.max(0.4, state.zoom || 1);
+    const snapRadius = options.snapRadius || Math.max(20, Math.min(42, 30 / zoomFactor));
+    const portRadius = options.portRadius || Math.max(12, Math.min(22, 16 / zoomFactor));
+    const excludeShapeId = options.excludeShapeId || null;
+
+    let bestSnap = null;
+    let bestPriorityScore = Infinity;
+
+    for (let i = 0; i < existingShapes.length; i++) {
+      const sh = existingShapes[i];
+      if (!sh || sh.id === excludeShapeId) continue;
+
+      if (isConnectableTargetShape(sh)) {
+        const proj = projectPointAndRayToShapeBoundary(sh, pt, fromPt, snapRadius);
+        const ports = getShapeConnectionPorts(sh);
+        let bestPort = null, bestPortDist = Infinity;
+        for (let p = 0; p < ports.length; p++) {
+          const d = Math.hypot(pt.x - ports[p].x, pt.y - ports[p].y);
+          if (d < bestPortDist) { bestPortDist = d; bestPort = ports[p]; }
+        }
+        // Si le rayon d'entrée touche très près d'un port cardinal, on préfère le port cardinal net
+        if (proj && proj.hitByRay && bestPort) {
+          const dRayToPort = Math.hypot(proj.x - bestPort.x, proj.y - bestPort.y);
+          if (dRayToPort <= portRadius * 0.85) {
+            const score = dRayToPort * 0.5;
+            if (score < bestPriorityScore) {
+              bestPriorityScore = score;
+              bestSnap = {
+                x: bestPort.x,
+                y: bestPort.y,
+                dist: dRayToPort,
+                targetShape: sh,
+                connection: { shapeId: sh.id, nx: bestPort.nx, ny: bestPort.ny, mode: 'port' }
+              };
+            }
+            continue;
+          }
+        }
+        // 1) Port cardinal direct
+        if (bestPort && bestPortDist <= portRadius) {
+          const score = bestPortDist * 0.65;
+          if (score < bestPriorityScore) {
+            bestPriorityScore = score;
+            bestSnap = {
+              x: bestPort.x,
+              y: bestPort.y,
+              dist: bestPortDist,
+              targetShape: sh,
+              connection: { shapeId: sh.id, nx: bestPort.nx, ny: bestPort.ny, mode: 'port' }
+            };
+          }
+          continue;
+        }
+        // 2) Bord exact du cercle / de la forme (proximité ou trait entrant dans la forme)
+        if (proj && (proj.dist <= snapRadius || (proj.isInside && fromPt))) {
+          const score = proj.hitByRay ? Math.min(proj.dist, snapRadius * 0.4) : proj.dist;
+          if (score < bestPriorityScore) {
+            bestPriorityScore = score;
+            bestSnap = {
+              x: proj.x,
+              y: proj.y,
+              dist: proj.dist,
+              targetShape: sh,
+              connection: { shapeId: sh.id, nx: proj.nx, ny: proj.ny, mode: 'border' }
+            };
+          }
+        }
+      } else if (isConnectorShape(sh)) {
+        // Aimantation secondaire vers les extrémités d'autres lignes/flèches
+        const endPts = Array.isArray(sh.vertices) && sh.vertices.length >= 2
+          ? [sh.vertices[0], sh.vertices[sh.vertices.length - 1]]
+          : [{ x: sh.x1, y: sh.y1 }, { x: sh.x2, y: sh.y2 }];
+        for (const ep of endPts) {
+          const d = Math.hypot(pt.x - ep.x, pt.y - ep.y);
+          if (d <= 16 && d + 4 < bestPriorityScore) {
+            bestPriorityScore = d + 4;
+            bestSnap = { x: ep.x, y: ep.y, dist: d, targetShape: sh, connection: null };
+          }
+        }
       }
-      return best ? { x: best.x, y: best.y } : pt;
-    };
-    if (shape.type === 'line' || shape.type === 'arrow') {
-      const s1 = snapPt({ x: shape.x1, y: shape.y1 });
-      const s2 = snapPt({ x: shape.x2, y: shape.y2 });
-      shape.x1 = s1.x; shape.y1 = s1.y;
-      shape.x2 = s2.x; shape.y2 = s2.y;
+    }
+    return bestSnap;
+  }
+
+  function findHoveredConnectableShape(worldPt, existingShapes, hoverRadius = 46) {
+    if (!worldPt || !Array.isArray(existingShapes) || existingShapes.length === 0) return null;
+    let bestShape = null, bestDist = hoverRadius;
+    for (let i = 0; i < existingShapes.length; i++) {
+      const sh = existingShapes[i];
+      if (!isConnectableTargetShape(sh)) continue;
+      const proj = projectPointAndRayToShapeBoundary(sh, worldPt, null, hoverRadius);
+      if (!proj) continue;
+      const effDist = proj.isInside ? 0 : proj.dist;
+      if (effDist <= bestDist) {
+        bestDist = effDist;
+        bestShape = sh;
+      }
+    }
+    return bestShape;
+  }
+
+  // Met à jour automatiquement les traits connectés lorsqu'une forme cible (ex. cercle) est déplacée, redimensionnée ou supprimée
+  function updateConnectedShapesForPage(page, movedShapeIds = null) {
+    if (!page || !Array.isArray(page.shapes) || page.shapes.length === 0) return false;
+    const byId = new Map();
+    for (const sh of page.shapes) {
+      if (sh && sh.id) byId.set(sh.id, sh);
+    }
+    let updated = false;
+    for (const sh of page.shapes) {
+      if (!isConnectorShape(sh)) continue;
+      if (!sh.startConnection && !sh.endConnection) continue;
+      const selfMoved = movedShapeIds && movedShapeIds.has(sh.id);
+
+      if (sh.startConnection) {
+        const target = byId.get(sh.startConnection.shapeId);
+        if (!target) {
+          delete sh.startConnection;
+          updated = true;
+        } else if (!selfMoved && (!movedShapeIds || movedShapeIds.has(target.id))) {
+          const pt = resolveShapeAnchorWorldPoint(target, sh.startConnection);
+          if (pt) {
+            if ((sh.type === 'polyline' || sh.type === 'arc') && Array.isArray(sh.vertices) && sh.vertices.length >= 2) {
+              const dx = pt.x - sh.vertices[0].x;
+              const dy = pt.y - sh.vertices[0].y;
+              sh.vertices[0] = pt;
+              if (sh.type === 'arc' && sh.vertices.length >= 4) {
+                sh.vertices[1] = { x: sh.vertices[1].x + dx * 0.5, y: sh.vertices[1].y + dy * 0.5 };
+              }
+              const bb = getShapeBoundingBox(sh);
+              sh.x1 = bb.minX; sh.y1 = bb.minY; sh.x2 = bb.maxX; sh.y2 = bb.maxY;
+            } else {
+              sh.x1 = pt.x;
+              sh.y1 = pt.y;
+            }
+            updated = true;
+          }
+        }
+      }
+
+      if (sh.endConnection) {
+        const target = byId.get(sh.endConnection.shapeId);
+        if (!target) {
+          delete sh.endConnection;
+          updated = true;
+        } else if (!selfMoved && (!movedShapeIds || movedShapeIds.has(target.id))) {
+          const pt = resolveShapeAnchorWorldPoint(target, sh.endConnection);
+          if (pt) {
+            if ((sh.type === 'polyline' || sh.type === 'arc') && Array.isArray(sh.vertices) && sh.vertices.length >= 2) {
+              const lastIdx = sh.vertices.length - 1;
+              const dx = pt.x - sh.vertices[lastIdx].x;
+              const dy = pt.y - sh.vertices[lastIdx].y;
+              sh.vertices[lastIdx] = pt;
+              if (sh.type === 'arc' && sh.vertices.length >= 4) {
+                sh.vertices[2] = { x: sh.vertices[2].x + dx * 0.5, y: sh.vertices[2].y + dy * 0.5 };
+              }
+              const bb = getShapeBoundingBox(sh);
+              sh.x1 = bb.minX; sh.y1 = bb.minY; sh.x2 = bb.maxX; sh.y2 = bb.maxY;
+            } else {
+              sh.x2 = pt.x;
+              sh.y2 = pt.y;
+            }
+            updated = true;
+          }
+        }
+      }
+    }
+    return updated;
+  }
+
+  // SideSnapping / NearbyShape : connecte automatiquement les extrémités d'un trait/connecteur aux cercles et formes voisines
+  function snapShapeToNearbyShapes(shape, existingShapes, snapRadius = 30) {
+    if (!shape || !Array.isArray(existingShapes) || existingShapes.length === 0) return shape;
+    if (!isConnectorShape(shape)) return shape;
+
+    if (shape.type === 'line' || shape.type === 'arrow' || shape.type === 'elbowArrow' || shape.type === 'curvedArrow') {
+      const origStart = { x: shape.x1, y: shape.y1 };
+      const origEnd = { x: shape.x2, y: shape.y2 };
+      const s1 = findShapeConnectionSnap(origStart, existingShapes, { fromPt: origEnd, snapRadius, excludeShapeId: shape.id });
+      const s2 = findShapeConnectionSnap(origEnd, existingShapes, { fromPt: s1 ? { x: s1.x, y: s1.y } : origStart, snapRadius, excludeShapeId: shape.id });
+      const newStart = s1 ? { x: s1.x, y: s1.y } : origStart;
+      const newEnd = s2 ? { x: s2.x, y: s2.y } : origEnd;
+      if (Math.hypot(newEnd.x - newStart.x, newEnd.y - newStart.y) >= 4) {
+        if (s1) {
+          shape.x1 = s1.x;
+          shape.y1 = s1.y;
+          if (s1.connection) shape.startConnection = s1.connection;
+        }
+        if (s2) {
+          shape.x2 = s2.x;
+          shape.y2 = s2.y;
+          if (s2.connection) shape.endConnection = s2.connection;
+        }
+      }
     } else if ((shape.type === 'polyline' || shape.type === 'arc') && Array.isArray(shape.vertices) && shape.vertices.length >= 2) {
-      const first = snapPt(shape.vertices[0]);
-      const last = snapPt(shape.vertices[shape.vertices.length - 1]);
-      shape.vertices[0] = first;
-      shape.vertices[shape.vertices.length - 1] = last;
+      const lastIdx = shape.vertices.length - 1;
+      const s1 = findShapeConnectionSnap(shape.vertices[0], existingShapes, {
+        fromPt: shape.vertices[1],
+        snapRadius,
+        excludeShapeId: shape.id
+      });
+      const s2 = findShapeConnectionSnap(shape.vertices[lastIdx], existingShapes, {
+        fromPt: shape.vertices[lastIdx - 1],
+        snapRadius,
+        excludeShapeId: shape.id
+      });
+      if (s1) {
+        shape.vertices[0] = { x: s1.x, y: s1.y };
+        if (s1.connection) shape.startConnection = s1.connection;
+      }
+      if (s2) {
+        shape.vertices[lastIdx] = { x: s2.x, y: s2.y };
+        if (s2.connection) shape.endConnection = s2.connection;
+      }
       const bb = getShapeBoundingBox(shape);
       shape.x1 = bb.minX; shape.y1 = bb.minY; shape.x2 = bb.maxX; shape.y2 = bb.maxY;
     }
@@ -1439,7 +1832,7 @@
     const finalizeShape = (sh) => {
       if (!sh) return null;
       if (snapToOtherShapes && existingShapes && existingShapes.length > 0) {
-        snapShapeToNearbyShapes(sh, existingShapes, 16);
+        snapShapeToNearbyShapes(sh, existingShapes);
       }
       return sh;
     };
@@ -2550,6 +2943,11 @@
     lassoStartWorld: null,
     shapeType: 'auto',
     shapeFilled: false,
+    shapeLineStyle: 'solid',
+    shapeRoundedCorners: true,
+    shapeStartArrow: 'none',
+    shapeEndArrow: 'none',
+    shapeHoverConnection: null,
     instantShapeMode: false,
     autoShapeEnabled: true,
     scribbleToErase: true,
@@ -2559,6 +2957,7 @@
     gnPencilPopoverOpen: false,
     gnHighlighterPopoverOpen: false,
     gnStrokePopoverOpen: false,
+    gnShapeStrokePopoverOpen: false,
     gnEraserModePopoverOpen: false,
     gnEraserAdvPopoverOpen: false,
     gnEraserSizePopoverOpen: false,
@@ -2672,12 +3071,50 @@
     } catch (_) {}
   }
 
+  const SHAPE_STROKE_PREFS_STORAGE_KEY = 'inkflow_shape_stroke_prefs_v1';
+  function saveShapeStrokePrefsToStorage() {
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      localStorage.setItem(SHAPE_STROKE_PREFS_STORAGE_KEY, JSON.stringify({
+        shapeLineStyle: state.shapeLineStyle || 'solid',
+        shapeRoundedCorners: state.shapeRoundedCorners !== false,
+        shapeStartArrow: state.shapeStartArrow || 'none',
+        shapeEndArrow: state.shapeEndArrow || 'none'
+      }));
+    } catch (_) {}
+  }
+
+  function applyActiveShapeStrokeStyle(sh) {
+    if (!sh) return sh;
+    sh.lineStyle = state.shapeLineStyle || 'solid';
+    sh.roundedCorners = state.shapeRoundedCorners !== false;
+    sh.startArrow = state.shapeStartArrow || 'none';
+    sh.endArrow = state.shapeEndArrow || 'none';
+    return sh;
+  }
+
   try {
     const savedAutoShape = localStorage.getItem('plume_auto_shape_enabled');
     if (savedAutoShape === 'false') state.autoShapeEnabled = false;
     const savedSmoothing = parseFloat(localStorage.getItem('inkflow_smoothing_v1'));
     if (Number.isFinite(savedSmoothing) && savedSmoothing >= 0 && savedSmoothing <= 1) {
       state.smoothing = savedSmoothing;
+    }
+    const savedShapeStrokeRaw = localStorage.getItem(SHAPE_STROKE_PREFS_STORAGE_KEY);
+    if (savedShapeStrokeRaw) {
+      const sp = JSON.parse(savedShapeStrokeRaw);
+      if (sp && typeof sp === 'object') {
+        if (sp.shapeLineStyle === 'solid' || sp.shapeLineStyle === 'dashed' || sp.shapeLineStyle === 'dotted') {
+          state.shapeLineStyle = sp.shapeLineStyle;
+        }
+        if (typeof sp.shapeRoundedCorners === 'boolean') state.shapeRoundedCorners = sp.shapeRoundedCorners;
+        if (sp.shapeStartArrow === 'none' || sp.shapeStartArrow === 'open' || sp.shapeStartArrow === 'filled') {
+          state.shapeStartArrow = sp.shapeStartArrow;
+        }
+        if (sp.shapeEndArrow === 'none' || sp.shapeEndArrow === 'open' || sp.shapeEndArrow === 'filled') {
+          state.shapeEndArrow = sp.shapeEndArrow;
+        }
+      }
     }
     const savedPencilRaw = localStorage.getItem(PENCIL_PREFS_STORAGE_KEY);
     if (savedPencilRaw) {
@@ -3148,7 +3585,9 @@
       strokes: (page.strokes || []).map(cloneStrokeFast),
       shapes: (page.shapes || []).map((sh) => ({
         ...sh,
-        vertices: Array.isArray(sh.vertices) ? sh.vertices.map((v) => ({ x: v.x, y: v.y })) : undefined
+        vertices: Array.isArray(sh.vertices) ? sh.vertices.map((v) => ({ x: v.x, y: v.y })) : undefined,
+        startConnection: sh.startConnection ? { ...sh.startConnection } : undefined,
+        endConnection: sh.endConnection ? { ...sh.endConnection } : undefined
       })),
       texts: (page.texts || []).map((tb) => ({ ...tb })),
       tapes: (page.tapes || []).map((tp) => ({ ...tp })),
@@ -3250,6 +3689,7 @@
     if (dom.canvasViewport) dom.canvasViewport.classList.remove('panning');
     if (dom.eraserCursor) dom.eraserCursor.style.display = 'none';
     if (dom.colorDotCursor) dom.colorDotCursor.style.display = 'none';
+    state.shapeHoverConnection = null;
     if (state.temporaryEraserOverride) {
       state.temporaryEraserOverride = false;
       state.tool = state.previousToolBeforeEraser || 'pen';
@@ -4906,40 +5346,129 @@
     return false;
   }
 
+  function drawShapeArrowhead(targetCtx, tipX, tipY, angleRad, style, strokeSize, color) {
+    if (!style || style === 'none') return;
+    const headLen = Math.max(12, Math.min(30, (strokeSize || 3) * 3.8));
+    const spread = Math.PI / 6;
+    const xA = tipX - headLen * Math.cos(angleRad - spread);
+    const yA = tipY - headLen * Math.sin(angleRad - spread);
+    const xB = tipX - headLen * Math.cos(angleRad + spread);
+    const yB = tipY - headLen * Math.sin(angleRad + spread);
+    targetCtx.save();
+    if (typeof targetCtx.setLineDash === 'function') targetCtx.setLineDash([]);
+    targetCtx.lineCap = 'round';
+    targetCtx.lineJoin = 'round';
+    if (style === 'filled') {
+      targetCtx.fillStyle = color || '#1e293b';
+      targetCtx.beginPath();
+      targetCtx.moveTo(tipX, tipY);
+      targetCtx.lineTo(xA, yA);
+      targetCtx.lineTo(xB, yB);
+      targetCtx.closePath();
+      targetCtx.fill();
+    } else {
+      targetCtx.strokeStyle = color || '#1e293b';
+      targetCtx.lineWidth = strokeSize || 3;
+      targetCtx.beginPath();
+      targetCtx.moveTo(xA, yA);
+      targetCtx.lineTo(tipX, tipY);
+      targetCtx.lineTo(xB, yB);
+      targetCtx.stroke();
+    }
+    targetCtx.restore();
+  }
+
+  function tracePolygonPath(targetCtx, verts, rounded = true, close = true) {
+    if (!verts || verts.length < 2) return;
+    if (!rounded || verts.length < 3 || typeof targetCtx.arcTo !== 'function') {
+      targetCtx.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) targetCtx.lineTo(verts[i].x, verts[i].y);
+      if (close) targetCtx.closePath();
+      return;
+    }
+    const n = verts.length;
+    if (close) {
+      let minEdge = Infinity;
+      for (let i = 0; i < n; i++) {
+        const a = verts[i], b = verts[(i + 1) % n];
+        const d = Math.hypot(b.x - a.x, b.y - a.y);
+        if (d < minEdge) minEdge = d;
+      }
+      const rad = Math.max(0, Math.min(12, minEdge * 0.16));
+      if (rad < 1) {
+        targetCtx.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < n; i++) targetCtx.lineTo(verts[i].x, verts[i].y);
+        targetCtx.closePath();
+        return;
+      }
+      const startMidX = (verts[n - 1].x + verts[0].x) * 0.5;
+      const startMidY = (verts[n - 1].y + verts[0].y) * 0.5;
+      targetCtx.moveTo(startMidX, startMidY);
+      for (let i = 0; i < n; i++) {
+        const curr = verts[i];
+        const next = verts[(i + 1) % n];
+        targetCtx.arcTo(curr.x, curr.y, next.x, next.y, rad);
+      }
+      targetCtx.closePath();
+    } else {
+      targetCtx.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < n - 1; i++) {
+        const prev = verts[i - 1], curr = verts[i], next = verts[i + 1];
+        const d1 = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+        const d2 = Math.hypot(next.x - curr.x, next.y - curr.y);
+        const rad = Math.min(10, d1 * 0.2, d2 * 0.2);
+        if (rad >= 1) targetCtx.arcTo(curr.x, curr.y, next.x, next.y, rad);
+        else targetCtx.lineTo(curr.x, curr.y);
+      }
+      targetCtx.lineTo(verts[n - 1].x, verts[n - 1].y);
+    }
+  }
+
   function drawGeometricShape(targetCtx, shape, isSelected = false, isPaperDark = false) {
     targetCtx.save();
     if (shape.isHighlighter) {
       targetCtx.globalAlpha = 0.36;
       targetCtx.globalCompositeOperation = isPaperDark ? 'screen' : 'multiply';
     }
-    targetCtx.strokeStyle = shape.color || '#1e293b';
-    targetCtx.lineWidth = shape.size || 3;
-    targetCtx.lineCap = 'round';
-    targetCtx.lineJoin = 'round';
+    const strokeCol = shape.color || '#1e293b';
+    const strokeSz = shape.size || 3;
+    const shapeLineStyle = shape.lineStyle || 'solid';
+    const isRounded = shape.roundedCorners !== false;
+    const startArrow = shape.startArrow || 'none';
+    const endArrow = shape.endArrow || 'none';
+
+    targetCtx.strokeStyle = strokeCol;
+    targetCtx.lineWidth = strokeSz;
+    targetCtx.lineCap = (isRounded || shapeLineStyle === 'dotted') ? 'round' : 'butt';
+    targetCtx.lineJoin = isRounded ? 'round' : 'miter';
+    if (typeof targetCtx.setLineDash === 'function') {
+      targetCtx.setLineDash(getStrokeLineDash(shapeLineStyle, strokeSz));
+    }
+
     const { type, x1, y1, x2, y2, filled, angle } = shape;
     if (filled) targetCtx.fillStyle = hexToRgba(shape.color || '#1d4ed8', 0.12);
 
     targetCtx.beginPath();
     if (type === 'line') {
       targetCtx.moveTo(x1, y1); targetCtx.lineTo(x2, y2); targetCtx.stroke();
+      const ang = Math.atan2(y2 - y1, x2 - x1);
+      if (startArrow !== 'none') drawShapeArrowhead(targetCtx, x1, y1, ang + Math.PI, startArrow, strokeSz, strokeCol);
+      if (endArrow !== 'none') drawShapeArrowhead(targetCtx, x2, y2, ang, endArrow, strokeSz, strokeCol);
     } else if (type === 'arrow') {
       targetCtx.moveTo(x1, y1); targetCtx.lineTo(x2, y2); targetCtx.stroke();
       const ang = Math.atan2(y2 - y1, x2 - x1);
-      const headLen = Math.max(12, Math.min(28, (shape.size || 3) * 3.8));
-      targetCtx.beginPath();
-      targetCtx.moveTo(x2, y2);
-      targetCtx.lineTo(x2 - headLen * Math.cos(ang - Math.PI / 6), y2 - headLen * Math.sin(ang - Math.PI / 6));
-      targetCtx.moveTo(x2, y2);
-      targetCtx.lineTo(x2 - headLen * Math.cos(ang + Math.PI / 6), y2 - headLen * Math.sin(ang + Math.PI / 6));
-      targetCtx.stroke();
+      const effEnd = (endArrow !== 'none' || startArrow !== 'none') ? endArrow : 'open';
+      if (startArrow !== 'none') drawShapeArrowhead(targetCtx, x1, y1, ang + Math.PI, startArrow, strokeSz, strokeCol);
+      if (effEnd !== 'none') drawShapeArrowhead(targetCtx, x2, y2, ang, effEnd, strokeSz, strokeCol);
     } else if (type === 'rect') {
       const cx = (x1 + x2) * 0.5, cy = (y1 + y2) * 0.5;
       const rw = Math.abs(x2 - x1), rh = Math.abs(y2 - y1);
+      const cornerR = isRounded ? Math.min(10, Math.min(rw, rh) * 0.16) : 0;
       targetCtx.save();
       targetCtx.translate(cx, cy);
       if (angle) targetCtx.rotate(angle);
       targetCtx.beginPath();
-      if (targetCtx.roundRect) targetCtx.roundRect(-rw * 0.5, -rh * 0.5, rw, rh, 6);
+      if (cornerR > 0 && targetCtx.roundRect) targetCtx.roundRect(-rw * 0.5, -rh * 0.5, rw, rh, cornerR);
       else targetCtx.rect(-rw * 0.5, -rh * 0.5, rw, rh);
       if (filled) targetCtx.fill();
       targetCtx.stroke();
@@ -4950,78 +5479,91 @@
       targetCtx.stroke();
     } else if (type === 'elbowArrow') {
       const midY = (y1 + y2) * 0.5;
-      const dotR = Math.max(3, (shape.size || 3) * 0.95);
+      const dotR = Math.max(3, strokeSz * 0.95);
+      const startAng = y2 >= y1 ? -Math.PI / 2 : Math.PI / 2;
+      if (startArrow === 'none') {
+        targetCtx.save();
+        if (typeof targetCtx.setLineDash === 'function') targetCtx.setLineDash([]);
+        targetCtx.beginPath();
+        targetCtx.arc(x1, y1, dotR, 0, Math.PI * 2);
+        targetCtx.stroke();
+        targetCtx.restore();
+      }
+      const startY = startArrow === 'none' ? y1 + (y2 >= y1 ? dotR : -dotR) : y1;
       targetCtx.beginPath();
-      targetCtx.arc(x1, y1, dotR, 0, Math.PI * 2);
-      targetCtx.stroke();
-      targetCtx.beginPath();
-      targetCtx.moveTo(x1, y1 + (y2 >= y1 ? dotR : -dotR));
-      targetCtx.lineTo(x1, midY);
-      targetCtx.lineTo(x2, midY);
-      targetCtx.lineTo(x2, y2);
+      tracePolygonPath(targetCtx, [
+        { x: x1, y: startY },
+        { x: x1, y: midY },
+        { x: x2, y: midY },
+        { x: x2, y: y2 }
+      ], isRounded, false);
       targetCtx.stroke();
       const ang = y2 >= midY ? Math.PI / 2 : -Math.PI / 2;
-      const headLen = Math.max(12, Math.min(26, (shape.size || 3) * 3.6));
-      targetCtx.beginPath();
-      targetCtx.moveTo(x2, y2);
-      targetCtx.lineTo(x2 - headLen * Math.cos(ang - Math.PI / 6), y2 - headLen * Math.sin(ang - Math.PI / 6));
-      targetCtx.moveTo(x2, y2);
-      targetCtx.lineTo(x2 - headLen * Math.cos(ang + Math.PI / 6), y2 - headLen * Math.sin(ang + Math.PI / 6));
-      targetCtx.stroke();
+      const effEnd = endArrow !== 'none' ? endArrow : 'open';
+      if (startArrow !== 'none') drawShapeArrowhead(targetCtx, x1, y1, startAng, startArrow, strokeSz, strokeCol);
+      drawShapeArrowhead(targetCtx, x2, y2, ang, effEnd, strokeSz, strokeCol);
     } else if (type === 'curvedArrow') {
       const dx = x2 - x1, dy = y2 - y1;
-      const dotR = Math.max(3, (shape.size || 3) * 0.95);
+      const dotR = Math.max(3, strokeSz * 0.95);
       const cp1x = x1, cp1y = y1 + dy * 0.65;
       const cp2x = x2, cp2y = y2 - dy * 0.65;
-      targetCtx.beginPath();
-      targetCtx.arc(x1, y1, dotR, 0, Math.PI * 2);
-      targetCtx.stroke();
+      if (startArrow === 'none') {
+        targetCtx.save();
+        if (typeof targetCtx.setLineDash === 'function') targetCtx.setLineDash([]);
+        targetCtx.beginPath();
+        targetCtx.arc(x1, y1, dotR, 0, Math.PI * 2);
+        targetCtx.stroke();
+        targetCtx.restore();
+      }
       targetCtx.beginPath();
       targetCtx.moveTo(x1, y1);
       targetCtx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
       targetCtx.stroke();
-      const tangX = x2 - cp2x || dx;
-      const tangY = y2 - cp2y || dy;
+      const tangStartX = (cp1x - x1) || dx;
+      const tangStartY = (cp1y - y1) || dy;
+      const startAng = Math.atan2(-tangStartY, -tangStartX);
+      const tangX = (x2 - cp2x) || dx;
+      const tangY = (y2 - cp2y) || dy;
       const ang = Math.atan2(tangY, tangX);
-      const headLen = Math.max(12, Math.min(26, (shape.size || 3) * 3.6));
-      targetCtx.beginPath();
-      targetCtx.moveTo(x2, y2);
-      targetCtx.lineTo(x2 - headLen * Math.cos(ang - Math.PI / 6), y2 - headLen * Math.sin(ang - Math.PI / 6));
-      targetCtx.moveTo(x2, y2);
-      targetCtx.lineTo(x2 - headLen * Math.cos(ang + Math.PI / 6), y2 - headLen * Math.sin(ang + Math.PI / 6));
-      targetCtx.stroke();
+      const effEnd = endArrow !== 'none' ? endArrow : 'open';
+      if (startArrow !== 'none') drawShapeArrowhead(targetCtx, x1, y1, startAng, startArrow, strokeSz, strokeCol);
+      drawShapeArrowhead(targetCtx, x2, y2, ang, effEnd, strokeSz, strokeCol);
     } else if (type === 'diamond') {
       const verts = getShapeVertices(shape);
       if (verts && verts.length >= 4) {
-        targetCtx.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) targetCtx.lineTo(verts[i].x, verts[i].y);
-        targetCtx.closePath();
+        tracePolygonPath(targetCtx, verts, isRounded, true);
         if (filled) targetCtx.fill();
         targetCtx.stroke();
       }
     } else if (type === 'roundedRect') {
       const rx = Math.min(x1, x2), ry = Math.min(y1, y2);
       const rw = Math.abs(x2 - x1), rh = Math.abs(y2 - y1);
-      const rad = Math.min(rw, rh) * 0.28;
-      if (targetCtx.roundRect) targetCtx.roundRect(rx, ry, rw, rh, rad);
+      const rad = isRounded ? Math.min(rw, rh) * 0.28 : 0;
+      if (rad > 0 && targetCtx.roundRect) targetCtx.roundRect(rx, ry, rw, rh, rad);
       else targetCtx.rect(rx, ry, rw, rh);
       if (filled) targetCtx.fill();
       targetCtx.stroke();
     } else if (type === 'triangle' || type === 'polygon') {
       const verts = getShapeVertices(shape);
       if (verts && verts.length >= 3) {
-        targetCtx.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) targetCtx.lineTo(verts[i].x, verts[i].y);
-        targetCtx.closePath();
+        tracePolygonPath(targetCtx, verts, isRounded, true);
         if (filled) targetCtx.fill();
         targetCtx.stroke();
       }
     } else if (type === 'polyline') {
       const verts = getShapeVertices(shape);
       if (verts && verts.length >= 2) {
-        targetCtx.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) targetCtx.lineTo(verts[i].x, verts[i].y);
+        tracePolygonPath(targetCtx, verts, isRounded, false);
         targetCtx.stroke();
+        if (startArrow !== 'none') {
+          const a0 = Math.atan2(verts[0].y - verts[1].y, verts[0].x - verts[1].x);
+          drawShapeArrowhead(targetCtx, verts[0].x, verts[0].y, a0, startArrow, strokeSz, strokeCol);
+        }
+        if (endArrow !== 'none') {
+          const last = verts.length - 1;
+          const a1 = Math.atan2(verts[last].y - verts[last - 1].y, verts[last].x - verts[last - 1].x);
+          drawShapeArrowhead(targetCtx, verts[last].x, verts[last].y, a1, endArrow, strokeSz, strokeCol);
+        }
       }
     } else if (type === 'arc') {
       const verts = getShapeVertices(shape);
@@ -5812,6 +6354,84 @@
    * Rendu ultra-léger (60/120 FPS) du calque actif (#activeInkCanvas) uniquement.
    * Utilise le rendu incrémental O(1) pour les traits au stylet afin qu'un long trait n'accumule aucun délai.
    */
+  function drawShapeConnectionGuides(targetCtx) {
+    const hover = state.shapeHoverConnection;
+    if (!hover || !hover.targetShape) return;
+    const z = Math.max(0.35, state.zoom || 1);
+    const ports = getShapeConnectionPorts(hover.targetShape);
+
+    targetCtx.save();
+    // 1. Points de connexion cardinaux GoodNotes (discrets bleu #0072ce avec liseré blanc)
+    if (ports.length > 0) {
+      const dotR = 3.6 / z;
+      const strokeW = 1.4 / z;
+      for (let i = 0; i < ports.length; i++) {
+        const pt = ports[i];
+        targetCtx.beginPath();
+        targetCtx.arc(pt.x, pt.y, dotR, 0, Math.PI * 2);
+        targetCtx.fillStyle = '#ffffff';
+        targetCtx.fill();
+        targetCtx.lineWidth = strokeW;
+        targetCtx.strokeStyle = '#0072ce';
+        targetCtx.stroke();
+      }
+    }
+
+    // 2. Point magnétique verrouillé actif (anneau bleu lumineux sur le bord exact du cercle / de la forme)
+    if (hover.snapPoint) {
+      const sp = hover.snapPoint;
+      targetCtx.beginPath();
+      targetCtx.arc(sp.x, sp.y, 9.5 / z, 0, Math.PI * 2);
+      targetCtx.fillStyle = 'rgba(0, 114, 206, 0.22)';
+      targetCtx.fill();
+
+      targetCtx.beginPath();
+      targetCtx.arc(sp.x, sp.y, 4.6 / z, 0, Math.PI * 2);
+      targetCtx.fillStyle = '#0072ce';
+      targetCtx.fill();
+      targetCtx.lineWidth = 1.6 / z;
+      targetCtx.strokeStyle = '#ffffff';
+      targetCtx.stroke();
+    }
+    targetCtx.restore();
+  }
+
+  function updateShapeConnectionHover(worldPt, fromPt, page) {
+    if (!page || !Array.isArray(page.shapes) || page.shapes.length === 0 || !isConnectorToolMode()) {
+      const had = Boolean(state.shapeHoverConnection);
+      state.shapeHoverConnection = null;
+      return had;
+    }
+    const prev = state.shapeHoverConnection;
+    const excludeId = state.currentShape ? state.currentShape.id : null;
+    const snap = findShapeConnectionSnap(worldPt, page.shapes, { fromPt, excludeShapeId: excludeId });
+    let next = null;
+    if (snap && snap.targetShape) {
+      next = {
+        targetShape: snap.targetShape,
+        snapPoint: { x: snap.x, y: snap.y },
+        connection: snap.connection || null
+      };
+    } else {
+      const hovered = findHoveredConnectableShape(worldPt, page.shapes, Math.max(32, 46 / Math.max(0.4, state.zoom || 1)));
+      if (hovered) {
+        next = { targetShape: hovered, snapPoint: null, connection: null };
+      }
+    }
+    state.shapeHoverConnection = next;
+    const changed =
+      Boolean(prev) !== Boolean(next) ||
+      (prev && next && (
+        prev.targetShape !== next.targetShape ||
+        Boolean(prev.snapPoint) !== Boolean(next.snapPoint) ||
+        (prev.snapPoint && next.snapPoint && (
+          Math.abs(prev.snapPoint.x - next.snapPoint.x) > 0.5 ||
+          Math.abs(prev.snapPoint.y - next.snapPoint.y) > 0.5
+        ))
+      ));
+    return changed;
+  }
+
   function renderActiveCanvasOnly() {
     if (!activeCtx || !dom.activeInkCanvas) {
       renderScene();
@@ -5835,19 +6455,21 @@
 
     const isDark = page.paperTone === 'dark' || page.paperTone === 'blueprint';
     const effectiveDark = page.pdfId ? false : isDark;
+    const hasShapeConnGuide = Boolean(state.tool === 'shape' && state.shapeHoverConnection);
 
     // Cas 1 : Tracé libre au stylo ou surligneur -> rendu incrémental O(1) uniquement des nouveaux points
-    if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape && !state.currentShape && state.lassoPolygon.length === 0 && !state.currentTape && state.laserTrail.length === 0) {
+    if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape && !state.currentShape && !hasShapeConnGuide && state.lassoPolygon.length === 0 && !state.currentTape && state.laserTrail.length === 0) {
       renderIncrementalStrokeTail(state.currentStroke, dpr, rect, effectiveDark);
       renderPerfStats.activeRenderCount++;
       renderPerfStats.lastActiveRenderMs = performance.now() - t0;
       return;
     }
 
-    // Cas 2 : Forme géométrique, Ruban d'étude, Pointeur Laser ou Lasso
+    // Cas 2 : Forme géométrique, Guides de connexion GoodNotes, Ruban d'étude, Pointeur Laser ou Lasso
     const hasOverlay = Boolean(
       state.currentStroke ||
       state.currentShape ||
+      hasShapeConnGuide ||
       state.currentTape ||
       state.laserTrail.length > 0 ||
       state.lassoPolygon.length > 1 ||
@@ -5869,6 +6491,9 @@
     activeCtx.translate(state.panX, state.panY);
     activeCtx.scale(state.zoom, state.zoom);
 
+    if (hasShapeConnGuide) {
+      drawShapeConnectionGuides(activeCtx);
+    }
     if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape) {
       drawSingleStroke(activeCtx, state.currentStroke, effectiveDark, false);
     }
@@ -6748,6 +7373,7 @@
       }
     );
     if (!detected) return;
+    if (isAutoShapeTool) applyActiveShapeStrokeStyle(detected);
 
     state.currentShape = detected;
     state.currentStrokeSnappedFromAutoShape = true;
@@ -6960,11 +7586,12 @@
     const hadLassoSelection = hasAnyLassoSelection();
 
     // Ferme automatiquement tout popover de réglages ouvert dès qu'on pose le stylet sur la page
-    if (state.gnPenPopoverOpen || state.gnPencilPopoverOpen || state.gnHighlighterPopoverOpen || state.gnStrokePopoverOpen) {
+    if (state.gnPenPopoverOpen || state.gnPencilPopoverOpen || state.gnHighlighterPopoverOpen || state.gnStrokePopoverOpen || state.gnShapeStrokePopoverOpen) {
       state.gnPenPopoverOpen = false;
       state.gnPencilPopoverOpen = false;
       state.gnHighlighterPopoverOpen = false;
       state.gnStrokePopoverOpen = false;
+      state.gnShapeStrokePopoverOpen = false;
       updateToolbarActiveState();
     }
 
@@ -7037,17 +7664,22 @@
     } else if (state.tool === 'shape') {
       clearLassoSelection();
       pushHistorySnapshot();
-      state.currentShape = {
+      const isDirectConnector = state.shapeType === 'line' || state.shapeType === 'arrow' || state.shapeType === 'elbowArrow' || state.shapeType === 'curvedArrow';
+      const startSnap = isDirectConnector ? findShapeConnectionSnap(worldPt, page.shapes) : null;
+      const sx = startSnap ? startSnap.x : worldPt.x;
+      const sy = startSnap ? startSnap.y : worldPt.y;
+      state.currentShape = applyActiveShapeStrokeStyle({
         id: createUid('sh'),
         type: state.shapeType,
-        x1: worldPt.x,
-        y1: worldPt.y,
-        x2: worldPt.x,
-        y2: worldPt.y,
+        x1: sx,
+        y1: sy,
+        x2: sx,
+        y2: sy,
         color: state.shapeColor || state.penColor,
         size: Math.max(2, state.shapeSize || state.penSize),
-        filled: state.shapeFilled
-      };
+        filled: state.shapeFilled,
+        startConnection: startSnap && startSnap.connection ? startSnap.connection : undefined
+      });
       if (hadLassoSelection) requestRender();
       else renderActiveCanvasOnly();
     } else if (state.tool === 'eraser') {
@@ -7160,6 +7792,15 @@
         handlePointerDown(e);
         return;
       }
+      if (isConnectorToolMode() && e.pointerType !== 'touch') {
+        const hoverPg = getActivePage();
+        if (hoverPg && hoverPg.shapes && hoverPg.shapes.length > 0) {
+          const wHover = screenToWorld(e.clientX, e.clientY);
+          if (updateShapeConnectionHover(wHover, null, hoverPg)) {
+            renderActiveCanvasOnly();
+          }
+        }
+      }
       if (e.pointerType === 'pen') updateTelemetryHUD(e, 1, e.pressure || 0);
       return;
     }
@@ -7245,6 +7886,7 @@
                   }
                 );
                 if (edgeShape) {
+                  if (state.tool === 'shape') applyActiveShapeStrokeStyle(edgeShape);
                   delete edgeShape.detectedName;
                   activePageForMove.shapes.push(edgeShape);
                   mergeCompletedItemIntoStaticCanvas(edgeShape, 'shape');
@@ -7383,7 +8025,17 @@
       }
 
       updateTelemetryHUD(e, coalesced.length, lastP);
-      if (addedCount > 0) {
+      if (state.tool === 'shape' && state.shapeType === 'auto' && state.currentStroke && state.currentStroke.points.length > 0 && activePageForMove && activePageForMove.shapes && activePageForMove.shapes.length > 0) {
+        const tipPt = state.currentStroke.points[state.currentStroke.points.length - 1];
+        const originPt = state.currentStroke.points[0];
+        const prevHad = Boolean(state.shapeHoverConnection);
+        const connChanged = updateShapeConnectionHover(tipPt, originPt, activePageForMove);
+        if (connChanged && !state.shapeHoverConnection && prevHad) {
+          state.currentStroke._incrementalStarted = false;
+          state.currentStroke._renderedUpToIndex = 0;
+        }
+        if (addedCount > 0 || connChanged) renderActiveCanvasOnly();
+      } else if (addedCount > 0) {
         // Rendu incrémental O(1) à 60/120 FPS : ne dessine que la queue du trait en cours sur #activeInkCanvas
         renderActiveCanvasOnly();
       }
@@ -7407,8 +8059,29 @@
     } else if (state.tool === 'shape') {
       if (!state.currentShape) return;
       const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
-      state.currentShape.x2 = wPt.x;
-      state.currentShape.y2 = wPt.y;
+      const isDirectConnector = isConnectorShape(state.currentShape);
+      if (isDirectConnector && activePageForMove && activePageForMove.shapes && activePageForMove.shapes.length > 0) {
+        const fromPt = { x: state.currentShape.x1, y: state.currentShape.y1 };
+        const endSnap = findShapeConnectionSnap(wPt, activePageForMove.shapes, { fromPt, excludeShapeId: state.currentShape.id });
+        if (endSnap) {
+          state.currentShape.x2 = endSnap.x;
+          state.currentShape.y2 = endSnap.y;
+          state.currentShape.endConnection = endSnap.connection || undefined;
+          state.shapeHoverConnection = {
+            targetShape: endSnap.targetShape,
+            snapPoint: { x: endSnap.x, y: endSnap.y },
+            connection: endSnap.connection || null
+          };
+        } else {
+          state.currentShape.x2 = wPt.x;
+          state.currentShape.y2 = wPt.y;
+          delete state.currentShape.endConnection;
+          updateShapeConnectionHover(wPt, fromPt, activePageForMove);
+        }
+      } else {
+        state.currentShape.x2 = wPt.x;
+        state.currentShape.y2 = wPt.y;
+      }
       renderActiveCanvasOnly();
     } else if (state.tool === 'eraser') {
       for (const ce of coalesced) {
@@ -7486,6 +8159,7 @@
     state.drawingPausedOutsidePage = false;
     state.lastOutsideRawPt = null;
     state.activePointerId = null;
+    state.shapeHoverConnection = null;
     try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
 
     let mergedDirectlyIntoStatic = false;
@@ -7525,7 +8199,9 @@
               }
             );
             if (instantDetected) {
+              if (state.tool === 'shape') applyActiveShapeStrokeStyle(instantDetected);
               const detName = instantDetected.detectedName;
+              const isConnected = Boolean(instantDetected.startConnection || instantDetected.endConnection);
               delete instantDetected.detectedName;
               page.shapes.push(instantDetected);
               state.currentStroke = null;
@@ -7533,7 +8209,7 @@
               mergeCompletedItemIntoStaticCanvas(instantDetected, 'shape');
               mergedDirectlyIntoStatic = true;
               scheduleSaveActivePage(page);
-              if (detName) showToast(`✨ ${detName}`);
+              if (detName) showToast(isConnected ? `🔗 ${detName} connecté` : `✨ ${detName}`);
               clearActiveCanvas();
               requestRender();
               return;
@@ -7638,6 +8314,9 @@
         const finishedShape = state.currentShape;
         state.currentShape = null;
         if (Math.hypot(finishedShape.x2 - finishedShape.x1, finishedShape.y2 - finishedShape.y1) > 4) {
+          if (isConnectorShape(finishedShape)) {
+            snapShapeToNearbyShapes(finishedShape, page.shapes);
+          }
           page.shapes.push(finishedShape);
           mergeCompletedItemIntoStaticCanvas(finishedShape, 'shape');
           mergedDirectlyIntoStatic = true;
@@ -7855,7 +8534,10 @@
       if (!canEraserEraseShape(sh)) return true;
       return !isPointNearShape(sh, wx, wy, radius);
     });
-    if (page.shapes.length !== prevShapesLen) changed = true;
+    if (page.shapes.length !== prevShapesLen) {
+      changed = true;
+      updateConnectedShapesForPage(page);
+    }
 
     const canEraseTape = !hlOnly && (!state.eraserFilters || state.eraserFilters.tape !== false);
     if (canEraseTape) {
@@ -8038,6 +8720,9 @@
           }
         }
       });
+      if (state.selectedIds.shapes.size > 0) {
+        updateConnectedShapesForPage(page, state.selectedIds.shapes);
+      }
       page.texts.forEach((tb, idx) => {
         if (state.selectedIds.texts.has(tb.id)) {
           const orig = state.lassoInitialSnapshot.texts[idx];
@@ -8052,6 +8737,9 @@
       const sx = Math.max(0.25, Math.min(4.0, (worldPt.x - b.minX) / Math.max(20, b.maxX - b.minX)));
       const sy = Math.max(0.25, Math.min(4.0, (worldPt.y - b.minY) / Math.max(20, b.maxY - b.minY)));
       scaleSelectedEntitiesFromSnapshot(b.minX, b.minY, sx, sy);
+      if (state.selectedIds.shapes.size > 0) {
+        updateConnectedShapesForPage(page, state.selectedIds.shapes);
+      }
       invalidateStaticInkCache();
       computeSelectionBounds();
       renderWorldTextCards();
@@ -10493,6 +11181,9 @@
       state.gnHighlighterPopoverOpen = false;
       state.gnStrokePopoverOpen = false;
     }
+    if (!showGnShapeBar) {
+      state.gnShapeStrokePopoverOpen = false;
+    }
     if (!showGnEraserBar) {
       state.gnEraserModePopoverOpen = false;
       state.gnEraserAdvPopoverOpen = false;
@@ -10510,6 +11201,9 @@
     const gnStrokePopoverEl = document.getElementById('gnStrokePopover');
     const showGnStrokePopover = Boolean(showGnSubBar && state.gnStrokePopoverOpen);
     if (gnStrokePopoverEl) gnStrokePopoverEl.classList.toggle('hidden', !showGnStrokePopover);
+    const gnShapeStrokePopoverEl = document.getElementById('gnShapeStrokePopover');
+    const showGnShapeStrokePopover = Boolean(showGnShapeBar && state.gnShapeStrokePopoverOpen);
+    if (gnShapeStrokePopoverEl) gnShapeStrokePopoverEl.classList.toggle('hidden', !showGnShapeStrokePopover);
     const gnEraserModePopoverEl = document.getElementById('gnEraserModePopover');
     if (gnEraserModePopoverEl) gnEraserModePopoverEl.classList.toggle('hidden', !Boolean(showGnEraserBar && state.gnEraserModePopoverOpen));
     const gnEraserAdvPopoverEl = document.getElementById('gnEraserAdvPopover');
@@ -10848,7 +11542,7 @@
       btn.classList.toggle('active', isActive);
     });
 
-    // Synchronisation de la sous-barre Formes GoodNotes (#gnShapeSubBar)
+    // Synchronisation de la sous-barre Formes GoodNotes (#gnShapeSubBar) & popover Réglages Du Trait (#gnShapeStrokePopover)
     const shapeBar = document.getElementById('gnShapeSubBar');
     if (shapeBar) {
       shapeBar.querySelectorAll('.gn-shape-btn[data-gn-shapetype]').forEach((b) => {
@@ -10856,11 +11550,46 @@
       });
       const shSize = Number(state.shapeSize || 4);
       const barIdx = shSize <= 3 ? 0 : (shSize <= 6 ? 1 : 2);
+      const shapeThickBtnEl = document.getElementById('gnShapeThicknessBtn');
+      if (shapeThickBtnEl) {
+        shapeThickBtnEl.classList.toggle('popover-open', Boolean(state.gnShapeStrokePopoverOpen));
+        shapeThickBtnEl.setAttribute('aria-expanded', String(Boolean(state.gnShapeStrokePopoverOpen)));
+      }
       shapeBar.querySelectorAll('#gnShapeThicknessBtn .gn-shape-bar').forEach((bar, i) => {
         bar.classList.toggle('active', i === barIdx);
       });
       const shColBtn = document.getElementById('gnShapeColorBtn');
       if (shColBtn) shColBtn.style.background = state.shapeColor || '#111827';
+
+      const shPop = document.getElementById('gnShapeStrokePopover');
+      if (shPop) {
+        const shMm = document.getElementById('gnShapeStrokeMmReadout');
+        if (shMm) shMm.textContent = `${(shSize / 10).toFixed(2)} mm`;
+        const shLs = state.shapeLineStyle || 'solid';
+        shPop.querySelectorAll('#gnShapeLineStyleGrid .gn-line-style-card').forEach((card) => {
+          card.classList.toggle('active', card.dataset.gnShapelinestyle === shLs);
+        });
+        const shSlider = document.getElementById('gnShapeStrokeSizeSlider');
+        if (shSlider) shSlider.value = String(Math.max(1, Math.min(24, shSize)));
+        const shRoundSw = document.getElementById('gnShapeRoundedCornersSwitch');
+        if (shRoundSw) shRoundSw.checked = state.shapeRoundedCorners !== false;
+        const startAr = state.shapeStartArrow || 'none';
+        const endAr = state.shapeEndArrow || 'none';
+        shPop.querySelectorAll('#gnShapeStartArrowCol .gn-arrowhead-opt').forEach((opt) => {
+          opt.classList.toggle('active', opt.dataset.arrowStyle === startAr);
+        });
+        shPop.querySelectorAll('#gnShapeEndArrowCol .gn-arrowhead-opt').forEach((opt) => {
+          opt.classList.toggle('active', opt.dataset.arrowStyle === endAr);
+        });
+        const shCaret = document.getElementById('gnShapeStrokePopoverCaret');
+        if (shCaret && shapeThickBtnEl && state.gnShapeStrokePopoverOpen && typeof shapeThickBtnEl.getBoundingClientRect === 'function' && typeof shPop.getBoundingClientRect === 'function') {
+          const aR = shapeThickBtnEl.getBoundingClientRect();
+          const pR = shPop.getBoundingClientRect();
+          if (aR.width > 0 && pR.width > 0) {
+            shCaret.style.left = `${Math.round(Math.max(24, Math.min(pR.width - 24, (aR.left + aR.width * 0.5) - pR.left)))}px`;
+          }
+        }
+      }
     }
 
     const toolKey = DEFAULT_TOOL_SIZE_SLOTS[state.tool] ? state.tool : 'pen';
@@ -11458,6 +12187,7 @@
             applyToolMemoryToCanonical('shape');
           }
           state.shapeType = stype;
+          state.gnShapeStrokePopoverOpen = false;
           state.toolOptionsOpen = true;
           updateToolbarActiveState();
         });
@@ -11466,13 +12196,7 @@
       const shapeThickBtn = document.getElementById('gnShapeThicknessBtn');
       if (shapeThickBtn) {
         shapeThickBtn.addEventListener('click', () => {
-          const presets = [2.5, 4.5, 8.5];
-          const cur = Number(state.shapeSize || 4.5);
-          const curIdx = cur <= 3 ? 0 : (cur <= 6 ? 1 : 2);
-          const nextSize = presets[(curIdx + 1) % presets.length];
-          setToolSize('shape', nextSize);
-          if (dom.strokeSizeSlider && state.tool === 'shape') dom.strokeSizeSlider.value = String(nextSize);
-          if (dom.strokeSizeValue && state.tool === 'shape') dom.strokeSizeValue.textContent = `${nextSize.toFixed(1)}px`;
+          state.gnShapeStrokePopoverOpen = !state.gnShapeStrokePopoverOpen;
           updateToolbarActiveState();
         });
       }
@@ -11480,14 +12204,72 @@
       const shapeColorBtn = document.getElementById('gnShapeColorBtn');
       if (shapeColorBtn && dom.customColorPicker) {
         shapeColorBtn.addEventListener('click', () => {
+          state.gnShapeStrokePopoverOpen = false;
           if (state.tool !== 'shape') {
             syncCanonicalToToolMemory(state.tool);
             state.tool = 'shape';
             applyToolMemoryToCanonical('shape');
           }
+          updateToolbarActiveState();
           dom.customColorPicker.click();
         });
       }
+
+      // Popover "Réglages Du Trait" des formes (#gnShapeStrokePopover)
+      document.querySelectorAll('#gnShapeLineStyleGrid .gn-line-style-card').forEach((card) => {
+        card.addEventListener('click', () => {
+          const ls = card.dataset.gnShapelinestyle;
+          if (!ls) return;
+          state.shapeLineStyle = ls;
+          saveShapeStrokePrefsToStorage();
+          syncGnPenSubBarUi();
+        });
+      });
+
+      const shapeStrokeSlider = document.getElementById('gnShapeStrokeSizeSlider');
+      if (shapeStrokeSlider) {
+        shapeStrokeSlider.addEventListener('input', (e) => {
+          const val = parseFloat(e.target.value);
+          if (!Number.isFinite(val) || val <= 0) return;
+          setToolSize('shape', val);
+          if (dom.strokeSizeSlider && state.tool === 'shape') dom.strokeSizeSlider.value = String(val);
+          if (dom.strokeSizeValue && state.tool === 'shape') dom.strokeSizeValue.textContent = `${val.toFixed(1)}px`;
+          syncGnPenSubBarUi();
+        });
+      }
+
+      const shapeStrokeResetBtn = document.getElementById('btnGnShapeStrokeReset');
+      if (shapeStrokeResetBtn) {
+        shapeStrokeResetBtn.addEventListener('click', () => {
+          state.shapeLineStyle = 'solid';
+          state.shapeRoundedCorners = true;
+          state.shapeStartArrow = 'none';
+          state.shapeEndArrow = 'none';
+          setToolSize('shape', 4);
+          saveShapeStrokePrefsToStorage();
+          updateToolbarActiveState();
+        });
+      }
+
+      const shapeRoundSw = document.getElementById('gnShapeRoundedCornersSwitch');
+      if (shapeRoundSw) {
+        shapeRoundSw.addEventListener('change', (e) => {
+          state.shapeRoundedCorners = Boolean(e.target.checked);
+          saveShapeStrokePrefsToStorage();
+          syncGnPenSubBarUi();
+        });
+      }
+
+      document.querySelectorAll('#gnShapeStartArrowCol .gn-arrowhead-opt, #gnShapeEndArrowCol .gn-arrowhead-opt').forEach((opt) => {
+        opt.addEventListener('click', () => {
+          const side = opt.dataset.arrowSide;
+          const style = opt.dataset.arrowStyle || 'none';
+          if (side === 'start') state.shapeStartArrow = style;
+          else if (side === 'end') state.shapeEndArrow = style;
+          saveShapeStrokePrefsToStorage();
+          syncGnPenSubBarUi();
+        });
+      });
     }
 
     // Événements de la sous-barre flottante Gomme GoodNotes 6 (#gnEraserSubBar)
@@ -11643,6 +12425,10 @@
     dom.inkCanvas.addEventListener('pointerleave', () => {
       dom.eraserCursor.style.display = 'none';
       if (dom.colorDotCursor) dom.colorDotCursor.style.display = 'none';
+      if (state.shapeHoverConnection) {
+        state.shapeHoverConnection = null;
+        renderActiveCanvasOnly();
+      }
     });
     dom.inkCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
     dom.inkCanvas.addEventListener('auxclick', (e) => e.preventDefault());
