@@ -2960,8 +2960,10 @@
     gnPenPopoverOpen: false,
     gnPencilPopoverOpen: false,
     gnHighlighterPopoverOpen: false,
+    gnTapePopoverOpen: false,
     gnStrokePopoverOpen: false,
     gnShapeStrokePopoverOpen: false,
+    tapeForceStraight: false,
     gnEraserModePopoverOpen: false,
     gnEraserAdvPopoverOpen: false,
     gnEraserSizePopoverOpen: false,
@@ -3075,6 +3077,16 @@
     } catch (_) {}
   }
 
+  const TAPE_PREFS_STORAGE_KEY = 'inkflow_tape_prefs_v1';
+  function saveTapePrefsToStorage() {
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      localStorage.setItem(TAPE_PREFS_STORAGE_KEY, JSON.stringify({
+        tapeForceStraight: Boolean(state.tapeForceStraight)
+      }));
+    } catch (_) {}
+  }
+
   const SHAPE_STROKE_PREFS_STORAGE_KEY = 'inkflow_shape_stroke_prefs_v1';
   function saveShapeStrokePrefsToStorage() {
     try {
@@ -3135,6 +3147,13 @@
         if (typeof hp.highlighterAutoStraighten === 'boolean') {
           state.highlighterAutoStraighten = hp.highlighterAutoStraighten;
         }
+      }
+    }
+    const savedTapeRaw = localStorage.getItem(TAPE_PREFS_STORAGE_KEY);
+    if (savedTapeRaw) {
+      const tp = JSON.parse(savedTapeRaw);
+      if (tp && typeof tp.tapeForceStraight === 'boolean') {
+        state.tapeForceStraight = tp.tapeForceStraight;
       }
     }
     const savedEraserRaw = localStorage.getItem(ERASER_PREFS_STORAGE_KEY);
@@ -3500,7 +3519,6 @@
     btnExportPdfSidebar: document.getElementById('btnExportPdfSidebar'),
     btnImportPdfPages: document.getElementById('btnImportPdfPages'),
     inputImportPdf: document.getElementById('inputImportPdf'),
-    btnQuickImportPdf: document.getElementById('btnQuickImportPdf'),
     dbStatusDot: document.getElementById('dbStatusDot'),
     dbStatusText: document.getElementById('dbStatusText'),
     strokeCountBadge: document.getElementById('strokeCountBadge'),
@@ -3732,7 +3750,10 @@
         endConnection: sh.endConnection ? { ...sh.endConnection } : undefined
       })),
       texts: (page.texts || []).map((tb) => ({ ...tb })),
-      tapes: (page.tapes || []).map((tp) => ({ ...tp })),
+      tapes: (page.tapes || []).map((tp) => ({
+        ...tp,
+        points: Array.isArray(tp.points) ? tp.points.map((p) => ({ x: p.x, y: p.y })) : undefined
+      })),
       images: (page.images || []).map((img) => ({ ...img }))
     };
   }
@@ -3775,7 +3796,7 @@
           committed = true;
         }
       } else if (state.tool === 'tape' && state.currentTape) {
-        if (Math.hypot(state.currentTape.x2 - state.currentTape.x1, state.currentTape.y2 - state.currentTape.y1) > 10) {
+        if (getTapeTotalLength(state.currentTape) > 10) {
           if (!Array.isArray(page.tapes)) page.tapes = [];
           page.tapes.push(state.currentTape);
           invalidateStaticInkCache();
@@ -4014,8 +4035,12 @@
   }
 
   function getPageBounds(page) {
-    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
-    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    const pw = (page && Number.isFinite(page.pdfWidth) && page.pdfWidth > 0)
+      ? page.pdfWidth
+      : ((page && Number.isFinite(page.pageWidth) && page.pageWidth > 0) ? page.pageWidth : PAGE_WIDTH);
+    const ph = (page && Number.isFinite(page.pdfHeight) && page.pdfHeight > 0)
+      ? page.pdfHeight
+      : ((page && Number.isFinite(page.pageHeight) && page.pageHeight > 0) ? page.pageHeight : PAGE_HEIGHT);
     return { minX: 0, minY: 0, maxX: pw, maxY: ph, width: pw, height: ph };
   }
 
@@ -5081,6 +5106,62 @@
     };
   }
 
+  const GN_TEMPLATE_LOCALE_TEXT = {
+    fr: {
+      days: ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'],
+      daysShort: ['LUN', 'MAR', 'MER', 'JEU', 'VEN', 'SAM', 'DIM'],
+      notes: 'Notes',
+      tasks: 'Tâches',
+      month: 'Mois',
+      ledger: ['Date', 'Libellé', 'Réf.', 'Débit', 'Crédit']
+    },
+    en: {
+      days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+      daysShort: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
+      notes: 'Notes',
+      tasks: 'To-Do',
+      month: 'Month',
+      ledger: ['Date', 'Description', 'Ref.', 'Debit', 'Credit']
+    },
+    es: {
+      days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
+      daysShort: ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'],
+      notes: 'Notas',
+      tasks: 'Tareas',
+      month: 'Mes',
+      ledger: ['Fecha', 'Concepto', 'Ref.', 'Debe', 'Haber']
+    },
+    de: {
+      days: ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'],
+      daysShort: ['MO', 'DI', 'MI', 'DO', 'FR', 'SA', 'SO'],
+      notes: 'Notizen',
+      tasks: 'Aufgaben',
+      month: 'Monat',
+      ledger: ['Datum', 'Beschreibung', 'Ref.', 'Soll', 'Haben']
+    }
+  };
+
+  const gnCustomTemplateImageCache = new Map();
+  function getCustomTemplateImage(dataUrl) {
+    if (!dataUrl || typeof Image === 'undefined') return null;
+    let entry = gnCustomTemplateImageCache.get(dataUrl);
+    if (!entry) {
+      const img = new Image();
+      entry = { img, loaded: false };
+      img.onload = () => {
+        entry.loaded = true;
+        if (typeof requestRender === 'function') requestRender();
+      };
+      img.src = dataUrl;
+      if (gnCustomTemplateImageCache.size >= 24) {
+        const firstKey = gnCustomTemplateImageCache.keys().next().value;
+        gnCustomTemplateImageCache.delete(firstKey);
+      }
+      gnCustomTemplateImageCache.set(dataUrl, entry);
+    }
+    return entry.loaded ? entry.img : null;
+  }
+
   function drawPaperBackground(targetCtx, page, viewportWidth, viewportHeight, isThumbnail = false, skipDeskFill = false) {
     const palette = getPaperPalette(page.paperTone || 'ivory');
     const baseSpacing = Math.max(14, page.gridSize || 28);
@@ -5088,10 +5169,12 @@
     const spacing = (!isThumbnail && baseSpacing * state.zoom < 10)
       ? baseSpacing * Math.pow(2, Math.ceil(Math.log2(10 / (baseSpacing * state.zoom))))
       : baseSpacing;
-    const pageW = (page && Number.isFinite(page.pdfWidth) && page.pdfWidth > 0) ? page.pdfWidth : PAGE_WIDTH;
-    const pageH = (page && Number.isFinite(page.pdfHeight) && page.pdfHeight > 0) ? page.pdfHeight : PAGE_HEIGHT;
+    const pbDims = getPageBounds(page);
+    const pageW = pbDims.width;
+    const pageH = pbDims.height;
     const isInfinite = (page.viewMode || 'infinite') === 'infinite' && !isThumbnail;
     const invZoom = isThumbnail ? 1 : Math.min(2.5, Math.max(0.5, 1 / state.zoom));
+    const localePack = GN_TEMPLATE_LOCALE_TEXT[(page && page.templateLanguage) || 'fr'] || GN_TEMPLATE_LOCALE_TEXT.fr;
     let minX = 0, minY = 0, maxX = pageW, maxY = pageH;
 
     if (isInfinite) {
@@ -5106,7 +5189,7 @@
       targetCtx.fillStyle = palette.bg;
       targetCtx.fillRect(minX, minY, maxX - minX, maxY - minY);
     } else {
-      // Format A4 / Page bornée : fond neutre constant style GoodNotes (#e6e5e4 clair / #1d1f25 sombre)
+      // Format GoodNotes / Page bornée : fond neutre constant (#e6e5e4 clair / #1d1f25 sombre)
       // qui NE change jamais lorsqu'on modifie la couleur de la feuille
       if (!isThumbnail && !skipDeskFill) {
         const tl = { x: -state.panX / state.zoom, y: -state.panY / state.zoom };
@@ -5138,8 +5221,15 @@
     }
 
     const paperType = page.paperType || 'grid';
+    const strongLine = palette.isDark ? 'rgba(226, 232, 240, 0.34)' : 'rgba(51, 65, 85, 0.34)';
+    const labelColor = palette.isDark ? 'rgba(226, 232, 240, 0.62)' : 'rgba(71, 85, 105, 0.68)';
 
-    if (paperType === 'grid') {
+    if (paperType.startsWith('custom:') && page.customTemplateDataUrl) {
+      const customImg = getCustomTemplateImage(page.customTemplateDataUrl);
+      if (customImg) {
+        targetCtx.drawImage(customImg, 0, 0, pageW, pageH);
+      }
+    } else if (paperType === 'grid') {
       targetCtx.lineWidth = 1 * invZoom;
       targetCtx.strokeStyle = palette.gridLine;
       targetCtx.beginPath();
@@ -5177,8 +5267,8 @@
       targetCtx.strokeStyle = palette.marginLine;
       targetCtx.lineWidth = 1.6 * invZoom;
       targetCtx.beginPath();
-      targetCtx.moveTo(128, minY);
-      targetCtx.lineTo(128, maxY);
+      targetCtx.moveTo(Math.round(pageW * 0.13), minY);
+      targetCtx.lineTo(Math.round(pageW * 0.13), maxY);
       targetCtx.stroke();
     } else if (paperType === 'engineering') {
       // Papier millimétré ingénieur
@@ -5217,18 +5307,49 @@
         targetCtx.lineTo(maxX, y);
       }
       targetCtx.stroke();
-    } else if (paperType === 'lined') {
+    } else if (paperType === 'ruled-narrow') {
+      // GoodNotes : Interligne étroit (sans marge rouge)
+      const narrowStep = Math.max(12, Math.round(spacing * 0.72));
       targetCtx.lineWidth = 1 * invZoom;
       targetCtx.strokeStyle = palette.gridLine;
       targetCtx.beginPath();
-      const startY = isInfinite ? minY : 64;
-      for (let y = startY; y <= maxY; y += spacing) { targetCtx.moveTo(minX, y); targetCtx.lineTo(maxX, y); }
+      const startY = isInfinite ? minY : Math.round(pageH * 0.055);
+      for (let y = startY; y <= maxY; y += narrowStep) {
+        targetCtx.moveTo(minX, y);
+        targetCtx.lineTo(maxX, y);
+      }
       targetCtx.stroke();
+    } else if (paperType === 'lined') {
+      // GoodNotes : Interligne large (lignes horizontales propres)
+      const wideStep = Math.round(spacing * 1.18);
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      const startY = isInfinite ? minY : Math.round(pageH * 0.06);
+      for (let y = startY; y <= maxY; y += wideStep) {
+        targetCtx.moveTo(minX, y);
+        targetCtx.lineTo(maxX, y);
+      }
+      targetCtx.stroke();
+    } else if (paperType === 'legal') {
+      // GoodNotes : Legal (marge rouge verticale gauche + lignes horizontales)
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      const startY = isInfinite ? minY : Math.round(pageH * 0.06);
+      for (let y = startY; y <= maxY; y += spacing) {
+        targetCtx.moveTo(minX, y);
+        targetCtx.lineTo(maxX, y);
+      }
+      targetCtx.stroke();
+      const marginX = Math.round(pageW * 0.13);
       targetCtx.strokeStyle = palette.marginLine;
       targetCtx.lineWidth = 1.5 * invZoom;
       targetCtx.beginPath();
-      targetCtx.moveTo(116, minY);
-      targetCtx.lineTo(116, maxY);
+      targetCtx.moveTo(marginX, minY);
+      targetCtx.lineTo(marginX, maxY);
+      targetCtx.moveTo(marginX + 4, minY);
+      targetCtx.lineTo(marginX + 4, maxY);
       targetCtx.stroke();
     } else if (paperType === 'dotted') {
       targetCtx.fillStyle = palette.dotColor;
@@ -5252,86 +5373,387 @@
         targetCtx.fill();
       }
     } else if (paperType === 'cornell') {
-      // Notes Cornell GoodNotes : en-tête + colonne indices à gauche (x=216) + zone notes lignée + résumé en bas
+      // Notes Cornell GoodNotes : en-tête + colonne indices à gauche + zone notes lignée + résumé en bas
+      const headerY = Math.round(pageH * 0.12);
+      const cueX = Math.round(pageW * 0.27);
+      const summaryY = Math.round(pageH * 0.84);
       targetCtx.lineWidth = 1 * invZoom;
       targetCtx.strokeStyle = palette.gridLine;
       targetCtx.beginPath();
-      const startY = isInfinite ? Math.max(88, minY) : 88;
-      const summaryY = pageH - 180;
+      const startY = isInfinite ? Math.max(headerY, minY) : headerY + spacing;
       for (let y = startY; y <= maxY; y += spacing) {
-        if (!isInfinite && y > summaryY) break;
-        targetCtx.moveTo(Math.max(216, minX), y);
+        if (!isInfinite && y >= summaryY) break;
+        targetCtx.moveTo(Math.max(cueX, minX), y);
         targetCtx.lineTo(maxX, y);
       }
       targetCtx.stroke();
-      targetCtx.strokeStyle = palette.marginLine;
-      targetCtx.lineWidth = 1.6 * invZoom;
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.lineWidth = 1.5 * invZoom;
       targetCtx.beginPath();
-      targetCtx.moveTo(minX, 88);
-      targetCtx.lineTo(maxX, 88);
-      targetCtx.moveTo(216, 88);
-      targetCtx.lineTo(216, isInfinite ? maxY : summaryY);
+      targetCtx.moveTo(minX, headerY);
+      targetCtx.lineTo(maxX, headerY);
+      targetCtx.moveTo(cueX, headerY);
+      targetCtx.lineTo(cueX, isInfinite ? maxY : summaryY);
       targetCtx.moveTo(minX, summaryY);
       targetCtx.lineTo(maxX, summaryY);
       targetCtx.stroke();
-    } else if (paperType === 'twocolumn') {
-      // Deux colonnes GoodNotes : ligne d'en-tête + séparateur central vertical + réglure horizontale
+    } else if (paperType === 'single-column') {
+      // GoodNotes : Une colonne (marges propres + en-tête + lignes horizontales encadrées)
+      const padX = Math.round(pageW * 0.08);
+      const headerY = Math.round(pageH * 0.085);
+      const bottomY = Math.round(pageH * 0.94);
       targetCtx.lineWidth = 1 * invZoom;
       targetCtx.strokeStyle = palette.gridLine;
       targetCtx.beginPath();
-      const startY = isInfinite ? Math.max(80, minY) : 80;
-      for (let y = startY; y <= maxY; y += spacing) {
-        targetCtx.moveTo(minX, y);
-        targetCtx.lineTo(maxX, y);
+      for (let y = headerY + spacing; y <= (isInfinite ? maxY : bottomY); y += spacing) {
+        targetCtx.moveTo(padX, y);
+        targetCtx.lineTo(pageW - padX, y);
       }
       targetCtx.stroke();
-      targetCtx.strokeStyle = palette.marginLine;
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.lineWidth = 1.4 * invZoom;
+      targetCtx.beginPath();
+      targetCtx.moveTo(padX, headerY);
+      targetCtx.lineTo(pageW - padX, headerY);
+      targetCtx.stroke();
+    } else if (paperType === 'single-column-mix') {
+      // GoodNotes : Une colonne, mélange (zone blanche croquis en haut + zone lignée en bas)
+      const padX = Math.round(pageW * 0.08);
+      const topY = Math.round(pageH * 0.08);
+      const splitY = Math.round(pageH * 0.48);
+      const bottomY = Math.round(pageH * 0.94);
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.lineWidth = 1.3 * invZoom;
+      targetCtx.beginPath();
+      targetCtx.moveTo(padX, topY);
+      targetCtx.lineTo(pageW - padX, topY);
+      targetCtx.moveTo(padX, splitY);
+      targetCtx.lineTo(pageW - padX, splitY);
+      targetCtx.stroke();
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      for (let y = splitY + spacing; y <= (isInfinite ? maxY : bottomY); y += spacing) {
+        targetCtx.moveTo(padX, y);
+        targetCtx.lineTo(pageW - padX, y);
+      }
+      targetCtx.stroke();
+    } else if (paperType === 'twocolumn' || paperType === 'two-column-left' || paperType === 'two-column-right') {
+      // GoodNotes : Deux colonnes (50/50, gauche 34/66, droite 66/34) avec gouttière centrale nette
+      const padX = Math.round(pageW * 0.07);
+      const headerY = Math.round(pageH * 0.085);
+      const bottomY = Math.round(pageH * 0.94);
+      const gutter = Math.round(pageW * 0.036);
+      const ratio = paperType === 'two-column-left' ? 0.34 : (paperType === 'two-column-right' ? 0.66 : 0.5);
+      const splitX = padX + Math.round((pageW - padX * 2) * ratio);
+      const leftEnd = splitX - Math.round(gutter * 0.5);
+      const rightStart = splitX + Math.round(gutter * 0.5);
+
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      for (let y = headerY + spacing; y <= (isInfinite ? maxY : bottomY); y += spacing) {
+        targetCtx.moveTo(padX, y);
+        targetCtx.lineTo(leftEnd, y);
+        targetCtx.moveTo(rightStart, y);
+        targetCtx.lineTo(pageW - padX, y);
+      }
+      targetCtx.stroke();
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.lineWidth = 1.4 * invZoom;
+      targetCtx.beginPath();
+      targetCtx.moveTo(padX, headerY);
+      targetCtx.lineTo(pageW - padX, headerY);
+      targetCtx.moveTo(splitX, headerY);
+      targetCtx.lineTo(splitX, isInfinite ? maxY : bottomY);
+      targetCtx.stroke();
+    } else if (paperType === 'three-column') {
+      // GoodNotes : Trois colonnes équilibrées avec gouttières
+      const padX = Math.round(pageW * 0.06);
+      const headerY = Math.round(pageH * 0.085);
+      const bottomY = Math.round(pageH * 0.94);
+      const gutter = Math.round(pageW * 0.026);
+      const usableW = pageW - padX * 2 - gutter * 2;
+      const colW = usableW / 3;
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      for (let y = headerY + spacing; y <= (isInfinite ? maxY : bottomY); y += spacing) {
+        for (let c = 0; c < 3; c++) {
+          const cx = padX + c * (colW + gutter);
+          targetCtx.moveTo(cx, y);
+          targetCtx.lineTo(cx + colW, y);
+        }
+      }
+      targetCtx.stroke();
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.lineWidth = 1.3 * invZoom;
+      targetCtx.beginPath();
+      targetCtx.moveTo(padX, headerY);
+      targetCtx.lineTo(pageW - padX, headerY);
+      for (let c = 1; c < 3; c++) {
+        const gx = padX + c * colW + (c - 0.5) * gutter;
+        targetCtx.moveTo(gx, headerY);
+        targetCtx.lineTo(gx, isInfinite ? maxY : bottomY);
+      }
+      targetCtx.stroke();
+    } else if (paperType === 'todos') {
+      // GoodNotes : Listes de tâches (cases à cocher + lignes horizontales)
+      const padX = Math.round(pageW * 0.08);
+      const headerY = Math.round(pageH * 0.095);
+      const bottomY = Math.round(pageH * 0.94);
+      const rowStep = Math.round(spacing * 1.25);
+      const boxSz = Math.max(10, Math.round(rowStep * 0.46));
+
+      targetCtx.strokeStyle = strongLine;
       targetCtx.lineWidth = 1.5 * invZoom;
       targetCtx.beginPath();
-      targetCtx.moveTo(minX, 80);
-      targetCtx.lineTo(maxX, 80);
-      const midX = pageW * 0.5;
-      targetCtx.moveTo(midX, 80);
-      targetCtx.lineTo(midX, maxY);
+      targetCtx.moveTo(padX, headerY);
+      targetCtx.lineTo(pageW - padX, headerY);
+      targetCtx.stroke();
+
+      if (!isThumbnail) {
+        targetCtx.fillStyle = labelColor;
+        targetCtx.font = `600 ${Math.max(13, Math.round(pageW * 0.024))}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        targetCtx.fillText(localePack.tasks, padX, headerY - 12);
+      }
+
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      for (let y = headerY + rowStep; y <= (isInfinite ? maxY : bottomY); y += rowStep) {
+        targetCtx.rect(padX, y - boxSz - 2, boxSz, boxSz);
+        targetCtx.moveTo(padX + boxSz + 12, y);
+        targetCtx.lineTo(pageW - padX, y);
+      }
       targetCtx.stroke();
     } else if (paperType === 'planner') {
-      // Planning hebdomadaire GoodNotes : 7 bandes de jours + colonne objectifs/notes à droite
+      // GoodNotes : Semainier A (7 bandes de jours localisées + colonne notes lignée à droite)
+      const padX = Math.round(pageW * 0.06);
+      const headerY = Math.round(pageH * 0.08);
+      const bottomY = Math.round(pageH * 0.95);
       const splitX = Math.round(pageW * 0.62);
-      const rowH = Math.round((pageH - 96) / 7);
+      const rowH = (bottomY - headerY) / 7;
+
       targetCtx.lineWidth = 1.2 * invZoom;
-      targetCtx.strokeStyle = palette.seyesMain;
+      targetCtx.strokeStyle = strongLine;
       targetCtx.beginPath();
-      targetCtx.moveTo(minX, 72);
-      targetCtx.lineTo(maxX, 72);
-      targetCtx.moveTo(splitX, 72);
-      targetCtx.lineTo(splitX, maxY);
+      targetCtx.moveTo(padX, headerY);
+      targetCtx.lineTo(pageW - padX, headerY);
+      targetCtx.moveTo(splitX, headerY);
+      targetCtx.lineTo(splitX, bottomY);
       for (let d = 1; d <= 7; d++) {
-        const ry = 72 + d * rowH;
-        targetCtx.moveTo(minX, ry);
+        const ry = headerY + d * rowH;
+        targetCtx.moveTo(padX, ry);
         targetCtx.lineTo(splitX, ry);
       }
       targetCtx.stroke();
+
+      if (!isThumbnail) {
+        targetCtx.fillStyle = labelColor;
+        const fSize = Math.max(11, Math.round(pageW * 0.015));
+        targetCtx.font = `600 ${fSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        for (let d = 0; d < 7; d++) {
+          targetCtx.fillText(localePack.days[d], padX + 8, headerY + d * rowH + fSize + 8);
+        }
+        targetCtx.fillText(localePack.notes, splitX + 12, headerY - 10);
+      }
+
       targetCtx.lineWidth = 0.85 * invZoom;
       targetCtx.strokeStyle = palette.gridLine;
       targetCtx.beginPath();
-      for (let y = 72 + spacing; y <= maxY; y += spacing) {
-        targetCtx.moveTo(splitX, y);
-        targetCtx.lineTo(maxX, y);
+      for (let y = headerY + spacing; y <= bottomY; y += spacing) {
+        targetCtx.moveTo(splitX + 8, y);
+        targetCtx.lineTo(pageW - padX, y);
       }
       targetCtx.stroke();
-    } else if (paperType === 'music') {
-      // Portées musicales de 5 lignes
-      const staffGap = spacing * 3.4;
-      const lineGap = Math.max(7, Math.round(spacing * 0.34));
-      targetCtx.lineWidth = 1 * invZoom;
+    } else if (paperType === 'weekly-planner-b') {
+      // GoodNotes : Semainier B (grille 2×4 : 7 jours + bloc Notes)
+      const padX = Math.round(pageW * 0.06);
+      const headerY = Math.round(pageH * 0.08);
+      const bottomY = Math.round(pageH * 0.94);
+      const gap = Math.round(pageW * 0.025);
+      const colW = (pageW - padX * 2 - gap) / 2;
+      const rowH = (bottomY - headerY - gap * 3) / 4;
+      const labels = [...localePack.days, localePack.notes];
+      const fSize = Math.max(11, Math.round(pageW * 0.015));
+
+      targetCtx.lineWidth = 1.15 * invZoom;
+      targetCtx.strokeStyle = strongLine;
+      for (let idx = 0; idx < 8; idx++) {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const bx = padX + col * (colW + gap);
+        const by = headerY + row * (rowH + gap);
+        targetCtx.strokeRect(bx, by, colW, rowH);
+        targetCtx.beginPath();
+        targetCtx.moveTo(bx, by + fSize + 14);
+        targetCtx.lineTo(bx + colW, by + fSize + 14);
+        targetCtx.stroke();
+        if (!isThumbnail) {
+          targetCtx.fillStyle = labelColor;
+          targetCtx.font = `600 ${fSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+          targetCtx.fillText(labels[idx], bx + 10, by + fSize + 4);
+        }
+      }
+    } else if (paperType === 'monthly-planner-b' || paperType === 'monthly-planner-c') {
+      // GoodNotes : Planning mensuel B (grille 7×5) et C (grille 7×5 + zone notes en bas)
+      const padX = Math.round(pageW * 0.055);
+      const headerY = Math.round(pageH * 0.11);
+      const calBottomY = paperType === 'monthly-planner-c' ? Math.round(pageH * 0.72) : Math.round(pageH * 0.94);
+      const colW = (pageW - padX * 2) / 7;
+      const rowH = (calBottomY - headerY) / 5;
+      const fSize = Math.max(10, Math.round(pageW * 0.014));
+
+      if (!isThumbnail) {
+        targetCtx.fillStyle = labelColor;
+        targetCtx.font = `700 ${Math.max(14, Math.round(pageW * 0.022))}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        targetCtx.fillText(localePack.month, padX, Math.round(headerY * 0.58));
+        targetCtx.font = `600 ${fSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        for (let c = 0; c < 7; c++) {
+          targetCtx.fillText(localePack.daysShort[c], padX + c * colW + 6, headerY - 8);
+        }
+      }
+
+      targetCtx.lineWidth = 1.1 * invZoom;
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.beginPath();
+      for (let c = 0; c <= 7; c++) {
+        const x = padX + c * colW;
+        targetCtx.moveTo(x, headerY);
+        targetCtx.lineTo(x, calBottomY);
+      }
+      for (let r = 0; r <= 5; r++) {
+        const y = headerY + r * rowH;
+        targetCtx.moveTo(padX, y);
+        targetCtx.lineTo(pageW - padX, y);
+      }
+      targetCtx.stroke();
+
+      if (paperType === 'monthly-planner-c') {
+        const notesStartY = calBottomY + Math.round(pageH * 0.04);
+        const bottomY = Math.round(pageH * 0.94);
+        if (!isThumbnail) {
+          targetCtx.fillStyle = labelColor;
+          targetCtx.font = `600 ${fSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+          targetCtx.fillText(localePack.notes, padX, notesStartY - 6);
+        }
+        targetCtx.lineWidth = 0.95 * invZoom;
+        targetCtx.strokeStyle = palette.gridLine;
+        targetCtx.beginPath();
+        for (let y = notesStartY + spacing; y <= bottomY; y += spacing) {
+          targetCtx.moveTo(padX, y);
+          targetCtx.lineTo(pageW - padX, y);
+        }
+        targetCtx.stroke();
+      }
+    } else if (paperType === 'accounting') {
+      // GoodNotes : Comptabilité (colonnes Date | Libellé | Réf. | Débit | Crédit)
+      const padX = Math.round(pageW * 0.055);
+      const headerY = Math.round(pageH * 0.095);
+      const bottomY = Math.round(pageH * 0.94);
+      const usableW = pageW - padX * 2;
+      const colStops = [0, 0.14, 0.56, 0.66, 0.83, 1.0].map((r) => padX + Math.round(usableW * r));
+
+      targetCtx.lineWidth = 0.9 * invZoom;
       targetCtx.strokeStyle = palette.gridLine;
       targetCtx.beginPath();
-      const firstStaffY = Math.floor(minY / staffGap) * staffGap;
-      for (let sy = firstStaffY; sy <= maxY; sy += staffGap) {
+      for (let y = headerY + spacing; y <= (isInfinite ? maxY : bottomY); y += spacing) {
+        targetCtx.moveTo(padX, y);
+        targetCtx.lineTo(pageW - padX, y);
+      }
+      targetCtx.stroke();
+
+      targetCtx.lineWidth = 1.3 * invZoom;
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.beginPath();
+      targetCtx.moveTo(padX, headerY);
+      targetCtx.lineTo(pageW - padX, headerY);
+      targetCtx.moveTo(padX, headerY - spacing * 1.1);
+      targetCtx.lineTo(pageW - padX, headerY - spacing * 1.1);
+      for (let i = 0; i < colStops.length; i++) {
+        targetCtx.moveTo(colStops[i], headerY - spacing * 1.1);
+        targetCtx.lineTo(colStops[i], isInfinite ? maxY : bottomY);
+      }
+      targetCtx.stroke();
+
+      if (!isThumbnail) {
+        targetCtx.fillStyle = labelColor;
+        const fSize = Math.max(10, Math.round(pageW * 0.013));
+        targetCtx.font = `600 ${fSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        for (let i = 0; i < localePack.ledger.length; i++) {
+          targetCtx.fillText(localePack.ledger[i], colStops[i] + 6, headerY - 8);
+        }
+      }
+    } else if (paperType === 'music') {
+      // GoodNotes : Papier à musique (portées de 5 lignes)
+      const padX = isInfinite ? minX : Math.round(pageW * 0.07);
+      const endX = isInfinite ? maxX : (pageW - Math.round(pageW * 0.07));
+      const staffGap = spacing * 3.4;
+      const lineGap = Math.max(6, Math.round(spacing * 0.34));
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.beginPath();
+      const firstStaffY = isInfinite ? Math.floor(minY / staffGap) * staffGap : Math.round(pageH * 0.08);
+      for (let sy = firstStaffY; sy <= (isInfinite ? maxY : pageH * 0.93); sy += staffGap) {
         for (let l = 0; l < 5; l++) {
           const ly = sy + l * lineGap;
-          targetCtx.moveTo(minX, ly);
-          targetCtx.lineTo(maxX, ly);
+          targetCtx.moveTo(padX, ly);
+          targetCtx.lineTo(endX, ly);
+        }
+      }
+      targetCtx.stroke();
+    } else if (paperType === 'guitar-tablature') {
+      // GoodNotes : Tablature de guitare (6 cordes)
+      const padX = isInfinite ? minX : Math.round(pageW * 0.07);
+      const endX = isInfinite ? maxX : (pageW - Math.round(pageW * 0.07));
+      const staffGap = spacing * 3.8;
+      const lineGap = Math.max(6, Math.round(spacing * 0.36));
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.beginPath();
+      const firstStaffY = isInfinite ? Math.floor(minY / staffGap) * staffGap : Math.round(pageH * 0.08);
+      for (let sy = firstStaffY; sy <= (isInfinite ? maxY : pageH * 0.93); sy += staffGap) {
+        for (let l = 0; l < 6; l++) {
+          const ly = sy + l * lineGap;
+          targetCtx.moveTo(padX, ly);
+          targetCtx.lineTo(endX, ly);
+        }
+        if (!isInfinite) {
+          targetCtx.moveTo(padX, sy);
+          targetCtx.lineTo(padX, sy + 5 * lineGap);
+          targetCtx.moveTo(endX, sy);
+          targetCtx.lineTo(endX, sy + 5 * lineGap);
+        }
+      }
+      targetCtx.stroke();
+    } else if (paperType === 'guitar-score') {
+      // GoodNotes : Partition de guitare (portée 5 lignes + tablature 6 cordes couplées)
+      const padX = isInfinite ? minX : Math.round(pageW * 0.07);
+      const endX = isInfinite ? maxX : (pageW - Math.round(pageW * 0.07));
+      const lineGap = Math.max(5.5, Math.round(spacing * 0.30));
+      const pairGap = lineGap * 16;
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.beginPath();
+      const firstY = isInfinite ? Math.floor(minY / pairGap) * pairGap : Math.round(pageH * 0.075);
+      for (let sy = firstY; sy <= (isInfinite ? maxY : pageH * 0.90); sy += pairGap) {
+        for (let l = 0; l < 5; l++) {
+          const ly = sy + l * lineGap;
+          targetCtx.moveTo(padX, ly);
+          targetCtx.lineTo(endX, ly);
+        }
+        const tabY = sy + lineGap * 6.4;
+        for (let l = 0; l < 6; l++) {
+          const ly = tabY + l * lineGap;
+          targetCtx.moveTo(padX, ly);
+          targetCtx.lineTo(endX, ly);
+        }
+        if (!isInfinite) {
+          targetCtx.moveTo(padX, sy);
+          targetCtx.lineTo(padX, tabY + 5 * lineGap);
+          targetCtx.moveTo(endX, sy);
+          targetCtx.lineTo(endX, tabY + 5 * lineGap);
         }
       }
       targetCtx.stroke();
@@ -7720,22 +8142,97 @@
     renderPerfStats.lastActiveRenderMs = performance.now() - t0;
   }
 
+  function getTapeTotalLength(tape) {
+    if (!tape) return 0;
+    if (Array.isArray(tape.points) && tape.points.length >= 2) {
+      let total = 0;
+      for (let i = 1; i < tape.points.length; i++) {
+        total += Math.hypot(tape.points[i].x - tape.points[i - 1].x, tape.points[i].y - tape.points[i - 1].y);
+      }
+      return total;
+    }
+    return Math.hypot((tape.x2 || 0) - (tape.x1 || 0), (tape.y2 || 0) - (tape.y1 || 0));
+  }
+
+  function removeAllTapesOnActivePage() {
+    const page = getActivePage();
+    if (!page) return 0;
+    const count = Array.isArray(page.tapes) ? page.tapes.length : 0;
+    if (count === 0) {
+      state.gnTapePopoverOpen = false;
+      updateToolbarActiveState();
+      showToast('Aucun ruban sur cette page');
+      return 0;
+    }
+    pushHistorySnapshot(page);
+    page.tapes = [];
+    state.gnTapePopoverOpen = false;
+    invalidateStaticInkCache();
+    updateToolbarActiveState();
+    requestRender();
+    scheduleSaveActivePage(page);
+    showToast(`${count} ruban${count > 1 ? 's' : ''} supprimé${count > 1 ? 's' : ''}`);
+    return count;
+  }
+
   function drawTapeItem(targetCtx, tape, isPreview = false) {
     if (!tape) return;
+    const thick = Math.max(12, tape.thickness || 26);
+    const color = tape.color || '#ff5f67';
+
+    // Ruban libre (main levée) lorsque "Ruban droit" est désactivé (comportement par défaut GoodNotes)
+    if (Array.isArray(tape.points) && tape.points.length >= 2 && tape.straight === false) {
+      const pts = tape.points;
+      targetCtx.save();
+      targetCtx.lineCap = 'round';
+      targetCtx.lineJoin = 'round';
+      targetCtx.beginPath();
+      targetCtx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        const prev = pts[i - 1];
+        const cur = pts[i];
+        const mx = (prev.x + cur.x) * 0.5;
+        const my = (prev.y + cur.y) * 0.5;
+        targetCtx.quadraticCurveTo(prev.x, prev.y, mx, my);
+      }
+      targetCtx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+
+      if (tape.revealed && !isPreview) {
+        targetCtx.strokeStyle = hexToRgba(color, 0.16);
+        targetCtx.lineWidth = thick;
+        targetCtx.stroke();
+        targetCtx.strokeStyle = color;
+        targetCtx.lineWidth = 1.6;
+        targetCtx.setLineDash([6, 5]);
+        targetCtx.stroke();
+      } else {
+        targetCtx.globalAlpha = isPreview ? 0.80 : 0.96;
+        targetCtx.strokeStyle = color;
+        targetCtx.lineWidth = thick;
+        targetCtx.stroke();
+
+        // Légère ligne en pointillé translucide au centre façon ruban GoodNotes
+        targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+        targetCtx.lineWidth = Math.max(2, thick * 0.14);
+        targetCtx.setLineDash([Math.max(4, thick * 0.28), Math.max(5, thick * 0.34)]);
+        targetCtx.stroke();
+      }
+      targetCtx.restore();
+      return;
+    }
+
     const dx = tape.x2 - tape.x1;
     const dy = tape.y2 - tape.y1;
     const len = Math.hypot(dx, dy);
     if (len < 2) return;
     const angle = Math.atan2(dy, dx);
-    const thick = Math.max(14, tape.thickness || 26);
-    const color = tape.color || '#f59e0b';
 
     targetCtx.save();
     targetCtx.translate(tape.x1, tape.y1);
     targetCtx.rotate(angle);
 
     if (tape.revealed && !isPreview) {
-      targetCtx.fillStyle = 'rgba(245, 158, 11, 0.10)';
+      targetCtx.fillStyle = hexToRgba(color, 0.12);
       targetCtx.strokeStyle = color;
       targetCtx.lineWidth = 1.6;
       targetCtx.setLineDash([6, 5]);
@@ -8932,14 +9429,17 @@
         return;
       }
       pushHistorySnapshot();
+      const isStraightTape = Boolean(state.tapeForceStraight);
       state.currentTape = {
         id: createUid('tp'),
         x1: worldPt.x,
         y1: worldPt.y,
         x2: worldPt.x,
         y2: worldPt.y,
-        thickness: Math.max(14, state.tapeSize || state.highlighterSize || 26),
-        color: state.tapeColor || '#f59e0b',
+        straight: isStraightTape,
+        points: isStraightTape ? undefined : [{ x: worldPt.x, y: worldPt.y }],
+        thickness: Math.max(12, state.tapeSize || state.highlighterSize || 26),
+        color: state.tapeColor || '#ff5f67',
         revealed: false
       };
       renderActiveCanvasOnly();
@@ -10580,11 +11080,19 @@
     }
     clearPdfImportError();
     updatePdfImportProgressUI(false, '', 0);
+    if (!state.pendingPdfImport) {
+      if (dom.importPdfFileName) dom.importPdfFileName.textContent = 'Glisser un fichier PDF ici';
+      if (dom.importPdfPageCount) dom.importPdfPageCount.textContent = 'ou sélectionnez un document local';
+      if (dom.pdfModalDropzone) dom.pdfModalDropzone.classList.remove('has-file');
+      if (dom.btnConfirmPdfAppendNotebook) dom.btnConfirmPdfAppendNotebook.disabled = true;
+      if (dom.btnConfirmPdfNewNotebook) dom.btnConfirmPdfNewNotebook.disabled = true;
+    }
     dom.modalImportPdf.classList.remove('hidden');
   }
 
   function closeImportPdfModal() {
     if (dom.modalImportPdf) dom.modalImportPdf.classList.add('hidden');
+    if (dom.pdfModalDropzone) dom.pdfModalDropzone.classList.remove('has-file');
     updatePdfImportProgressUI(false, '', 0);
     clearPdfImportError();
     state.pendingPdfImport = null;
@@ -10602,16 +11110,18 @@
         fileName: fileName || 'Document.pdf',
         numPages
       };
-      if (dom.importPdfFileName) dom.importPdfFileName.textContent = `📄 ${fileName}`;
+      if (dom.importPdfFileName) dom.importPdfFileName.textContent = `${fileName}`;
       if (dom.importPdfPageCount) {
         const sizeKb = Math.max(1, Math.round(bytes.byteLength / 1024));
-        dom.importPdfPageCount.textContent = `${numPages} page${numPages > 1 ? 's' : ''} détectée${numPages > 1 ? 's' : ''} (${sizeKb} Ko) — Prêt à importer en haute résolution`;
+        dom.importPdfPageCount.textContent = `${numPages} page${numPages > 1 ? 's' : ''} · ${sizeKb} Ko`;
       }
+      if (dom.pdfModalDropzone) dom.pdfModalDropzone.classList.add('has-file');
       if (dom.btnConfirmPdfAppendNotebook) dom.btnConfirmPdfAppendNotebook.disabled = false;
       if (dom.btnConfirmPdfNewNotebook) dom.btnConfirmPdfNewNotebook.disabled = false;
       return state.pendingPdfImport;
     } catch (err) {
       state.pendingPdfImport = null;
+      if (dom.pdfModalDropzone) dom.pdfModalDropzone.classList.remove('has-file');
       showPdfImportError(err && err.message ? err.message : 'Fichier PDF invalide ou corrompu.');
       throw err;
     }
@@ -12221,6 +12731,12 @@
       gridSize: inheritedGridSize,
       viewMode: inheritedViewMode,
       rotation: inheritedRotation,
+      pageSize: opts.pageSize || (src && src.pageSize) || 'goodnotes_standard',
+      pageOrientation: opts.pageOrientation || (src && src.pageOrientation) || 'portrait',
+      pageWidth: Number.isFinite(opts.pageWidth) ? opts.pageWidth : ((src && Number.isFinite(src.pageWidth) && src.pageWidth > 0) ? src.pageWidth : null),
+      pageHeight: Number.isFinite(opts.pageHeight) ? opts.pageHeight : ((src && Number.isFinite(src.pageHeight) && src.pageHeight > 0) ? src.pageHeight : null),
+      templateLanguage: opts.templateLanguage || (src && src.templateLanguage) || 'fr',
+      customTemplateDataUrl: opts.customTemplateDataUrl !== undefined ? opts.customTemplateDataUrl : ((src && src.customTemplateDataUrl) || null),
       pdfWidth: hasCustomDims ? src.pdfWidth : null,
       pdfHeight: hasCustomDims ? src.pdfHeight : null,
       pdfOriginalWidth: (src && Number.isFinite(src.pdfOriginalWidth) && src.pdfOriginalWidth > 0) ? src.pdfOriginalWidth : null,
@@ -12258,6 +12774,12 @@
       gridSize: inherited.gridSize,
       viewMode: inherited.viewMode,
       rotation: inherited.rotation,
+      pageSize: inherited.pageSize,
+      pageOrientation: inherited.pageOrientation,
+      pageWidth: inherited.pageWidth,
+      pageHeight: inherited.pageHeight,
+      templateLanguage: inherited.templateLanguage,
+      customTemplateDataUrl: inherited.customTemplateDataUrl,
       pdfWidth: inherited.pdfWidth,
       pdfHeight: inherited.pdfHeight,
       pdfOriginalWidth: inherited.pdfOriginalWidth,
@@ -12305,6 +12827,12 @@
       gridSize: inherited.gridSize,
       viewMode: inherited.viewMode,
       rotation: inherited.rotation,
+      pageSize: inherited.pageSize,
+      pageOrientation: inherited.pageOrientation,
+      pageWidth: inherited.pageWidth,
+      pageHeight: inherited.pageHeight,
+      templateLanguage: inherited.templateLanguage,
+      customTemplateDataUrl: inherited.customTemplateDataUrl,
       pdfWidth: inherited.pdfWidth,
       pdfHeight: inherited.pdfHeight,
       pdfOriginalWidth: inherited.pdfOriginalWidth,
@@ -15211,7 +15739,6 @@
     };
     if (dom.btnImportPdfSidebar) dom.btnImportPdfSidebar.addEventListener('click', openPdfModalHandler);
     if (dom.btnImportPdfPages) dom.btnImportPdfPages.addEventListener('click', openPdfModalHandler);
-    if (dom.btnQuickImportPdf) dom.btnQuickImportPdf.addEventListener('click', openPdfModalHandler);
     if (dom.btnImportPdfFromExportMenu) dom.btnImportPdfFromExportMenu.addEventListener('click', openPdfModalHandler);
 
     if (dom.btnCloseImportPdfModal) dom.btnCloseImportPdfModal.addEventListener('click', closeImportPdfModal);
