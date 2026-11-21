@@ -13067,6 +13067,49 @@
       });
       if (closeAfter) closeGnColorPopover();
       else renderGnColorPopover();
+      return;
+    }
+
+    if (mode === 'shape-edit') {
+      const container = document.getElementById('shapeEditColorSwatches');
+      const applyCol = (chosenHex) => {
+        const page = getActivePage();
+        const sh = getSelectedShape(page);
+        if (!page || !sh || !chosenHex) return;
+        pushHistorySnapshot(page);
+        sh.color = chosenHex;
+        invalidateStaticInkCache();
+        renderStaticInkLayerOnly();
+        renderActiveCanvasOnly();
+        updateShapeEditFloatingBar();
+        scheduleSaveActivePage(page);
+      };
+      if (container) {
+        const existing = Array.from(container.querySelectorAll('[data-shape-color]')).find(
+          (b) => (b.getAttribute('data-shape-color') || '').toLowerCase() === norm.toLowerCase()
+        );
+        if (!existing) {
+          const btnEl = document.createElement('button');
+          btnEl.type = 'button';
+          btnEl.className = 'shape-edit-swatch';
+          btnEl.setAttribute('data-shape-color', norm);
+          btnEl.style.background = norm;
+          btnEl.title = norm.toUpperCase();
+          btnEl.addEventListener('click', (ev) => {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            applyCol(norm);
+          });
+          const addBtn = document.getElementById('btnShapeEditAddColor');
+          if (addBtn && typeof container.insertBefore === 'function') {
+            container.insertBefore(btnEl, addBtn);
+          } else if (typeof container.appendChild === 'function') {
+            container.appendChild(btnEl);
+          }
+        }
+      }
+      applyCol(norm);
+      if (closeAfter) closeGnColorPopover();
+      else renderGnColorPopover();
     }
   }
 
@@ -14889,6 +14932,20 @@
           applySelectedShapeColor(sw.dataset.shapeColor);
         });
       });
+      const shapeEditAddColBtn = document.getElementById('btnShapeEditAddColor');
+      if (shapeEditAddColBtn) {
+        shapeEditAddColBtn.addEventListener('click', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          const sh = getSelectedShape();
+          openGnColorPopover({
+            mode: 'shape-edit',
+            toolKey: 'shape',
+            scopeKey: 'shape',
+            anchorEl: shapeEditAddColBtn,
+            initialColor: (sh && sh.color) || state.shapeColor || '#111827'
+          });
+        });
+      }
       const customColorInput = document.getElementById('shapeEditCustomColor');
       if (customColorInput) {
         customColorInput.addEventListener('input', (e) => {

@@ -1311,10 +1311,14 @@
             <button class="shape-edit-swatch" type="button" data-shape-color="#dc2626" style="background:#dc2626" title="Rouge"></button>
             <button class="shape-edit-swatch" type="button" data-shape-color="#16a34a" style="background:#16a34a" title="Vert"></button>
             <button class="shape-edit-swatch" type="button" data-shape-color="#d97706" style="background:#d97706" title="Orange"></button>
-            <label class="shape-edit-color-picker" title="Autre couleur">
-              <input type="color" id="shapeEditCustomColor" value="#111827" />
-              <span class="shape-edit-color-wheel"></span>
-            </label>
+            <button class="gn-add-color-btn gn-add-color-btn-sm" id="btnShapeEditAddColor" type="button" title="Ajouter une couleur sélectionnable" aria-label="Ajouter une couleur de forme">
+              <svg class="gn-add-dashed-svg" width="24" height="24" viewBox="0 0 30 30" fill="none" aria-hidden="true">
+                <circle cx="14" cy="16" r="10.2" stroke="currentColor" stroke-width="2" stroke-dasharray="4.2 3.2" stroke-linecap="round"></circle>
+                <circle class="gn-add-badge-bg" cx="22.5" cy="7.5" r="6.2" fill="currentColor"></circle>
+                <path class="gn-add-badge-plus" d="M22.5 4.7V10.3M19.7 7.5H25.3" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"></path>
+              </svg>
+            </button>
+            <input type="color" id="shapeEditCustomColor" value="#111827" class="gn-sr-color-input" aria-hidden="true" tabindex="-1" />
           </div>
           <span class="shape-edit-sep"></span>
           <div class="shape-edit-group">
