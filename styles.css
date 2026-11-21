@@ -7161,7 +7161,8 @@ html, body {
   padding: 20px;
 }
 
-.gn-tpl-backdrop.hidden {
+.gn-tpl-backdrop.hidden,
+.gn-tpl-backdrop .hidden {
   display: none !important;
 }
 

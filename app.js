@@ -5173,7 +5173,7 @@
     const pageW = pbDims.width;
     const pageH = pbDims.height;
     const isInfinite = (page.viewMode || 'infinite') === 'infinite' && !isThumbnail;
-    const invZoom = isThumbnail ? 1 : Math.min(2.5, Math.max(0.5, 1 / state.zoom));
+    const invZoom = isThumbnail ? 2.1 : Math.min(2.5, Math.max(0.5, 1 / state.zoom));
     const localePack = GN_TEMPLATE_LOCALE_TEXT[(page && page.templateLanguage) || 'fr'] || GN_TEMPLATE_LOCALE_TEXT.fr;
     let minX = 0, minY = 0, maxX = pageW, maxY = pageH;
 
