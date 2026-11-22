@@ -14537,6 +14537,13 @@
     if (typeof requestAnimationFrame === 'function') {
       requestAnimationFrame(applyPos);
     }
+    if (typeof setTimeout === 'function') {
+      if (pop._alignSettleTimer) clearTimeout(pop._alignSettleTimer);
+      pop._alignSettleTimer = setTimeout(() => {
+        pop._alignSettleTimer = null;
+        applyPos();
+      }, 210);
+    }
   }
 
   function closeGnColorPopover() {
@@ -15605,6 +15612,19 @@
     const popover = document.getElementById('gnPenPopover');
     const mainView = document.getElementById('gnPenMainView');
     const gesturesView = document.getElementById('gnPenGesturesView');
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('resize', () => {
+        if (state.gnPenPopoverOpen || state.gnPencilPopoverOpen || state.gnHighlighterPopoverOpen || state.gnTapePopoverOpen || state.gnStrokePopoverOpen || state.gnShapeStrokePopoverOpen) {
+          syncGnPenSubBarUi();
+        }
+        if (state.gnEraserModePopoverOpen || state.gnEraserAdvPopoverOpen || state.gnEraserSizePopoverOpen) {
+          syncGnEraserSubBarUi();
+        }
+        if (gnColorPopoverState && gnColorPopoverState.open && gnColorPopoverState.anchorEl) {
+          positionGnColorPopover(gnColorPopoverState.anchorEl);
+        }
+      });
+    }
     if (!subBar || !popover) return;
 
     subBar.querySelectorAll('.gn-subtool-btn').forEach((btn) => {
