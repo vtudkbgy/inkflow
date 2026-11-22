@@ -14439,6 +14439,12 @@
     if (!pop || !anchorEl || typeof anchorEl.getBoundingClientRect !== 'function') return;
     const aR = anchorEl.getBoundingClientRect();
     const pR = pop.getBoundingClientRect();
+    const parentSubBar = typeof anchorEl.closest === 'function'
+      ? anchorEl.closest('.gn-pen-subbar, .gn-shape-subbar, .gn-eraser-subbar, .gn-text-subbar')
+      : null;
+    const barR = parentSubBar && typeof parentSubBar.getBoundingClientRect === 'function'
+      ? parentSubBar.getBoundingClientRect()
+      : null;
     const popW = pR.width > 0 ? pR.width : 284;
     const popH = pR.height > 0 ? pR.height : 290;
     const vw = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1200;
@@ -14448,10 +14454,13 @@
     let left = Math.round(anchorCenterX - popW * 0.5);
     left = Math.max(12, Math.min(vw - popW - 12, left));
 
-    let top = Math.round(aR.bottom + 12);
+    const refBottom = barR && barR.height > 0 ? barR.bottom : aR.bottom;
+    const refTop = barR && barR.height > 0 ? barR.top : aR.top;
+    const preferAbove = Boolean(document.body && document.body.classList && document.body.classList.contains('toolbar-pos-bottom') && barR);
+    let top = Math.round(refBottom + 10);
     let placeAbove = false;
-    if (top + popH > vh - 12 && aR.top - popH - 12 >= 12) {
-      top = Math.round(aR.top - popH - 12);
+    if ((preferAbove || top + popH > vh - 12) && refTop - popH - 10 >= 12) {
+      top = Math.round(refTop - popH - 10);
       placeAbove = true;
     } else if (top + popH > vh - 12) {
       top = Math.max(12, vh - popH - 12);
@@ -14463,6 +14472,70 @@
     if (caret) {
       const relX = Math.max(22, Math.min(popW - 22, anchorCenterX - left));
       caret.style.left = `${Math.round(relX)}px`;
+    }
+  }
+
+  function positionSubBarPopoverUnderAnchor(anchorEl, popoverId, caretId, isOpen) {
+    if (!isOpen || !anchorEl) return;
+    const pop = document.getElementById(popoverId);
+    const caret = caretId ? document.getElementById(caretId) : null;
+    if (!pop || typeof anchorEl.getBoundingClientRect !== 'function' || typeof pop.getBoundingClientRect !== 'function') return;
+
+    const applyPos = () => {
+      if (pop.classList && pop.classList.contains('hidden')) return;
+      const aR = anchorEl.getBoundingClientRect();
+      const pR = pop.getBoundingClientRect();
+      if (!aR || aR.width <= 0) return;
+
+      const parentSubBar = typeof anchorEl.closest === 'function'
+        ? anchorEl.closest('.gn-pen-subbar, .gn-shape-subbar, .gn-eraser-subbar, .gn-text-subbar')
+        : null;
+      const barR = parentSubBar && typeof parentSubBar.getBoundingClientRect === 'function'
+        ? parentSubBar.getBoundingClientRect()
+        : null;
+
+      const popW = pR.width > 0 ? pR.width : (pop.offsetWidth || 316);
+      const popH = pR.height > 0 ? pR.height : (pop.offsetHeight || 240);
+      const vw = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1200;
+      const vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
+
+      const anchorCenterX = aR.left + aR.width * 0.5;
+      let left = Math.round(anchorCenterX - popW * 0.5);
+      left = Math.max(12, Math.min(vw - popW - 12, left));
+
+      const refBottom = barR && barR.height > 0 ? barR.bottom : aR.bottom;
+      const refTop = barR && barR.height > 0 ? barR.top : aR.top;
+      const preferAbove = Boolean(document.body && document.body.classList && document.body.classList.contains('toolbar-pos-bottom') && barR);
+      let top = Math.round(refBottom + 10);
+      let placeAbove = false;
+      if ((preferAbove || top + popH > vh - 12) && refTop - popH - 10 >= 12) {
+        top = Math.round(refTop - popH - 10);
+        placeAbove = true;
+      } else if (top + popH > vh - 12) {
+        top = Math.max(12, vh - popH - 12);
+      }
+
+      pop.style.left = `${left}px`;
+      pop.style.top = `${top}px`;
+      pop.classList.toggle('caret-bottom', placeAbove);
+
+      if (caret) {
+        const relX = Math.max(22, Math.min(popW - 22, anchorCenterX - left));
+        caret.style.left = `${Math.round(relX)}px`;
+      }
+
+      if (popoverId === 'gnPenPopover') {
+        const gesturesEl = document.getElementById('gnPenGesturesView');
+        if (gesturesEl) {
+          const openLeft = (left + popW + 318) > (vw - 12) && (left - 318) >= 12;
+          gesturesEl.classList.toggle('open-left', openLeft);
+        }
+      }
+    };
+
+    applyPos();
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(applyPos);
     }
   }
 
@@ -15268,14 +15341,7 @@
         shPop.querySelectorAll('#gnShapeEndArrowCol .gn-arrowhead-opt').forEach((opt) => {
           opt.classList.toggle('active', opt.dataset.arrowStyle === endAr);
         });
-        const shCaret = document.getElementById('gnShapeStrokePopoverCaret');
-        if (shCaret && shapeThickBtnEl && state.gnShapeStrokePopoverOpen && typeof shapeThickBtnEl.getBoundingClientRect === 'function' && typeof shPop.getBoundingClientRect === 'function') {
-          const aR = shapeThickBtnEl.getBoundingClientRect();
-          const pR = shPop.getBoundingClientRect();
-          if (aR.width > 0 && pR.width > 0) {
-            shCaret.style.left = `${Math.round(Math.max(24, Math.min(pR.width - 24, (aR.left + aR.width * 0.5) - pR.left)))}px`;
-          }
-        }
+        positionSubBarPopoverUnderAnchor(shapeThickBtnEl, 'gnShapeStrokePopover', 'gnShapeStrokePopoverCaret', state.gnShapeStrokePopoverOpen);
       }
     }
 
@@ -15328,19 +15394,6 @@
       }
     });
 
-    const alignSubBarCaret = (anchorEl, popoverId, caretId, isOpen) => {
-      if (!isOpen || !anchorEl) return;
-      const pop = document.getElementById(popoverId);
-      const caret = document.getElementById(caretId);
-      if (!pop || !caret || typeof anchorEl.getBoundingClientRect !== 'function' || typeof pop.getBoundingClientRect !== 'function') return;
-      const aRect = anchorEl.getBoundingClientRect();
-      const pRect = pop.getBoundingClientRect();
-      if (aRect.width > 0 && pRect.width > 0) {
-        const relX = Math.max(24, Math.min(pRect.width - 24, (aRect.left + aRect.width * 0.5) - pRect.left));
-        caret.style.left = `${Math.round(relX)}px`;
-      }
-    };
-
     // Mise à jour du popover "Réglages Du Trait" (style GoodNotes 6)
     const strokePopover = document.getElementById('gnStrokePopover');
     if (strokePopover) {
@@ -15365,7 +15418,7 @@
         wedgeSlider.step = String(sliderCfg.step);
         wedgeSlider.value = String(Math.max(sliderCfg.min, Math.min(sliderCfg.max, curSize)));
       }
-      alignSubBarCaret(thickBtns[activeSlotIdx], 'gnStrokePopover', 'gnStrokePopoverCaret', state.gnStrokePopoverOpen);
+      positionSubBarPopoverUnderAnchor(thickBtns[activeSlotIdx], 'gnStrokePopover', 'gnStrokePopoverCaret', state.gnStrokePopoverOpen);
     }
 
     // Pastilles de couleurs dynamiques propres à l'outil actif (Stylo, Crayon, Surligneur, Ruban) — style GoodNotes 6
@@ -15380,7 +15433,7 @@
     if (pencilHoldSw) pencilHoldSw.checked = Boolean(state.pencilDrawAndHold);
     if (state.gnPencilPopoverOpen) {
       renderGnPencilPreviewCanvas();
-      alignSubBarCaret(document.getElementById('gnSubToolPencil'), 'gnPencilPopover', 'gnPencilPopoverCaret', true);
+      positionSubBarPopoverUnderAnchor(document.getElementById('gnSubToolPencil'), 'gnPencilPopover', 'gnPencilPopoverCaret', true);
     }
 
     // Mise à jour du popover Surligneur (Stabilisation + Tracer en ligne droite)
@@ -15397,26 +15450,17 @@
     const hlStraightSw = document.getElementById('gnHighlighterStraightSwitch');
     if (hlStraightSw) hlStraightSw.checked = Boolean(state.highlighterAutoStraighten);
     if (state.gnHighlighterPopoverOpen) {
-      alignSubBarCaret(document.getElementById('gnSubToolHighlighter'), 'gnHighlighterPopover', 'gnHighlighterPopoverCaret', true);
+      positionSubBarPopoverUnderAnchor(document.getElementById('gnSubToolHighlighter'), 'gnHighlighterPopover', 'gnHighlighterPopoverCaret', true);
     }
     const tapeStraightSw = document.getElementById('gnTapeStraightSwitch');
     if (tapeStraightSw) tapeStraightSw.checked = Boolean(state.tapeForceStraight);
     const tapePrevBar = document.getElementById('gnTapePreviewBar');
     if (tapePrevBar) tapePrevBar.setAttribute('fill', state.tapeColor || '#ff5f67');
     if (state.gnTapePopoverOpen) {
-      alignSubBarCaret(document.getElementById('gnSubToolTape'), 'gnTapePopover', 'gnTapePopoverCaret', true);
+      positionSubBarPopoverUnderAnchor(document.getElementById('gnSubToolTape'), 'gnTapePopover', 'gnTapePopoverCaret', true);
     }
     if (state.gnPenPopoverOpen) {
-      const penCaret = document.querySelector('#gnPenPopover .gn-pen-popover-caret');
-      const penAnchor = document.getElementById('gnSubToolPen');
-      const penPop = document.getElementById('gnPenPopover');
-      if (penCaret && penAnchor && penPop && typeof penAnchor.getBoundingClientRect === 'function' && typeof penPop.getBoundingClientRect === 'function') {
-        const aR = penAnchor.getBoundingClientRect();
-        const pR = penPop.getBoundingClientRect();
-        if (aR.width > 0 && pR.width > 0) {
-          penCaret.style.left = `${Math.round(Math.max(24, Math.min(pR.width - 24, (aR.left + aR.width * 0.5) - pR.left)))}px`;
-        }
-      }
+      positionSubBarPopoverUnderAnchor(document.getElementById('gnSubToolPen'), 'gnPenPopover', 'gnPenPopoverCaret', true);
     }
 
     // Mise à jour du popover Réglages du stylo
@@ -15550,22 +15594,10 @@
     const sizeSlider = document.getElementById('gnEraserSizeSlider');
     if (sizeSlider) sizeSlider.value = String(Math.max(4, Math.min(56, curSize)));
 
-    // Alignement dynamique des flèches de pointage sous les boutons de la barre gomme
-    const alignCaret = (anchorEl, popoverId, caretId, isOpen) => {
-      if (!isOpen || !anchorEl) return;
-      const pop = document.getElementById(popoverId);
-      const caret = document.getElementById(caretId);
-      if (!pop || !caret || typeof anchorEl.getBoundingClientRect !== 'function' || typeof pop.getBoundingClientRect !== 'function') return;
-      const aRect = anchorEl.getBoundingClientRect();
-      const pRect = pop.getBoundingClientRect();
-      if (aRect.width > 0 && pRect.width > 0) {
-        const relX = Math.max(24, Math.min(pRect.width - 24, (aRect.left + aRect.width * 0.5) - pRect.left));
-        caret.style.left = `${Math.round(relX)}px`;
-      }
-    };
-    alignCaret(modeBtn, 'gnEraserModePopover', 'gnEraserModeCaret', state.gnEraserModePopoverOpen);
-    alignCaret(advBtn, 'gnEraserAdvPopover', 'gnEraserAdvCaret', state.gnEraserAdvPopoverOpen);
-    alignCaret(sizeBtns[activeSlotIdx], 'gnEraserSizePopover', 'gnEraserSizeCaret', state.gnEraserSizePopoverOpen);
+    // Positionnement et alignement dynamique des menus & pointes sous chaque bouton de la barre gomme
+    positionSubBarPopoverUnderAnchor(modeBtn, 'gnEraserModePopover', 'gnEraserModeCaret', state.gnEraserModePopoverOpen);
+    positionSubBarPopoverUnderAnchor(advBtn, 'gnEraserAdvPopover', 'gnEraserAdvCaret', state.gnEraserAdvPopoverOpen);
+    positionSubBarPopoverUnderAnchor(sizeBtns[activeSlotIdx], 'gnEraserSizePopover', 'gnEraserSizeCaret', state.gnEraserSizePopoverOpen);
   }
 
   function bindGoodNotesPenSubBarEvents() {
@@ -17759,6 +17791,11 @@
           closeImageCropModal();
           return;
         }
+        const cloudMod = document.getElementById('modalGoogleDrive');
+        if (cloudMod && !cloudMod.classList.contains('hidden')) {
+          cloudMod.classList.add('hidden');
+          return;
+        }
         if (state.filesPageOpen) {
           const newMenu = document.getElementById('gnFilesNewMenu');
           const ctxMenu = document.getElementById('gnFilesContextMenu');
@@ -18084,8 +18121,10 @@
   function updateGdriveStatusUi(text, connected = false) {
     const txt = document.getElementById('gdriveStatusText');
     const dot = document.getElementById('gdriveStatusDot');
+    const banner = document.getElementById('gdriveStatusBanner');
     if (txt) txt.textContent = text;
     if (dot) dot.style.background = connected ? '#16a34a' : '#94a3b8';
+    if (banner && banner.classList) banner.classList.toggle('is-connected', Boolean(connected));
   }
 
   async function syncToLocalDriveFolderNow() {
@@ -19465,9 +19504,29 @@
       }
     });
 
-    // 4. Sauvegarde Google Drive (Dossier Drive Desktop + API v3)
+    // 4. Sauvegarde Cloud (Dossier local synchronisé + Google Drive API v3)
     const gdModal = document.getElementById('modalGoogleDrive');
     const inputClient = document.getElementById('inputGdriveClientId');
+    const setCloudBackupTab = (tab) => {
+      const isApi = tab === 'api';
+      const localPanel = document.getElementById('cloudTabLocal');
+      const apiPanel = document.getElementById('cloudTabApi');
+      const btnLocal = document.getElementById('btnCloudTabLocal');
+      const btnApi = document.getElementById('btnCloudTabApi');
+      if (localPanel) localPanel.classList.toggle('hidden', isApi);
+      if (apiPanel) apiPanel.classList.toggle('hidden', !isApi);
+      if (btnLocal) {
+        btnLocal.classList.toggle('active', !isApi);
+        btnLocal.setAttribute('aria-selected', isApi ? 'false' : 'true');
+      }
+      if (btnApi) {
+        btnApi.classList.toggle('active', isApi);
+        btnApi.setAttribute('aria-selected', isApi ? 'true' : 'false');
+      }
+    };
+    document.querySelectorAll('#modalGoogleDrive [data-cloud-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => setCloudBackupTab(btn.dataset.cloudTab));
+    });
     try {
       state.gdriveClientId = localStorage.getItem('inkflow_gdrive_client_id') || '';
       state.gdriveAccessToken = localStorage.getItem('inkflow_gdrive_token') || '';
@@ -19475,7 +19534,10 @@
       if (inputClient && state.gdriveClientId) inputClient.value = state.gdriveClientId;
       const chk = document.getElementById('chkGdriveAutoBackup');
       if (chk) chk.checked = state.gdriveAutoBackup;
-      if (state.gdriveAccessToken) updateGdriveStatusUi('Token Google Drive enregistré — prêt à sauvegarder.', true);
+      if (state.gdriveAccessToken) {
+        updateGdriveStatusUi('Google Drive connecté', true);
+        setCloudBackupTab('api');
+      }
     } catch (_) {}
 
     document.getElementById('btnOpenGoogleDrive')?.addEventListener('click', () => {
@@ -19487,6 +19549,11 @@
     document.getElementById('btnDoneGoogleDriveModal')?.addEventListener('click', () => {
       if (gdModal) gdModal.classList.add('hidden');
     });
+    if (gdModal) {
+      gdModal.addEventListener('click', (ev) => {
+        if (ev.target === gdModal) gdModal.classList.add('hidden');
+      });
+    }
 
     document.getElementById('btnPickLocalDriveFolder')?.addEventListener('click', async () => {
       if (typeof window.showDirectoryPicker !== 'function') {

@@ -625,7 +625,7 @@
 
         <!-- POPOVER RÉGLAGES DU STYLO & GESTES AU STYLET (STYLE GOODNOTES) -->
         <div class="gn-pen-popover hidden" id="gnPenPopover" role="dialog" aria-label="Réglages du stylo">
-          <div class="gn-pen-popover-caret"></div>
+          <div class="gn-pen-popover-caret" id="gnPenPopoverCaret"></div>
 
           <!-- VUE 1 : RÉGLAGES DU STYLO -->
           <div class="gn-pen-view" id="gnPenMainView">
@@ -2333,50 +2333,77 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
     </div>
   </div>
 
-  <!-- MODAL : SAUVEGARDE & SYNCHRONISATION GOOGLE DRIVE (STYLE GOODNOTES) -->
-  <div class="modal-backdrop hidden" id="modalGoogleDrive">
-    <div class="modal-card" style="max-width:520px;">
-      <div class="modal-header">
-        <h3>☁ Sauvegarde Google Drive</h3>
-        <button class="icon-btn-tiny" id="btnCloseGoogleDriveModal">✕</button>
+  <!-- MODAL : SAUVEGARDE CLOUD ÉPURÉE -->
+  <div class="modal-backdrop hidden" id="modalGoogleDrive" role="dialog" aria-modal="true" aria-labelledby="cloudBackupModalTitle">
+    <div class="modal-card cloud-backup-card">
+      <div class="cloud-modal-head">
+        <div class="cloud-modal-title-wrap">
+          <span class="cloud-modal-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+            </svg>
+          </span>
+          <h3 id="cloudBackupModalTitle">Sauvegarde Cloud</h3>
+        </div>
+        <button class="cloud-close-btn" id="btnCloseGoogleDriveModal" type="button" title="Fermer" aria-label="Fermer">✕</button>
       </div>
-      <div class="gn-gdrive-status-banner" id="gdriveStatusBanner">
+
+      <div class="cloud-status-pill" id="gdriveStatusBanner">
         <span class="status-dot" id="gdriveStatusDot"></span>
-        <span id="gdriveStatusText">Non connecté — choisissez le dossier Drive Desktop ou l'API Google Drive.</span>
+        <span id="gdriveStatusText">Non configuré</span>
       </div>
 
-      <div class="gn-gdrive-section">
-        <div class="gn-gdrive-section-title">Option 1 (Recommandée sur Windows) : Dossier Google Drive Desktop</div>
-        <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 8px;">
-          Sélectionnez votre dossier local synchronisé (ex. <code>G:\Mon Drive\Inkflow</code>) : sauvegarde instantanée sans aucune clé OAuth.
+      <div class="cloud-mode-seg" role="tablist" aria-label="Mode de sauvegarde Cloud">
+        <button class="cloud-seg-btn active" id="btnCloudTabLocal" type="button" data-cloud-tab="local" role="tab" aria-selected="true">Dossier local</button>
+        <button class="cloud-seg-btn" id="btnCloudTabApi" type="button" data-cloud-tab="api" role="tab" aria-selected="false">Google Drive API</button>
+      </div>
+
+      <!-- ONGLET 1 : DOSSIER LOCAL SYNCHRONISÉ -->
+      <div class="cloud-tab-panel" id="cloudTabLocal" role="tabpanel">
+        <p class="cloud-desc">
+          Enregistrez vos cahiers dans un dossier déjà synchronisé (Google Drive, OneDrive, iCloud…).
         </p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn-primary" id="btnPickLocalDriveFolder" type="button">📂 Choisir dossier Drive local</button>
-          <button class="btn-secondary" id="btnSyncLocalDriveNow" type="button" disabled>☁ Sauvegarder dans ce dossier</button>
+        <div class="cloud-actions-row">
+          <button class="cloud-btn-primary" id="btnPickLocalDriveFolder" type="button">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 7a2 2 0 0 1 2-2h4.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+            </svg>
+            <span>Choisir un dossier</span>
+          </button>
+          <button class="cloud-btn-secondary" id="btnSyncLocalDriveNow" type="button" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="16 16 12 12 8 16"></polyline>
+              <line x1="12" y1="12" x2="12" y2="21"></line>
+              <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path>
+            </svg>
+            <span>Sauvegarder</span>
+          </button>
         </div>
       </div>
 
-      <div class="gn-gdrive-section">
-        <div class="gn-gdrive-section-title">Option 2 : Connexion directe Google Drive API v3 (OAuth)</div>
-        <div class="form-field" style="margin-bottom:8px;">
-          <label for="inputGdriveClientId">Google OAuth Client ID (ou Access Token direct)</label>
-          <input type="text" id="inputGdriveClientId" class="form-input" placeholder="123456-xxx.apps.googleusercontent.com ou ya29.xxx" />
+      <!-- ONGLET 2 : GOOGLE DRIVE API (OAUTH) -->
+      <div class="cloud-tab-panel hidden" id="cloudTabApi" role="tabpanel">
+        <div class="cloud-input-row">
+          <input type="text" id="inputGdriveClientId" class="cloud-input" placeholder="Client ID OAuth ou jeton ya29…" aria-label="Google OAuth Client ID ou jeton d'accès" />
+          <button class="cloud-btn-secondary cloud-btn-compact" id="btnGdriveConnect" type="button">Connecter</button>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-          <button class="btn-secondary" id="btnGdriveConnect" type="button">🔗 Connecter Google Drive</button>
-          <button class="btn-primary" id="btnGdriveBackupNow" type="button">☁ Sauvegarder sur Drive</button>
-          <button class="btn-secondary" id="btnGdriveListBackups" type="button">🔄 Voir sauvegardes</button>
+        <div class="cloud-actions-row">
+          <button class="cloud-btn-primary" id="btnGdriveBackupNow" type="button">Sauvegarder</button>
+          <button class="cloud-btn-secondary" id="btnGdriveListBackups" type="button">Historique</button>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
-          <input type="checkbox" id="chkGdriveAutoBackup" />
-          <span>Sauvegarde automatique toutes les 5 minutes quand connecté</span>
-        </label>
         <div class="gn-gdrive-backups-list" id="gdriveBackupsList"></div>
       </div>
 
-      <div class="modal-actions">
-        <button class="btn-secondary" id="btnDoneGoogleDriveModal">Fermer</button>
-      </div>
+      <label class="cloud-auto-row">
+        <span class="cloud-auto-text">
+          <span class="cloud-auto-title">Sauvegarde automatique</span>
+          <span class="cloud-auto-sub">Toutes les 5 minutes</span>
+        </span>
+        <span class="gn-ios-switch">
+          <input type="checkbox" id="chkGdriveAutoBackup" />
+          <span class="gn-ios-slider"></span>
+        </span>
+      </label>
     </div>
   </div>
 
