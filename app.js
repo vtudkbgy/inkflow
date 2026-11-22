@@ -2941,6 +2941,21 @@
     eraserFilters: { pen: true, pencil: true, highlighter: true, tape: true },
     lassoMode: 'freehand',
     lassoStartWorld: null,
+    lassoFilters: { handwriting: true, shapes: true, texts: true, images: true },
+    gnLassoFilterPopoverOpen: false,
+    gnLassoAlignPopoverOpen: false,
+    splitView: {
+      open: false,
+      notebookId: null,
+      pageId: null,
+      ratio: 0.5,
+      zoom: 0.72,
+      panX: 28,
+      panY: 24,
+      isPanning: false,
+      panStartScreen: { x: 0, y: 0 },
+      panStartOffset: { x: 0, y: 0 }
+    },
     shapeType: 'auto',
     shapeFilled: false,
     shapeLineStyle: 'solid',
@@ -3053,7 +3068,7 @@
     pinchLastCenter: { x: 0, y: 0 },
     // Lasso
     lassoPolygon: [],
-    selectedIds: { strokes: new Set(), shapes: new Set(), texts: new Set() },
+    selectedIds: { strokes: new Set(), shapes: new Set(), texts: new Set(), images: new Set() },
     selectionBounds: null,
     lassoAction: null,
     lassoDragStartWorld: null,
@@ -3272,6 +3287,32 @@
       }));
     } catch (_) {}
   }
+
+  function saveLassoPrefs() {
+    try {
+      localStorage.setItem('inkflow_lasso_prefs_v1', JSON.stringify({
+        lassoMode: state.lassoMode,
+        lassoFilters: { ...state.lassoFilters }
+      }));
+    } catch (_) {}
+  }
+  try {
+    const savedLassoRaw = localStorage.getItem('inkflow_lasso_prefs_v1');
+    if (savedLassoRaw) {
+      const lp = JSON.parse(savedLassoRaw);
+      if (lp && typeof lp === 'object') {
+        if (lp.lassoMode === 'freehand' || lp.lassoMode === 'rect') state.lassoMode = lp.lassoMode;
+        if (lp.lassoFilters && typeof lp.lassoFilters === 'object') {
+          state.lassoFilters = {
+            handwriting: lp.lassoFilters.handwriting !== false,
+            shapes: lp.lassoFilters.shapes !== false,
+            texts: lp.lassoFilters.texts !== false,
+            images: lp.lassoFilters.images !== false
+          };
+        }
+      }
+    }
+  } catch (_) {}
 
   const TOOL_PREFS_STORAGE_KEY = 'inkflow_tool_prefs_v1';
 
@@ -5175,7 +5216,8 @@
     // Images / Stickers Goodnotes sur la page infinie (déplaçables & redimensionnables)
     (page.images || []).forEach((imgItem) => {
       const wrap = document.createElement('div');
-      wrap.className = 'world-image-card';
+      const isImgSel = Boolean(state.selectedIds.images && state.selectedIds.images.has(imgItem.id));
+      wrap.className = `world-image-card${isImgSel ? ' selected' : ''}`;
       wrap.dataset.imageId = imgItem.id;
       wrap.style.left = `${imgItem.x}px`;
       wrap.style.top = `${imgItem.y}px`;
@@ -9324,6 +9366,9 @@
     if (state.selectedTextId || state.editingTextId) {
       updateTextEditFloatingBar();
     }
+    if (state.splitView && state.splitView.open && page && state.splitView.pageId === page.id) {
+      scheduleSplitPaneRender();
+    }
 
     renderPerfStats.staticRenderCount++;
     renderPerfStats.lastStaticRenderMs = performance.now() - t0;
@@ -9974,6 +10019,10 @@
       e.target.closest('.text-edit-bar') ||
       e.target.closest('.gn-text-subbar') ||
       e.target.closest('.gn-text-popover') ||
+      e.target.closest('.gn-lasso-subbar') ||
+      e.target.closest('.gn-lasso-popover') ||
+      e.target.closest('.split-secondary-pane') ||
+      e.target.closest('.split-resizer') ||
       e.target.closest('.radial-color-wheel')
     )) {
       return;
@@ -11353,17 +11402,25 @@
   // ============================================================================
 
   function hasAnyLassoSelection() {
-    return state.selectedIds.strokes.size > 0 || state.selectedIds.shapes.size > 0 || state.selectedIds.texts.size > 0;
+    return (
+      state.selectedIds.strokes.size > 0 ||
+      state.selectedIds.shapes.size > 0 ||
+      state.selectedIds.texts.size > 0 ||
+      (state.selectedIds.images && state.selectedIds.images.size > 0)
+    );
   }
   function clearLassoSelection() {
     state.lassoPolygon = [];
     state.selectedIds.strokes.clear();
     state.selectedIds.shapes.clear();
     state.selectedIds.texts.clear();
+    if (state.selectedIds.images) state.selectedIds.images.clear();
     state.selectionBounds = null;
     state.lassoAction = null;
+    state.gnLassoAlignPopoverOpen = false;
     updateLassoToolbarBadge();
     updateLassoFloatingBarPosition();
+    if (typeof syncGnLassoSubBarUi === 'function') syncGnLassoSubBarUi();
   }
   function pointInPolygon(x, y, poly) {
     let inside = false;
@@ -11396,6 +11453,13 @@
       if (state.selectedIds.texts.has(tb.id)) {
         minX = Math.min(minX, tb.x); minY = Math.min(minY, tb.y);
         maxX = Math.max(maxX, tb.x + (tb.width || 240)); maxY = Math.max(maxY, tb.y + 60);
+      }
+    });
+    (page.images || []).forEach((img) => {
+      if (state.selectedIds.images && state.selectedIds.images.has(img.id)) {
+        minX = Math.min(minX, img.x || 0); minY = Math.min(minY, img.y || 0);
+        maxX = Math.max(maxX, (img.x || 0) + (img.width || 240));
+        maxY = Math.max(maxY, (img.y || 0) + (img.height || 180));
       }
     });
     state.selectionBounds = minX < Infinity ? { minX: minX - 10, minY: minY - 10, maxX: maxX + 10, maxY: maxY + 10 } : null;
@@ -11503,6 +11567,12 @@
           if (orig) { tb.x = orig.x + dx; tb.y = orig.y + dy; }
         }
       });
+      (page.images || []).forEach((img, idx) => {
+        if (state.selectedIds.images && state.selectedIds.images.has(img.id)) {
+          const orig = state.lassoInitialSnapshot.images && state.lassoInitialSnapshot.images[idx];
+          if (orig) { img.x = Math.round(orig.x + dx); img.y = Math.round(orig.y + dy); }
+        }
+      });
       invalidateStaticInkCache();
       computeSelectionBounds();
       renderWorldTextCards();
@@ -11558,6 +11628,17 @@
         }
       }
     });
+    (page.images || []).forEach((img, idx) => {
+      if (state.selectedIds.images && state.selectedIds.images.has(img.id)) {
+        const orig = state.lassoInitialSnapshot.images && state.lassoInitialSnapshot.images[idx];
+        if (orig) {
+          img.x = Math.round(ox + (orig.x - ox) * sx);
+          img.y = Math.round(oy + (orig.y - oy) * sy);
+          img.width = Math.max(40, Math.round((orig.width || 240) * sx));
+          img.height = Math.max(32, Math.round((orig.height || 180) * sy));
+        }
+      }
+    });
   }
 
   function handleLassoPointerUp() {
@@ -11565,22 +11646,46 @@
     if (!page) return;
     if (state.lassoAction === 'draw') {
       if (state.lassoPolygon.length >= 3) {
-        (page.strokes || []).forEach((s) => {
-          const inside = s.points.filter((p) => pointInPolygon(p.x, p.y, state.lassoPolygon)).length;
-          if (inside > 0 && inside >= Math.min(2, s.points.length * 0.25)) state.selectedIds.strokes.add(s.id);
-        });
-        (page.shapes || []).forEach((sh) => {
-          const verts = getShapeVertices(sh);
-          const samples = verts ? [...verts, { x: (sh.x1 + sh.x2) / 2, y: (sh.y1 + sh.y2) / 2 }] : [
-            { x: (sh.x1 + sh.x2) / 2, y: (sh.y1 + sh.y2) / 2 },
-            { x: sh.x1, y: sh.y1 },
-            { x: sh.x2, y: sh.y2 }
-          ];
-          if (samples.some((pt) => pointInPolygon(pt.x, pt.y, state.lassoPolygon))) state.selectedIds.shapes.add(sh.id);
-        });
-        (page.texts || []).forEach((tb) => {
-          if (pointInPolygon(tb.x + 30, tb.y + 15, state.lassoPolygon)) state.selectedIds.texts.add(tb.id);
-        });
+        const filters = state.lassoFilters || { handwriting: true, shapes: true, texts: true, images: true };
+        if (filters.handwriting !== false) {
+          (page.strokes || []).forEach((s) => {
+            const inside = s.points.filter((p) => pointInPolygon(p.x, p.y, state.lassoPolygon)).length;
+            if (inside > 0 && inside >= Math.min(2, s.points.length * 0.25)) state.selectedIds.strokes.add(s.id);
+          });
+        }
+        if (filters.shapes !== false) {
+          (page.shapes || []).forEach((sh) => {
+            const verts = getShapeVertices(sh);
+            const samples = verts ? [...verts, { x: (sh.x1 + sh.x2) / 2, y: (sh.y1 + sh.y2) / 2 }] : [
+              { x: (sh.x1 + sh.x2) / 2, y: (sh.y1 + sh.y2) / 2 },
+              { x: sh.x1, y: sh.y1 },
+              { x: sh.x2, y: sh.y2 }
+            ];
+            if (samples.some((pt) => pointInPolygon(pt.x, pt.y, state.lassoPolygon))) state.selectedIds.shapes.add(sh.id);
+          });
+        }
+        if (filters.texts !== false) {
+          (page.texts || []).forEach((tb) => {
+            const tx = tb.x || 0, ty = tb.y || 0, tw = tb.width || 200;
+            const samples = [
+              { x: tx + tw * 0.5, y: ty + 20 },
+              { x: tx + 24, y: ty + 15 },
+              { x: tx + tw - 24, y: ty + 15 }
+            ];
+            if (samples.some((pt) => pointInPolygon(pt.x, pt.y, state.lassoPolygon))) state.selectedIds.texts.add(tb.id);
+          });
+        }
+        if (filters.images !== false && state.selectedIds.images) {
+          (page.images || []).forEach((img) => {
+            const ix = img.x || 0, iy = img.y || 0, iw = img.width || 240, ih = img.height || 180;
+            const samples = [
+              { x: ix + iw * 0.5, y: iy + ih * 0.5 },
+              { x: ix + iw * 0.25, y: iy + ih * 0.25 },
+              { x: ix + iw * 0.75, y: iy + ih * 0.75 }
+            ];
+            if (samples.some((pt) => pointInPolygon(pt.x, pt.y, state.lassoPolygon))) state.selectedIds.images.add(img.id);
+          });
+        }
       }
       state.lassoPolygon = [];
       invalidateStaticInkCache();
@@ -11593,26 +11698,32 @@
     state.lassoAction = null;
     state.lassoInitialSnapshot = null;
     updateLassoFloatingBarPosition();
+    if (typeof syncGnLassoSubBarUi === 'function') syncGnLassoSubBarUi();
   }
 
   function updateLassoToolbarBadge() {
-    const total = state.selectedIds.strokes.size + state.selectedIds.shapes.size + state.selectedIds.texts.size;
+    const total =
+      state.selectedIds.strokes.size +
+      state.selectedIds.shapes.size +
+      state.selectedIds.texts.size +
+      (state.selectedIds.images ? state.selectedIds.images.size : 0);
     const has = total > 0;
-    dom.lassoSelectionBadge.textContent = has ? `${total} sélectionné${total > 1 ? 's' : ''}` : 'Entourez des traits';
-    dom.btnDuplicateSelection.disabled = !has;
-    dom.btnScaleUpSelection.disabled = !has;
-    dom.btnScaleDownSelection.disabled = !has;
-    dom.btnDeleteSelection.disabled = !has;
+    if (dom.lassoSelectionBadge) dom.lassoSelectionBadge.textContent = has ? `${total} sélectionné${total > 1 ? 's' : ''}` : 'Entourez des traits';
+    if (dom.btnDuplicateSelection) dom.btnDuplicateSelection.disabled = !has;
+    if (dom.btnScaleUpSelection) dom.btnScaleUpSelection.disabled = !has;
+    if (dom.btnScaleDownSelection) dom.btnScaleDownSelection.disabled = !has;
+    if (dom.btnDeleteSelection) dom.btnDeleteSelection.disabled = !has;
     if (state.tool === 'lasso' && dom.activeToolSummaryText) {
       dom.activeToolSummaryText.textContent = has ? `${total} sél.` : 'Options';
     }
+    if (typeof syncGnLassoSubBarUi === 'function') syncGnLassoSubBarUi();
   }
 
   function duplicateLassoSelection() {
     const page = getActivePage();
     if (!page || !hasAnyLassoSelection()) return;
     pushHistorySnapshot();
-    const ns = new Set(), nsh = new Set(), nt = new Set(), off = 28;
+    const ns = new Set(), nsh = new Set(), nt = new Set(), ni = new Set(), off = 28;
     page.strokes.forEach((s) => {
       if (state.selectedIds.strokes.has(s.id)) {
         const c = { ...cloneStrokeFast(s), id: createUid('st'), points: s.points.map((p) => ({ ...p, x: p.x + off, y: p.y + off })), _bounds: null };
@@ -11629,11 +11740,18 @@
     });
     page.texts.forEach((tb) => {
       if (state.selectedIds.texts.has(tb.id)) {
-        const c = { ...tb, id: createUid('tx'), x: tb.x + off, y: tb.y + off };
+        const c = { ...tb, id: createUid('tx'), x: tb.x + off, y: tb.y + off, frameStyle: tb.frameStyle ? { ...tb.frameStyle } : undefined };
         page.texts.push(c); nt.add(c.id);
       }
     });
+    (page.images || []).forEach((img) => {
+      if (state.selectedIds.images && state.selectedIds.images.has(img.id)) {
+        const c = { ...img, id: createUid('img'), x: (img.x || 0) + off, y: (img.y || 0) + off };
+        page.images.push(c); ni.add(c.id);
+      }
+    });
     state.selectedIds.strokes = ns; state.selectedIds.shapes = nsh; state.selectedIds.texts = nt;
+    if (state.selectedIds.images) state.selectedIds.images = ni;
     invalidateStaticInkCache();
     computeSelectionBounds();
     updateLassoToolbarBadge();
@@ -11667,6 +11785,9 @@
     page.strokes = (page.strokes || []).filter((s) => !state.selectedIds.strokes.has(s.id));
     page.shapes = (page.shapes || []).filter((sh) => !state.selectedIds.shapes.has(sh.id));
     page.texts = (page.texts || []).filter((tb) => !state.selectedIds.texts.has(tb.id));
+    if (state.selectedIds.images && state.selectedIds.images.size > 0) {
+      page.images = (page.images || []).filter((img) => !state.selectedIds.images.has(img.id));
+    }
     invalidateStaticInkCache();
     clearLassoSelection();
     renderWorldTextCards();
@@ -11686,6 +11807,206 @@
     renderWorldTextCards();
     requestRender();
     scheduleSaveActivePage();
+  }
+
+  // Alignement gauche / centre / droite des lignes manuscrites sélectionnées (GoodNotes align_handwriting)
+  function alignLassoHandwriting(alignment = 'left') {
+    const page = getActivePage();
+    if (!page || state.selectedIds.strokes.size === 0) {
+      showToast('Sélectionnez de l\'écriture manuscrite pour l\'aligner');
+      return false;
+    }
+    const selStrokes = (page.strokes || []).filter((s) => state.selectedIds.strokes.has(s.id) && s.points && s.points.length > 0);
+    if (selStrokes.length === 0) return false;
+
+    const items = selStrokes.map((s) => {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const p of s.points) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+      return { s, minX, maxX, minY, maxY, cy: (minY + maxY) * 0.5, h: Math.max(8, maxY - minY) };
+    }).sort((a, b) => a.cy - b.cy);
+
+    // Regroupement en lignes horizontales par chevauchement vertical
+    const lines = [];
+    for (const it of items) {
+      let placed = false;
+      for (const ln of lines) {
+        const tol = Math.max(20, (ln.avgH + it.h) * 0.65);
+        if (Math.abs(it.cy - ln.cy) <= tol) {
+          ln.items.push(it);
+          ln.minX = Math.min(ln.minX, it.minX);
+          ln.maxX = Math.max(ln.maxX, it.maxX);
+          ln.cy = ln.items.reduce((acc, x) => acc + x.cy, 0) / ln.items.length;
+          ln.avgH = ln.items.reduce((acc, x) => acc + x.h, 0) / ln.items.length;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        lines.push({ items: [it], minX: it.minX, maxX: it.maxX, cy: it.cy, avgH: it.h });
+      }
+    }
+
+    const globalMinX = Math.min(...lines.map((l) => l.minX));
+    const globalMaxX = Math.max(...lines.map((l) => l.maxX));
+    const globalCenterX = (globalMinX + globalMaxX) * 0.5;
+
+    pushHistorySnapshot(page);
+    for (const ln of lines) {
+      let dx = 0;
+      if (alignment === 'left') dx = globalMinX - ln.minX;
+      else if (alignment === 'right') dx = globalMaxX - ln.maxX;
+      else if (alignment === 'center') dx = globalCenterX - (ln.minX + ln.maxX) * 0.5;
+      if (Math.abs(dx) < 0.25) continue;
+      for (const it of ln.items) {
+        it.s.points = it.s.points.map((p) => ({ ...p, x: p.x + dx }));
+        invalidateStrokeCache(it.s);
+      }
+    }
+
+    invalidateStaticInkCache();
+    computeSelectionBounds();
+    updateLassoFloatingBarPosition();
+    requestRender();
+    scheduleSaveActivePage(page);
+    const lbl = alignment === 'center' ? 'centrée' : (alignment === 'right' ? 'alignée à droite' : 'alignée à gauche');
+    showToast(`Écriture ${lbl}`);
+    return true;
+  }
+
+  // Redressement automatique de la pente d'une ligne manuscrite (GoodNotes straighten_line)
+  function straightenLassoSelection() {
+    const page = getActivePage();
+    if (!page || state.selectedIds.strokes.size === 0) {
+      showToast('Sélectionnez une ligne manuscrite à redresser');
+      return false;
+    }
+    const selStrokes = (page.strokes || []).filter((s) => state.selectedIds.strokes.has(s.id) && s.points && s.points.length > 0);
+    if (selStrokes.length === 0) return false;
+
+    // Régression linéaire pondérée sur les centres des points pour estimer l'angle de la ligne
+    let sumX = 0, sumY = 0, count = 0;
+    for (const s of selStrokes) {
+      for (const p of s.points) { sumX += p.x; sumY += p.y; count++; }
+    }
+    if (count < 2) return false;
+    const mx = sumX / count, my = sumY / count;
+    let sxx = 0, sxy = 0;
+    for (const s of selStrokes) {
+      for (const p of s.points) {
+        const dx = p.x - mx, dy = p.y - my;
+        sxx += dx * dx;
+        sxy += dx * dy;
+      }
+    }
+    if (sxx < 10) return false;
+    const angle = Math.atan2(sxy, sxx);
+    // Borne raisonnable (±35°) pour ne jamais retourner une colonne verticale
+    const clampedAngle = Math.max(-0.62, Math.min(0.62, angle));
+    if (Math.abs(clampedAngle) < 0.008) {
+      showToast('La ligne est déjà droite');
+      return true;
+    }
+
+    pushHistorySnapshot(page);
+    const cosA = Math.cos(-clampedAngle);
+    const sinA = Math.sin(-clampedAngle);
+    for (const s of selStrokes) {
+      s.points = s.points.map((p) => {
+        const dx = p.x - mx;
+        const dy = p.y - my;
+        return {
+          ...p,
+          x: mx + dx * cosA - dy * sinA,
+          y: my + dx * sinA + dy * cosA
+        };
+      });
+      invalidateStrokeCache(s);
+    }
+
+    invalidateStaticInkCache();
+    computeSelectionBounds();
+    updateLassoFloatingBarPosition();
+    requestRender();
+    scheduleSaveActivePage(page);
+    showToast('Ligne redressée');
+    return true;
+  }
+
+  // Capture d'écran haute définition (2x) de la zone sélectionnée au Lasso (GoodNotes take_screenshot)
+  async function captureLassoSelectionScreenshot() {
+    const page = getActivePage();
+    if (!page || !state.selectionBounds || !hasAnyLassoSelection()) {
+      showToast('Sélectionnez d\'abord une zone au Lasso');
+      return false;
+    }
+    const b = state.selectionBounds;
+    const pad = 12;
+    const w = Math.max(24, Math.round((b.maxX - b.minX) + pad * 2));
+    const h = Math.max(24, Math.round((b.maxY - b.minY) + pad * 2));
+    const scale = 2;
+    const cap = document.createElement('canvas');
+    cap.width = Math.min(4096, Math.round(w * scale));
+    cap.height = Math.min(4096, Math.round(h * scale));
+    const cCtx = cap.getContext('2d');
+    if (!cCtx) return false;
+
+    const effScaleX = cap.width / w;
+    const effScaleY = cap.height / h;
+    cCtx.save();
+    cCtx.scale(effScaleX, effScaleY);
+    cCtx.translate(-(b.minX - pad), -(b.minY - pad));
+
+    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
+    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    drawPaperBackground(cCtx, page, pw, ph, true);
+    if (page.pdfId) drawLockedPdfBackground(cCtx, page, false);
+
+    const isDark = !page.pdfId && (page.paperTone === 'dark' || page.paperTone === 'blueprint');
+    (page.images || []).forEach((imgItem) => {
+      const imgEl = getCachedThumbnailImage(imgItem);
+      if (imgEl && typeof cCtx.drawImage === 'function') {
+        try { cCtx.drawImage(imgEl, imgItem.x || 0, imgItem.y || 0, imgItem.width || 240, imgItem.height || 180); } catch (_) {}
+      }
+    });
+    (page.strokes || []).forEach((s) => { if (s.tool === 'highlighter') drawSingleStroke(cCtx, s, isDark, false); });
+    (page.shapes || []).forEach((sh) => drawGeometricShape(cCtx, sh, false, isDark));
+    (page.strokes || []).forEach((s) => { if (s.tool !== 'highlighter') drawSingleStroke(cCtx, s, isDark, false); });
+    (page.tapes || []).forEach((tp) => { if (!tp.revealed) drawTapeItem(cCtx, tp, false); });
+    drawTextBlocksOnCanvas(cCtx, page.texts);
+    cCtx.restore();
+
+    let copied = false;
+    try {
+      const blob = await new Promise((resolve) => (typeof cap.toBlob === 'function' ? cap.toBlob(resolve, 'image/png') : resolve(null)));
+      if (blob && navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof ClipboardItem === 'function') {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        copied = true;
+      }
+    } catch (_) {
+      copied = false;
+    }
+
+    if (!copied) {
+      try {
+        const dataUrl = cap.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = `capture-inkflow-${Date.now()}.png`;
+        a.click();
+        showToast('Capture PNG téléchargée');
+      } catch (_) {
+        showToast('Capture générée');
+      }
+    } else {
+      showToast('Capture copiée dans le presse-papiers');
+    }
+    releaseCanvasMemory(cap);
+    return true;
   }
 
   // ============================================================================
@@ -13921,13 +14242,17 @@
       syncCanonicalToToolMemory(state.tool);
       state.tool = t;
       applyToolMemoryToCanonical(t);
-      // Ouvre directement la sous-barre flottante GoodNotes au clic utilisateur sur Formes, Gomme ou Texte (mais reste fermé par défaut au démarrage / autres outils)
-      state.toolOptionsOpen = Boolean((t === 'shape' || t === 'eraser' || t === 'text') && toggleOptionsIfSame);
+      // Ouvre directement la sous-barre flottante au clic utilisateur sur Formes, Gomme, Texte ou Lasso (reste fermé au démarrage)
+      state.toolOptionsOpen = Boolean((t === 'shape' || t === 'eraser' || t === 'text' || t === 'lasso') && toggleOptionsIfSame);
     }
     if (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter') {
       state.previousWritingTool = state.tool;
     }
-    if (state.tool !== 'lasso') clearLassoSelection();
+    if (state.tool !== 'lasso') {
+      clearLassoSelection();
+      state.gnLassoFilterPopoverOpen = false;
+      state.gnLassoAlignPopoverOpen = false;
+    }
     if (state.tool !== 'text' && (state.editingTextId || state.selectedTextId)) {
       clearSelectedTextBox(true);
     }
@@ -13981,11 +14306,13 @@
     const isGnShapeBarTool = state.tool === 'shape';
     const isGnEraserBarTool = state.tool === 'eraser';
     const isGnTextBarTool = state.tool === 'text';
+    const isGnLassoBarTool = state.tool === 'lasso';
     const showGnSubBar = Boolean(state.toolOptionsOpen && isGnPenBarTool);
     const showGnShapeBar = Boolean(state.toolOptionsOpen && isGnShapeBarTool);
     const showGnEraserBar = Boolean(state.toolOptionsOpen && isGnEraserBarTool);
     const showGnTextBar = Boolean(state.toolOptionsOpen && isGnTextBarTool);
-    const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan' && !isGnPenBarTool && !isGnShapeBarTool && !isGnEraserBarTool && !isGnTextBarTool);
+    const showGnLassoBar = Boolean(state.toolOptionsOpen && isGnLassoBarTool);
+    const showDock = Boolean(state.toolOptionsOpen && state.tool !== 'pan' && !isGnPenBarTool && !isGnShapeBarTool && !isGnEraserBarTool && !isGnTextBarTool && !isGnLassoBarTool);
     dom.toolOptionsDock.classList.toggle('hidden', !showDock);
     const gnSubBarEl = document.getElementById('gnPenSubBar');
     if (gnSubBarEl) gnSubBarEl.classList.toggle('hidden', !showGnSubBar);
@@ -13995,6 +14322,8 @@
     if (gnEraserBarEl) gnEraserBarEl.classList.toggle('hidden', !showGnEraserBar);
     const gnTextBarEl = document.getElementById('gnTextSubBar');
     if (gnTextBarEl) gnTextBarEl.classList.toggle('hidden', !showGnTextBar);
+    const gnLassoBarEl = document.getElementById('gnLassoSubBar');
+    if (gnLassoBarEl) gnLassoBarEl.classList.toggle('hidden', !showGnLassoBar);
     if (!showGnSubBar) {
       state.gnPenPopoverOpen = false;
       state.gnPencilPopoverOpen = false;
@@ -14012,6 +14341,10 @@
     }
     if (!showGnTextBar && !state.selectedTextId && !state.editingTextId) {
       state.gnTextPopover = null;
+    }
+    if (!showGnLassoBar) {
+      state.gnLassoFilterPopoverOpen = false;
+      state.gnLassoAlignPopoverOpen = false;
     }
     const gnPopoverEl = document.getElementById('gnPenPopover');
     const showGnPopover = Boolean(showGnSubBar && state.gnPenPopoverOpen);
@@ -14037,6 +14370,10 @@
     if (gnEraserAdvPopoverEl) gnEraserAdvPopoverEl.classList.toggle('hidden', !Boolean(showGnEraserBar && state.gnEraserAdvPopoverOpen));
     const gnEraserSizePopoverEl = document.getElementById('gnEraserSizePopover');
     if (gnEraserSizePopoverEl) gnEraserSizePopoverEl.classList.toggle('hidden', !Boolean(showGnEraserBar && state.gnEraserSizePopoverOpen));
+    const gnLassoFilterPopEl = document.getElementById('gnLassoFilterPopover');
+    if (gnLassoFilterPopEl) gnLassoFilterPopEl.classList.toggle('hidden', !Boolean(showGnLassoBar && state.gnLassoFilterPopoverOpen));
+    const gnLassoAlignPopEl = document.getElementById('gnLassoAlignPopover');
+    if (gnLassoAlignPopEl) gnLassoAlignPopEl.classList.toggle('hidden', !Boolean(showGnLassoBar && state.gnLassoAlignPopoverOpen));
     const gnTextPopMap = {
       font: 'gnTextFontPopover',
       size: 'gnTextSizePopover',
@@ -14057,9 +14394,10 @@
     if (typeof syncGnPenSubBarUi === 'function') syncGnPenSubBarUi();
     if (typeof syncGnEraserSubBarUi === 'function') syncGnEraserSubBarUi();
     if (typeof syncGnTextSubBarUi === 'function') syncGnTextSubBarUi();
+    if (typeof syncGnLassoSubBarUi === 'function') syncGnLassoSubBarUi();
     if (dom.btnToggleToolOptions) {
-      dom.btnToggleToolOptions.classList.toggle('open', showDock || showGnSubBar || showGnShapeBar || showGnEraserBar || showGnTextBar);
-      dom.btnToggleToolOptions.setAttribute('aria-expanded', String(showDock || showGnSubBar || showGnShapeBar || showGnEraserBar || showGnTextBar));
+      dom.btnToggleToolOptions.classList.toggle('open', showDock || showGnSubBar || showGnShapeBar || showGnEraserBar || showGnTextBar || showGnLassoBar);
+      dom.btnToggleToolOptions.setAttribute('aria-expanded', String(showDock || showGnSubBar || showGnShapeBar || showGnEraserBar || showGnTextBar || showGnLassoBar));
       dom.btnToggleToolOptions.disabled = state.tool === 'pan';
     }
 
@@ -14488,7 +14826,7 @@
       if (!aR || aR.width <= 0) return;
 
       const parentSubBar = typeof anchorEl.closest === 'function'
-        ? anchorEl.closest('.gn-pen-subbar, .gn-shape-subbar, .gn-eraser-subbar, .gn-text-subbar')
+        ? anchorEl.closest('.gn-pen-subbar, .gn-shape-subbar, .gn-eraser-subbar, .gn-text-subbar, .gn-lasso-subbar')
         : null;
       const barR = parentSubBar && typeof parentSubBar.getBoundingClientRect === 'function'
         ? parentSubBar.getBoundingClientRect()
@@ -14625,6 +14963,8 @@
       recolorLassoSelection(norm);
       const lDot = document.getElementById('lassoQuickColorDot');
       if (lDot) lDot.style.background = norm;
+      const subDot = document.getElementById('gnLassoSubColorDot');
+      if (subDot) subDot.style.background = norm;
       if (closeAfter) closeGnColorPopover();
       else renderGnColorPopover();
       return;
@@ -16854,9 +17194,214 @@
     });
   }
 
+  // ============================================================================
+  // SOUS-BARRE LASSO ENRICHIE (Libre/Rect | Filtres | Alignement | Capture PNG)
+  // ============================================================================
+  function syncGnLassoSubBarUi() {
+    const bar = document.getElementById('gnLassoSubBar');
+    if (!bar) return;
+    const mode = state.lassoMode === 'rect' ? 'rect' : 'freehand';
+    const btnFree = document.getElementById('gnLassoModeFreehand');
+    const btnRect = document.getElementById('gnLassoModeRect');
+    if (btnFree) btnFree.classList.toggle('active', mode === 'freehand');
+    if (btnRect) btnRect.classList.toggle('active', mode === 'rect');
+
+    const filters = state.lassoFilters || { handwriting: true, shapes: true, texts: true, images: true };
+    const fHw = document.getElementById('gnLassoFilterHandwriting');
+    const fSh = document.getElementById('gnLassoFilterShapes');
+    const fTx = document.getElementById('gnLassoFilterTexts');
+    const fIm = document.getElementById('gnLassoFilterImages');
+    if (fHw) fHw.checked = filters.handwriting !== false;
+    if (fSh) fSh.checked = filters.shapes !== false;
+    if (fTx) fTx.checked = filters.texts !== false;
+    if (fIm) fIm.checked = filters.images !== false;
+
+    const enabledCount = [filters.handwriting, filters.shapes, filters.texts, filters.images].filter((v) => v !== false).length;
+    const filterBadge = document.getElementById('gnLassoFilterBadge');
+    if (filterBadge) {
+      filterBadge.textContent = `${enabledCount}/4`;
+      filterBadge.classList.toggle('hidden', enabledCount === 4);
+    }
+    const filterBtn = document.getElementById('gnLassoFilterBtn');
+    if (filterBtn) {
+      filterBtn.classList.toggle('active', Boolean(state.gnLassoFilterPopoverOpen || enabledCount < 4));
+      filterBtn.setAttribute('aria-expanded', String(Boolean(state.gnLassoFilterPopoverOpen)));
+    }
+
+    const total =
+      state.selectedIds.strokes.size +
+      state.selectedIds.shapes.size +
+      state.selectedIds.texts.size +
+      (state.selectedIds.images ? state.selectedIds.images.size : 0);
+    const hasSel = total > 0;
+    const hasStrokes = state.selectedIds.strokes.size > 0;
+    const countPill = document.getElementById('gnLassoCountPill');
+    if (countPill) {
+      countPill.textContent = hasSel ? `${total} sélectionné${total > 1 ? 's' : ''}` : 'Entourez des éléments';
+      countPill.classList.toggle('has-sel', hasSel);
+    }
+
+    const setDisabled = (id, dis) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = Boolean(dis);
+    };
+    setDisabled('btnGnLassoColor', !hasSel);
+    setDisabled('btnGnLassoAlign', !hasStrokes);
+    setDisabled('btnGnLassoScreenshot', !hasSel);
+    setDisabled('btnGnLassoSaveElement', !hasSel);
+    setDisabled('btnGnLassoDup', !hasSel);
+    setDisabled('btnGnLassoRecog', !hasSel);
+    setDisabled('btnGnLassoDel', !hasSel);
+
+    const alignBtn = document.getElementById('btnGnLassoAlign');
+    if (alignBtn) alignBtn.classList.toggle('active', Boolean(state.gnLassoAlignPopoverOpen));
+
+    const colorDot = document.getElementById('gnLassoSubColorDot');
+    if (colorDot) colorDot.style.background = state.penColor || '#007aff';
+
+    positionSubBarPopoverUnderAnchor(filterBtn, 'gnLassoFilterPopover', 'gnLassoFilterCaret', state.gnLassoFilterPopoverOpen);
+    positionSubBarPopoverUnderAnchor(alignBtn, 'gnLassoAlignPopover', 'gnLassoAlignCaret', state.gnLassoAlignPopoverOpen);
+  }
+
+  function bindGoodNotesLassoSubBarEvents() {
+    const btnFree = document.getElementById('gnLassoModeFreehand');
+    const btnRect = document.getElementById('gnLassoModeRect');
+    if (btnFree) {
+      btnFree.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.lassoMode = 'freehand';
+        saveLassoPrefs();
+        syncGnLassoSubBarUi();
+      });
+    }
+    if (btnRect) {
+      btnRect.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.lassoMode = 'rect';
+        saveLassoPrefs();
+        syncGnLassoSubBarUi();
+      });
+    }
+
+    const filterBtn = document.getElementById('gnLassoFilterBtn');
+    if (filterBtn) {
+      filterBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.gnLassoAlignPopoverOpen = false;
+        state.gnLassoFilterPopoverOpen = !state.gnLassoFilterPopoverOpen;
+        updateToolbarActiveState();
+      });
+    }
+
+    const bindFilterSwitch = (id, key) => {
+      const sw = document.getElementById(id);
+      if (!sw) return;
+      sw.addEventListener('change', () => {
+        if (!state.lassoFilters) state.lassoFilters = { handwriting: true, shapes: true, texts: true, images: true };
+        state.lassoFilters[key] = Boolean(sw.checked);
+        saveLassoPrefs();
+        syncGnLassoSubBarUi();
+      });
+    };
+    bindFilterSwitch('gnLassoFilterHandwriting', 'handwriting');
+    bindFilterSwitch('gnLassoFilterShapes', 'shapes');
+    bindFilterSwitch('gnLassoFilterTexts', 'texts');
+    bindFilterSwitch('gnLassoFilterImages', 'images');
+
+    const btnColor = document.getElementById('btnGnLassoColor');
+    if (btnColor) {
+      btnColor.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.gnLassoFilterPopoverOpen = false;
+        state.gnLassoAlignPopoverOpen = false;
+        updateToolbarActiveState();
+        openGnColorPopover({
+          mode: 'lasso',
+          toolKey: 'pen',
+          scopeKey: 'lasso',
+          anchorEl: btnColor,
+          initialColor: state.penColor || '#007aff'
+        });
+      });
+    }
+
+    const btnAlign = document.getElementById('btnGnLassoAlign');
+    if (btnAlign) {
+      btnAlign.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.gnLassoFilterPopoverOpen = false;
+        state.gnLassoAlignPopoverOpen = !state.gnLassoAlignPopoverOpen;
+        updateToolbarActiveState();
+      });
+    }
+
+    document.querySelectorAll('[data-gn-hwalign]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        alignLassoHandwriting(btn.dataset.gnHwalign || 'left');
+        state.gnLassoAlignPopoverOpen = false;
+        updateToolbarActiveState();
+      });
+    });
+
+    const btnStraighten = document.getElementById('btnGnLassoStraighten');
+    if (btnStraighten) {
+      btnStraighten.addEventListener('click', (e) => {
+        e.stopPropagation();
+        straightenLassoSelection();
+        state.gnLassoAlignPopoverOpen = false;
+        updateToolbarActiveState();
+      });
+    }
+
+    const btnShot = document.getElementById('btnGnLassoScreenshot');
+    if (btnShot) btnShot.addEventListener('click', (e) => { e.stopPropagation(); captureLassoSelectionScreenshot(); });
+
+    const btnQuickShot = document.getElementById('btnQuickScreenshotLasso');
+    if (btnQuickShot) btnQuickShot.addEventListener('click', (e) => { e.stopPropagation(); captureLassoSelectionScreenshot(); });
+
+    const btnQuickStraighten = document.getElementById('btnQuickStraightenLasso');
+    if (btnQuickStraighten) btnQuickStraighten.addEventListener('click', (e) => { e.stopPropagation(); straightenLassoSelection(); });
+
+    const btnSaveEl = document.getElementById('btnGnLassoSaveElement');
+    if (btnSaveEl) btnSaveEl.addEventListener('click', (e) => { e.stopPropagation(); if (typeof saveLassoSelectionAsElement === 'function') saveLassoSelectionAsElement(); });
+
+    const btnDup = document.getElementById('btnGnLassoDup');
+    if (btnDup) btnDup.addEventListener('click', (e) => { e.stopPropagation(); duplicateLassoSelection(); });
+
+    const btnRecog = document.getElementById('btnGnLassoRecog');
+    if (btnRecog) btnRecog.addEventListener('click', (e) => { e.stopPropagation(); openRecognitionModal(); });
+
+    const btnDel = document.getElementById('btnGnLassoDel');
+    if (btnDel) btnDel.addEventListener('click', (e) => { e.stopPropagation(); deleteLassoSelection(); });
+
+    document.addEventListener('pointerdown', (e) => {
+      if (!state.gnLassoFilterPopoverOpen && !state.gnLassoAlignPopoverOpen) return;
+      if (e.target && typeof e.target.closest === 'function' && (
+        e.target.closest('.gn-lasso-popover') ||
+        e.target.closest('.gn-lasso-subbar')
+      )) {
+        return;
+      }
+      state.gnLassoFilterPopoverOpen = false;
+      state.gnLassoAlignPopoverOpen = false;
+      updateToolbarActiveState();
+    });
+
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('resize', () => {
+        if (state.gnLassoFilterPopoverOpen || state.gnLassoAlignPopoverOpen) {
+          syncGnLassoSubBarUi();
+        }
+      });
+    }
+  }
+
   function bindEvents() {
     bindGoodNotesPenSubBarEvents();
     bindGoodNotesTextSubBarEvents();
+    bindGoodNotesLassoSubBarEvents();
+    bindSplitViewEvents();
     dom.inkCanvas.addEventListener('pointerdown', handlePointerDown, { passive: false });
     dom.inkCanvas.addEventListener('pointermove', handlePointerMove, { passive: false });
     dom.inkCanvas.addEventListener('pointerup', handlePointerUpOrCancel);
@@ -20806,6 +21351,7 @@
       });
       listEl.appendChild(tabBtn);
     });
+    if (typeof syncSplitViewUi === 'function') syncSplitViewUi();
   }
 
   function renderDocTabAddPopover() {
@@ -20855,6 +21401,426 @@
       }
     });
     pop.appendChild(createBtn);
+  }
+
+  // ============================================================================
+  // SPLIT VIEW — VUE DIVISÉE (2 CAHIERS CÔTE À CÔTE REDIMENSIONNABLES)
+  // ============================================================================
+  let splitRenderPending = false;
+
+  function scheduleSplitPaneRender() {
+    if (!state.splitView || !state.splitView.open) return;
+    if (splitRenderPending) return;
+    splitRenderPending = true;
+    const run = () => {
+      splitRenderPending = false;
+      renderSplitPane();
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else setTimeout(run, 16);
+  }
+
+  function getSplitPanePages() {
+    const nbId = state.splitView && state.splitView.notebookId;
+    if (!nbId) return [];
+    return (state.pagesByNotebook.get(nbId) || []).filter((p) => !p.trashedAt);
+  }
+
+  function getSplitPaneActivePage() {
+    const pages = getSplitPanePages();
+    if (!pages.length) return null;
+    const found = pages.find((p) => p.id === state.splitView.pageId);
+    if (found) return found;
+    state.splitView.pageId = pages[0].id;
+    return pages[0];
+  }
+
+  function fitSplitPaneToWidth() {
+    const vp = document.getElementById('splitViewport');
+    const page = getSplitPaneActivePage();
+    if (!vp || !page || typeof vp.getBoundingClientRect !== 'function') return;
+    const rect = vp.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const pw = page.pdfWidth || PAGE_WIDTH;
+    const targetZoom = Math.max(0.28, Math.min(2.2, (rect.width - 36) / pw));
+    state.splitView.zoom = targetZoom;
+    state.splitView.panX = Math.max(12, Math.round((rect.width - pw * targetZoom) * 0.5));
+    state.splitView.panY = 18;
+    syncSplitViewUi();
+    renderSplitPane();
+  }
+
+  function syncSplitViewUi() {
+    if (typeof document === 'undefined' || !state.splitView) return;
+    const sv = state.splitView;
+    const shell = document.getElementById('workspaceSplitShell');
+    const resizer = document.getElementById('splitResizer');
+    const pane = document.getElementById('splitSecondaryPane');
+    const toggleBtn = document.getElementById('btnToggleSplitView');
+
+    if (toggleBtn) {
+      toggleBtn.classList.toggle('active', Boolean(sv.open));
+      toggleBtn.setAttribute('aria-pressed', String(Boolean(sv.open)));
+    }
+    if (shell) {
+      shell.classList.toggle('split-active', Boolean(sv.open));
+      if (shell.style && typeof shell.style.setProperty === 'function') {
+        shell.style.setProperty('--split-primary-width', `${(sv.ratio * 100).toFixed(2)}%`);
+      }
+    }
+    if (resizer) resizer.classList.toggle('hidden', !sv.open);
+    if (pane) pane.classList.toggle('hidden', !sv.open);
+    if (!sv.open) return;
+
+    const sel = document.getElementById('splitNotebookSelect');
+    const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
+    if (sel) {
+      if (!activeNbs.some((n) => n.id === sv.notebookId)) {
+        const other = activeNbs.find((n) => n.id !== state.activeNotebookId) || activeNbs[0];
+        sv.notebookId = other ? other.id : null;
+        sv.pageId = null;
+      }
+      sel.innerHTML = '';
+      activeNbs.forEach((nb) => {
+        const opt = document.createElement('option');
+        opt.value = nb.id;
+        opt.textContent = nb.id === state.activeNotebookId ? `${nb.title || 'Cahier'} (actif)` : (nb.title || 'Sans titre');
+        if (nb.id === sv.notebookId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    const pages = getSplitPanePages();
+    const curPage = getSplitPaneActivePage();
+    const pageIdx = curPage ? pages.findIndex((p) => p.id === curPage.id) : -1;
+    const readout = document.getElementById('splitPageReadout');
+    if (readout) readout.textContent = pages.length > 0 ? `${pageIdx + 1} / ${pages.length}` : '0 / 0';
+    const prevBtn = document.getElementById('btnSplitPrevPage');
+    const nextBtn = document.getElementById('btnSplitNextPage');
+    if (prevBtn) prevBtn.disabled = pageIdx <= 0;
+    if (nextBtn) nextBtn.disabled = pageIdx < 0 || pageIdx >= pages.length - 1;
+
+    const zoomReadout = document.getElementById('btnSplitZoomFit');
+    if (zoomReadout) zoomReadout.textContent = `${Math.round((sv.zoom || 0.72) * 100)}%`;
+  }
+
+  function renderSplitPane() {
+    if (!state.splitView || !state.splitView.open) return;
+    const canvas = document.getElementById('splitCanvas');
+    const vp = document.getElementById('splitViewport');
+    if (!canvas || !vp || typeof vp.getBoundingClientRect !== 'function') return;
+    const rect = vp.getBoundingClientRect();
+    if (rect.width <= 4 || rect.height <= 4) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const tw = Math.max(1, Math.floor(rect.width * dpr));
+    const th = Math.max(1, Math.floor(rect.height * dpr));
+    if (canvas.width !== tw || canvas.height !== th) {
+      canvas.width = tw;
+      canvas.height = th;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const isAppDark = document.documentElement && document.documentElement.getAttribute('data-theme') === 'dark';
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = isAppDark ? '#171920' : '#edece8';
+    ctx.fillRect(0, 0, rect.width, rect.height);
+
+    const page = getSplitPaneActivePage();
+    if (!page) {
+      ctx.fillStyle = isAppDark ? '#9ca3af' : '#64748b';
+      ctx.font = '600 13px Inter, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Aucune page à afficher', rect.width * 0.5, rect.height * 0.5);
+      ctx.restore();
+      return;
+    }
+
+    const sv = state.splitView;
+    const pw = page.pdfWidth || PAGE_WIDTH;
+    const ph = page.pdfHeight || PAGE_HEIGHT;
+
+    ctx.translate(sv.panX, sv.panY);
+    ctx.scale(sv.zoom, sv.zoom);
+
+    // Ombre de la feuille A4 / PDF dans le panneau secondaire
+    ctx.save();
+    ctx.shadowColor = isAppDark ? 'rgba(0,0,0,0.45)' : 'rgba(15,23,42,0.14)';
+    ctx.shadowBlur = 22 / Math.max(0.4, sv.zoom);
+    ctx.shadowOffsetY = 6 / Math.max(0.4, sv.zoom);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, pw, ph);
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, pw, ph);
+    ctx.clip();
+
+    drawPaperBackground(ctx, page, pw, ph, true);
+    if (page.pdfId) {
+      const entry = ensurePdfPageRendered(page, 0, false);
+      drawLockedPdfBackground(ctx, page, false);
+      if (entry && entry.promise && !entry.ready) {
+        entry.promise.then(() => scheduleSplitPaneRender()).catch(() => {});
+      }
+    }
+
+    const isDark = !page.pdfId && (page.paperTone === 'dark' || page.paperTone === 'blueprint');
+    (page.images || []).forEach((imgItem) => {
+      const imgEl = getCachedThumbnailImage(imgItem);
+      if (imgEl && typeof ctx.drawImage === 'function') {
+        try { ctx.drawImage(imgEl, imgItem.x || 0, imgItem.y || 0, imgItem.width || 240, imgItem.height || 180); } catch (_) {}
+      } else if (imgItem && imgItem.src && typeof Image !== 'undefined') {
+        const loader = new Image();
+        loader.onload = () => scheduleSplitPaneRender();
+        loader.src = imgItem.src;
+      }
+    });
+    (page.strokes || []).forEach((s) => { if (s.tool === 'highlighter') drawSingleStroke(ctx, s, isDark, false); });
+    (page.shapes || []).forEach((sh) => drawGeometricShape(ctx, sh, false, isDark));
+    (page.strokes || []).forEach((s) => { if (s.tool !== 'highlighter') drawSingleStroke(ctx, s, isDark, false); });
+    (page.tapes || []).forEach((tp) => { if (!tp.revealed) drawTapeItem(ctx, tp, false); });
+    drawTextBlocksOnCanvas(ctx, page.texts);
+
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function openSplitView(targetNbId = null, targetPageId = null) {
+    const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
+    if (!activeNbs.length) return false;
+    let chosenNbId = targetNbId;
+    if (!chosenNbId || !activeNbs.some((n) => n.id === chosenNbId)) {
+      const otherOpenTab = (state.openNotebookTabIds || []).find((id) => id !== state.activeNotebookId && activeNbs.some((n) => n.id === id));
+      const otherNb = activeNbs.find((n) => n.id !== state.activeNotebookId);
+      chosenNbId = otherOpenTab || (otherNb ? otherNb.id : state.activeNotebookId);
+    }
+    state.splitView.open = true;
+    state.splitView.notebookId = chosenNbId;
+    const pages = getSplitPanePages();
+    if (targetPageId && pages.some((p) => p.id === targetPageId)) {
+      state.splitView.pageId = targetPageId;
+    } else if (chosenNbId === state.activeNotebookId && pages.length > 1) {
+      const curIdx = pages.findIndex((p) => p.id === state.activePageId);
+      state.splitView.pageId = pages[(curIdx + 1) % pages.length].id;
+    } else {
+      state.splitView.pageId = pages[0] ? pages[0].id : null;
+    }
+    syncSplitViewUi();
+    invalidateStaticInkCache();
+    requestRender();
+    setTimeout(() => {
+      fitSplitPaneToWidth();
+      invalidateStaticInkCache();
+      requestRender();
+    }, 30);
+    return true;
+  }
+
+  function closeSplitView() {
+    if (!state.splitView || !state.splitView.open) return false;
+    state.splitView.open = false;
+    syncSplitViewUi();
+    invalidateStaticInkCache();
+    requestRender();
+    setTimeout(() => {
+      invalidateStaticInkCache();
+      requestRender();
+    }, 30);
+    return true;
+  }
+
+  function toggleSplitView() {
+    if (state.splitView && state.splitView.open) return closeSplitView();
+    return openSplitView();
+  }
+
+  function swapSplitViewPanes() {
+    if (!state.splitView || !state.splitView.open) return false;
+    const prevPrimaryNbId = state.activeNotebookId;
+    const prevPrimaryPageId = state.activePageId;
+    const targetNbId = state.splitView.notebookId;
+    const targetPageId = state.splitView.pageId;
+    if (!targetNbId) return false;
+
+    state.splitView.notebookId = prevPrimaryNbId;
+    state.splitView.pageId = prevPrimaryPageId;
+
+    if (targetNbId !== prevPrimaryNbId) {
+      openNotebookInTab(targetNbId, true);
+    }
+    if (targetPageId && state.activePageId !== targetPageId) {
+      selectPage(targetPageId);
+    }
+    syncSplitViewUi();
+    fitSplitPaneToWidth();
+    showToast('Panneaux échangés');
+    return true;
+  }
+
+  function bindSplitViewEvents() {
+    const btnToggle = document.getElementById('btnToggleSplitView');
+    if (btnToggle) {
+      btnToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleSplitView();
+      });
+    }
+    const btnClose = document.getElementById('btnSplitClose');
+    if (btnClose) btnClose.addEventListener('click', () => closeSplitView());
+
+    const btnSwap = document.getElementById('btnSplitSwapPanes');
+    if (btnSwap) btnSwap.addEventListener('click', () => swapSplitViewPanes());
+
+    const sel = document.getElementById('splitNotebookSelect');
+    if (sel) {
+      sel.addEventListener('change', () => {
+        state.splitView.notebookId = sel.value || state.activeNotebookId;
+        const pages = getSplitPanePages();
+        state.splitView.pageId = pages[0] ? pages[0].id : null;
+        syncSplitViewUi();
+        fitSplitPaneToWidth();
+      });
+    }
+
+    const btnPrev = document.getElementById('btnSplitPrevPage');
+    const btnNext = document.getElementById('btnSplitNextPage');
+    const stepSplitPage = (delta) => {
+      const pages = getSplitPanePages();
+      if (!pages.length) return;
+      const curIdx = Math.max(0, pages.findIndex((p) => p.id === state.splitView.pageId));
+      const nextIdx = Math.max(0, Math.min(pages.length - 1, curIdx + delta));
+      if (pages[nextIdx]) {
+        state.splitView.pageId = pages[nextIdx].id;
+        syncSplitViewUi();
+        fitSplitPaneToWidth();
+      }
+    };
+    if (btnPrev) btnPrev.addEventListener('click', () => stepSplitPage(-1));
+    if (btnNext) btnNext.addEventListener('click', () => stepSplitPage(1));
+
+    const btnZoomOut = document.getElementById('btnSplitZoomOut');
+    const btnZoomIn = document.getElementById('btnSplitZoomIn');
+    const btnZoomFit = document.getElementById('btnSplitZoomFit');
+    const applySplitZoom = (factor, anchorScreenX = null, anchorScreenY = null) => {
+      const vp = document.getElementById('splitViewport');
+      if (!vp) return;
+      const rect = vp.getBoundingClientRect();
+      const oldZ = state.splitView.zoom || 0.72;
+      const nextZ = Math.max(0.25, Math.min(3.0, oldZ * factor));
+      const ax = anchorScreenX !== null ? anchorScreenX : rect.width * 0.5;
+      const ay = anchorScreenY !== null ? anchorScreenY : rect.height * 0.5;
+      const wx = (ax - state.splitView.panX) / oldZ;
+      const wy = (ay - state.splitView.panY) / oldZ;
+      state.splitView.zoom = nextZ;
+      state.splitView.panX = ax - wx * nextZ;
+      state.splitView.panY = ay - wy * nextZ;
+      syncSplitViewUi();
+      renderSplitPane();
+    };
+    if (btnZoomOut) btnZoomOut.addEventListener('click', () => applySplitZoom(1 / 1.15));
+    if (btnZoomIn) btnZoomIn.addEventListener('click', () => applySplitZoom(1.15));
+    if (btnZoomFit) btnZoomFit.addEventListener('click', () => fitSplitPaneToWidth());
+
+    // Pan & Zoom sur le viewport secondaire
+    const vp = document.getElementById('splitViewport');
+    if (vp) {
+      vp.addEventListener('pointerdown', (e) => {
+        state.splitView.isPanning = true;
+        state.splitView.panStartScreen = { x: e.clientX, y: e.clientY };
+        state.splitView.panStartOffset = { x: state.splitView.panX, y: state.splitView.panY };
+        try { if (typeof e.pointerId === 'number') vp.setPointerCapture(e.pointerId); } catch (_) {}
+      });
+      vp.addEventListener('pointermove', (e) => {
+        if (!state.splitView.isPanning) return;
+        state.splitView.panX = state.splitView.panStartOffset.x + (e.clientX - state.splitView.panStartScreen.x);
+        state.splitView.panY = state.splitView.panStartOffset.y + (e.clientY - state.splitView.panStartScreen.y);
+        scheduleSplitPaneRender();
+      });
+      const endPan = (e) => {
+        if (!state.splitView.isPanning) return;
+        state.splitView.isPanning = false;
+        try { if (typeof e.pointerId === 'number') vp.releasePointerCapture(e.pointerId); } catch (_) {}
+      };
+      vp.addEventListener('pointerup', endPan);
+      vp.addEventListener('pointercancel', endPan);
+      vp.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (e.ctrlKey || e.metaKey) {
+          const rect = vp.getBoundingClientRect();
+          applySplitZoom(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - rect.left, e.clientY - rect.top);
+        } else {
+          state.splitView.panX -= e.deltaX || 0;
+          state.splitView.panY -= e.deltaY || 0;
+          scheduleSplitPaneRender();
+        }
+      }, { passive: false });
+      vp.addEventListener('dblclick', () => fitSplitPaneToWidth());
+    }
+
+    // Séparateur vertical redimensionnable (25% à 75%, double-clic = 50/50)
+    const resizer = document.getElementById('splitResizer');
+    const shell = document.getElementById('workspaceSplitShell');
+    if (resizer && shell) {
+      let dragging = false;
+      resizer.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        dragging = true;
+        resizer.classList.add('dragging');
+        try { if (typeof e.pointerId === 'number') resizer.setPointerCapture(e.pointerId); } catch (_) {}
+      });
+      resizer.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        const rect = shell.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const ratio = Math.max(0.25, Math.min(0.75, (e.clientX - rect.left) / rect.width));
+        state.splitView.ratio = ratio;
+        if (shell.style && typeof shell.style.setProperty === 'function') {
+          shell.style.setProperty('--split-primary-width', `${(ratio * 100).toFixed(2)}%`);
+        }
+        invalidateStaticInkCache();
+        requestRender();
+        scheduleSplitPaneRender();
+      });
+      const stopDrag = (e) => {
+        if (!dragging) return;
+        dragging = false;
+        resizer.classList.remove('dragging');
+        try { if (typeof e.pointerId === 'number') resizer.releasePointerCapture(e.pointerId); } catch (_) {}
+        invalidateStaticInkCache();
+        requestRender();
+        scheduleSplitPaneRender();
+      };
+      resizer.addEventListener('pointerup', stopDrag);
+      resizer.addEventListener('pointercancel', stopDrag);
+      resizer.addEventListener('dblclick', () => {
+        state.splitView.ratio = 0.5;
+        if (shell.style && typeof shell.style.setProperty === 'function') {
+          shell.style.setProperty('--split-primary-width', '50%');
+        }
+        invalidateStaticInkCache();
+        requestRender();
+        fitSplitPaneToWidth();
+      });
+    }
+
+    // Raccourci clavier Ctrl+\ pour basculer Split View + resize fenêtre
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+        e.preventDefault();
+        toggleSplitView();
+      }
+    });
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('resize', () => {
+        if (state.splitView && state.splitView.open) {
+          scheduleSplitPaneRender();
+        }
+      });
+    }
   }
 
   // --- #1 RÈGLE GRADUÉE VIRTUELLE ROTATIVE ---

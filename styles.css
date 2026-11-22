@@ -10367,3 +10367,630 @@ html, body {
 .tb-cust-reset-btn:hover {
   background: rgba(220, 38, 38, 0.09);
 }
+
+/* ============================================================================
+   SOUS-BARRE LASSO GOODNOTES 6 (Libre / Rectangle | Filtres | Actions & Capture)
+   ============================================================================ */
+.gn-lasso-subbar.hidden,
+.gn-lasso-popover.hidden,
+.gn-lasso-filter-badge.hidden {
+  display: none !important;
+}
+
+.gn-lasso-subbar {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 6px;
+  border-radius: 999px;
+  background: rgba(246, 246, 248, 0.96);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(30, 27, 27, 0.12);
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+  animation: gnSubBarFadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+  max-width: calc(100vw - 24px);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.gn-lasso-subbar::-webkit-scrollbar {
+  display: none;
+}
+
+[data-theme="dark"] .gn-lasso-subbar {
+  background: rgba(34, 36, 44, 0.95);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.48);
+}
+
+.gn-lasso-mode-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.055);
+}
+
+[data-theme="dark"] .gn-lasso-mode-group {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.gn-lasso-mode-btn {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gn-lasso-mode-btn:hover {
+  color: var(--text-primary);
+}
+
+.gn-lasso-mode-btn.active {
+  background: #ffffff;
+  color: #0072ce;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.10);
+}
+
+[data-theme="dark"] .gn-lasso-mode-btn.active {
+  background: #2f3340;
+  color: #60a5fa;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.gn-lasso-filter-btn {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(15, 23, 42, 0.045);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gn-lasso-filter-btn:hover,
+.gn-lasso-filter-btn.active {
+  background: rgba(0, 114, 206, 0.12);
+  border-color: rgba(0, 114, 206, 0.3);
+  color: #0072ce;
+}
+
+[data-theme="dark"] .gn-lasso-filter-btn {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+[data-theme="dark"] .gn-lasso-filter-btn:hover,
+[data-theme="dark"] .gn-lasso-filter-btn.active {
+  background: rgba(56, 152, 255, 0.22);
+  border-color: rgba(56, 152, 255, 0.4);
+  color: #60a5fa;
+}
+
+.gn-lasso-filter-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #0072ce;
+  color: #ffffff;
+}
+
+.gn-lasso-actions-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.gn-lasso-count-pill {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0 8px 0 4px;
+  white-space: nowrap;
+}
+
+.gn-lasso-count-pill.has-sel {
+  color: #0072ce;
+}
+
+[data-theme="dark"] .gn-lasso-count-pill.has-sel {
+  color: #60a5fa;
+}
+
+.gn-lasso-act-btn {
+  width: 31px;
+  height: 31px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gn-lasso-act-btn:disabled {
+  opacity: 0.34;
+  cursor: default;
+  pointer-events: none;
+}
+
+.gn-lasso-act-btn:hover,
+.gn-lasso-act-btn.active {
+  background: rgba(0, 114, 206, 0.13);
+  color: #0072ce;
+}
+
+.gn-lasso-act-btn.ai:hover {
+  background: rgba(124, 58, 237, 0.14);
+  color: #7c3aed;
+}
+
+.gn-lasso-act-btn.danger:hover {
+  background: rgba(220, 38, 38, 0.14);
+  color: #dc2626;
+}
+
+.gn-lasso-color-dot {
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  background: #007aff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1.3px rgba(15, 23, 42, 0.22);
+  display: block;
+}
+
+[data-theme="dark"] .gn-lasso-color-dot {
+  border-color: #22242c;
+  box-shadow: 0 0 0 1.3px rgba(255, 255, 255, 0.32);
+}
+
+/* Popovers ancrés du Lasso (Filtres & Alignement manuscrit) */
+.gn-lasso-popover {
+  pointer-events: auto;
+  position: fixed;
+  top: 112px;
+  left: 50%;
+  width: 286px;
+  padding: 14px 16px 14px;
+  border-radius: 18px;
+  background: #f5f5f7;
+  color: #111827;
+  border: 1px solid rgba(30, 27, 27, 0.11);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.08);
+  z-index: 9400;
+  animation: gnSubBarFadeIn 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.gn-lasso-align-popover {
+  width: 232px;
+}
+
+[data-theme="dark"] .gn-lasso-popover {
+  background: #23262f;
+  color: #f4f4f5;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.56);
+}
+
+.gn-lasso-popover-caret {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  background: inherit;
+  border-left: 1px solid rgba(30, 27, 27, 0.11);
+  border-top: 1px solid rgba(30, 27, 27, 0.11);
+  transform: translateX(-50%) rotate(45deg);
+  pointer-events: none;
+  transition: left 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-theme="dark"] .gn-lasso-popover-caret {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.gn-lasso-popover.caret-bottom .gn-lasso-popover-caret {
+  top: auto;
+  bottom: -7px;
+  transform: translateX(-50%) rotate(225deg);
+}
+
+.gn-lasso-pop-header {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.gn-lasso-pop-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.gn-lasso-align-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.gn-lasso-straighten-btn {
+  width: 100%;
+  height: 36px;
+  border-radius: 11px;
+  border: 1px solid rgba(0, 114, 206, 0.28);
+  background: rgba(0, 114, 206, 0.09);
+  color: #0072ce;
+  font-size: 12.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.gn-lasso-straighten-btn:hover {
+  background: rgba(0, 114, 206, 0.17);
+}
+
+[data-theme="dark"] .gn-lasso-straighten-btn {
+  background: rgba(56, 152, 255, 0.18);
+  border-color: rgba(56, 152, 255, 0.36);
+  color: #60a5fa;
+}
+
+.world-image-card.selected {
+  outline: 2px solid #0072ce;
+  outline-offset: 2px;
+  box-shadow: 0 8px 24px rgba(0, 114, 206, 0.22);
+}
+
+/* ============================================================================
+   SPLIT VIEW (VUE DIVISÉE — 2 CAHIERS CÔTE À CÔTE REDIMENSIONNABLES)
+   ============================================================================ */
+.doc-tab-split-btn {
+  height: 26px;
+  padding: 0 9px;
+  margin-left: 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.11);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.doc-tab-split-btn:hover {
+  background: rgba(0, 114, 206, 0.10);
+  border-color: rgba(0, 114, 206, 0.30);
+  color: #0072ce;
+}
+
+.doc-tab-split-btn.active {
+  background: #0072ce;
+  border-color: #0072ce;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 114, 206, 0.28);
+}
+
+[data-theme="dark"] .doc-tab-split-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.13);
+  color: #d4d4d8;
+}
+
+[data-theme="dark"] .doc-tab-split-btn:hover {
+  background: rgba(56, 152, 255, 0.20);
+  border-color: rgba(56, 152, 255, 0.42);
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .doc-tab-split-btn.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.workspace-split-shell {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  position: relative;
+  overflow: hidden;
+}
+
+.workspace-split-shell.split-active #canvasViewport {
+  flex: 0 0 var(--split-primary-width, 50%);
+  width: var(--split-primary-width, 50%);
+  min-width: 240px;
+}
+
+.split-resizer.hidden,
+.split-secondary-pane.hidden {
+  display: none !important;
+}
+
+.split-resizer {
+  width: 8px;
+  flex: 0 0 8px;
+  height: 100%;
+  cursor: col-resize;
+  position: relative;
+  z-index: 24;
+  background: rgba(15, 23, 42, 0.07);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.14s ease;
+  user-select: none;
+  touch-action: none;
+}
+
+[data-theme="dark"] .split-resizer {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.split-resizer:hover,
+.split-resizer.dragging {
+  background: rgba(0, 114, 206, 0.24);
+}
+
+.split-resizer-grip {
+  width: 4px;
+  height: 46px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.28);
+  transition: background 0.14s ease, height 0.14s ease;
+}
+
+[data-theme="dark"] .split-resizer-grip {
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.split-resizer:hover .split-resizer-grip,
+.split-resizer.dragging .split-resizer-grip {
+  background: #0072ce;
+  height: 62px;
+}
+
+.split-secondary-pane {
+  flex: 1 1 0;
+  min-width: 260px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background: #edece8;
+  border-left: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="dark"] .split-secondary-pane {
+  background: #171920;
+  border-left-color: rgba(255, 255, 255, 0.08);
+}
+
+.split-pane-toolbar {
+  position: relative;
+  z-index: 20;
+  margin-top: 98px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: rgba(248, 248, 250, 0.92);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.10);
+  flex-shrink: 0;
+}
+
+.doc-tabs-hidden .split-pane-toolbar {
+  margin-top: 64px;
+}
+
+.toolbar-pos-bottom .split-pane-toolbar {
+  margin-top: 0;
+}
+
+[data-theme="dark"] .split-pane-toolbar {
+  background: rgba(30, 33, 42, 0.92);
+  border-bottom-color: rgba(255, 255, 255, 0.10);
+}
+
+.split-pane-left,
+.split-pane-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.split-nb-select {
+  max-width: 195px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+[data-theme="dark"] .split-nb-select {
+  background: #272b36;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f4f4f5;
+}
+
+.split-page-nav,
+.split-zoom-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.055);
+}
+
+[data-theme="dark"] .split-page-nav,
+[data-theme="dark"] .split-zoom-group {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.split-page-readout {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.split-zoom-readout {
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.split-zoom-readout:hover {
+  background: rgba(0, 114, 206, 0.12);
+  color: #0072ce;
+}
+
+.split-icon-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.split-icon-btn:hover {
+  background: rgba(0, 114, 206, 0.12);
+  color: #0072ce;
+}
+
+.split-icon-btn:disabled {
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+.split-icon-btn.danger:hover {
+  background: rgba(220, 38, 38, 0.14);
+  color: #dc2626;
+}
+
+.split-swap-btn {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 114, 206, 0.28);
+  background: rgba(0, 114, 206, 0.10);
+  color: #0072ce;
+  font-size: 11.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease;
+}
+
+.split-swap-btn:hover {
+  background: rgba(0, 114, 206, 0.18);
+}
+
+[data-theme="dark"] .split-swap-btn {
+  background: rgba(56, 152, 255, 0.20);
+  border-color: rgba(56, 152, 255, 0.38);
+  color: #93c5fd;
+}
+
+.split-viewport {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.split-viewport:active {
+  cursor: grabbing;
+}
+
+#splitCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

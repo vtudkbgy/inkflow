@@ -392,6 +392,13 @@
             </button>
             <div class="doc-tab-add-popover hidden" id="docTabAddPopover" role="menu"></div>
           </div>
+          <button class="doc-tab-split-btn" id="btnToggleSplitView" type="button" title="Vue divisée — Afficher 2 cahiers côte à côte (Ctrl+\)" aria-label="Basculer la vue divisée" aria-pressed="false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2.5"></rect>
+              <line x1="12" y1="4" x2="12" y2="20"></line>
+            </svg>
+            <span>Split View</span>
+          </button>
         </div>
 
         <!-- POPOVER D'OPTIONS D'OUTIL (MASQUÉ PAR DÉFAUT, S'OUVRE UNIQUEMENT AU CLIC) -->
@@ -1498,6 +1505,139 @@
           <div class="gn-text-popover-divider"></div>
           <button class="gn-text-save-default-btn" id="btnGnTextSaveDefault" type="button">Enregistrer comme style par défaut</button>
         </div>
+
+        <!-- SOUS-BARRE FLOTTANTE LASSO (Mode Main levée / Rectangle | Filtres de contenu | Actions sur sélection) -->
+        <div class="gn-lasso-subbar hidden" id="gnLassoSubBar" role="toolbar" aria-label="Options de l'outil Lasso">
+          <div class="gn-lasso-mode-group" role="radiogroup" aria-label="Type de lasso">
+            <button class="gn-lasso-mode-btn active" id="gnLassoModeFreehand" type="button" data-gn-lassomode="freehand" title="Sélection à main levée">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <ellipse cx="12" cy="10.5" rx="7.5" ry="5.5" stroke-dasharray="3.2 2.4"></ellipse>
+                <path d="M12 16c0 2.5-1.5 4.2-3 4.8"></path>
+              </svg>
+              <span>Libre</span>
+            </button>
+            <button class="gn-lasso-mode-btn" id="gnLassoModeRect" type="button" data-gn-lassomode="rect" title="Sélection rectangulaire">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="5" width="16" height="14" rx="2" stroke-dasharray="3.5 2.5"></rect>
+              </svg>
+              <span>Rectangle</span>
+            </button>
+          </div>
+
+          <div class="gn-subbar-divider"></div>
+
+          <button class="gn-lasso-filter-btn" id="gnLassoFilterBtn" type="button" title="Contenus à inclure dans la sélection" aria-expanded="false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="4" y1="7" x2="20" y2="7"></line>
+              <line x1="7" y1="12" x2="17" y2="12"></line>
+              <line x1="10" y1="17" x2="14" y2="17"></line>
+            </svg>
+            <span>Filtres</span>
+            <span class="gn-lasso-filter-badge hidden" id="gnLassoFilterBadge">4/4</span>
+            <svg class="gn-text-caret" width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M1.5 1.2L5 4.7L8.5 1.2"></path>
+            </svg>
+          </button>
+
+          <div class="gn-subbar-divider"></div>
+
+          <div class="gn-lasso-actions-group" id="gnLassoSubBarActions">
+            <span class="gn-lasso-count-pill" id="gnLassoCountPill">Entourez des éléments</span>
+            <button class="gn-lasso-act-btn" id="btnGnLassoColor" type="button" title="Changer la couleur de la sélection" disabled>
+              <span class="gn-lasso-color-dot" id="gnLassoSubColorDot"></span>
+            </button>
+            <button class="gn-lasso-act-btn" id="btnGnLassoAlign" type="button" title="Aligner ou redresser l'écriture manuscrite" disabled>
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" aria-hidden="true">
+                <line x1="3" y1="5" x2="17" y2="5"></line>
+                <line x1="3" y1="10" x2="13" y2="10"></line>
+                <line x1="3" y1="15" x2="16" y2="15"></line>
+              </svg>
+            </button>
+            <button class="gn-lasso-act-btn" id="btnGnLassoScreenshot" type="button" title="Prendre une capture d'écran de la sélection (PNG)" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 8V6a2 2 0 0 1 2-2h2"></path>
+                <path d="M20 8V6a2 2 0 0 0-2-2h-2"></path>
+                <path d="M4 16v2a2 2 0 0 0 2 2h2"></path>
+                <path d="M20 16v2a2 2 0 0 1-2 2h-2"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+            <button class="gn-lasso-act-btn" id="btnGnLassoSaveElement" type="button" title="Enregistrer comme Élément réutilisable" disabled>★</button>
+            <button class="gn-lasso-act-btn" id="btnGnLassoDup" type="button" title="Dupliquer la sélection" disabled>⧉</button>
+            <button class="gn-lasso-act-btn ai" id="btnGnLassoRecog" type="button" title="Convertir en Texte / LaTeX" disabled>✨</button>
+            <button class="gn-lasso-act-btn danger" id="btnGnLassoDel" type="button" title="Supprimer la sélection" disabled>✕</button>
+          </div>
+        </div>
+
+        <!-- POPOVER FILTRES DU LASSO (avec pointe triangulaire ancrée sous le bouton Filtres) -->
+        <div class="gn-lasso-popover hidden" id="gnLassoFilterPopover" role="dialog" aria-label="Contenus à inclure dans la sélection">
+          <div class="gn-lasso-popover-caret" id="gnLassoFilterCaret"></div>
+          <div class="gn-lasso-pop-header">Contenus à inclure</div>
+          <div class="gn-lasso-pop-body">
+            <label class="gn-eraser-filter-row">
+              <span class="gn-eraser-filter-left">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path></svg>
+                <span>Écriture manuscrite</span>
+              </span>
+              <span class="gn-ios-switch">
+                <input type="checkbox" id="gnLassoFilterHandwriting" checked />
+                <span class="gn-ios-slider"></span>
+              </span>
+            </label>
+            <label class="gn-eraser-filter-row">
+              <span class="gn-eraser-filter-left">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="10" width="9" height="9" rx="2"></rect><circle cx="16.5" cy="14.5" r="4.5"></circle></svg>
+                <span>Formes</span>
+              </span>
+              <span class="gn-ios-switch">
+                <input type="checkbox" id="gnLassoFilterShapes" checked />
+                <span class="gn-ios-slider"></span>
+              </span>
+            </label>
+            <label class="gn-eraser-filter-row">
+              <span class="gn-eraser-filter-left">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7h14M12 7v11M9 18h6"></path></svg>
+                <span>Zones de texte</span>
+              </span>
+              <span class="gn-ios-switch">
+                <input type="checkbox" id="gnLassoFilterTexts" checked />
+                <span class="gn-ios-slider"></span>
+              </span>
+            </label>
+            <label class="gn-eraser-filter-row">
+              <span class="gn-eraser-filter-left">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><circle cx="8.5" cy="9" r="1.5" fill="currentColor" stroke="none"></circle><path d="M4 17l5-5 3 3 3-3 5 5"></path></svg>
+                <span>Images</span>
+              </span>
+              <span class="gn-ios-switch">
+                <input type="checkbox" id="gnLassoFilterImages" checked />
+                <span class="gn-ios-slider"></span>
+              </span>
+            </label>
+          </div>
+          <p class="gn-eraser-filter-note">Le lasso ignore les types d'éléments désactivés.</p>
+        </div>
+
+        <!-- POPOVER ALIGNEMENT & REDRESSEMENT MANUSCRIT (ancré sous Aligner) -->
+        <div class="gn-lasso-popover gn-lasso-align-popover hidden" id="gnLassoAlignPopover" role="dialog" aria-label="Aligner et redresser l'écriture manuscrite">
+          <div class="gn-lasso-popover-caret" id="gnLassoAlignCaret"></div>
+          <div class="gn-lasso-pop-header">Aligner l'écriture</div>
+          <div class="gn-lasso-align-row">
+            <button class="gn-text-align-btn" type="button" data-gn-hwalign="left" title="Aligner les lignes à gauche">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"></line><line x1="3" y1="10" x2="12" y2="10"></line><line x1="3" y1="15" x2="15" y2="15"></line></svg>
+            </button>
+            <button class="gn-text-align-btn" type="button" data-gn-hwalign="center" title="Centrer les lignes">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"></line><line x1="5.5" y1="10" x2="14.5" y2="10"></line><line x1="4" y1="15" x2="16" y2="15"></line></svg>
+            </button>
+            <button class="gn-text-align-btn" type="button" data-gn-hwalign="right" title="Aligner les lignes à droite">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"></line><line x1="8" y1="10" x2="17" y2="10"></line><line x1="5" y1="15" x2="17" y2="15"></line></svg>
+            </button>
+          </div>
+          <button class="gn-lasso-straighten-btn" id="btnGnLassoStraighten" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="15" x2="21" y2="15"></line><path d="M5 12l4-3 5 2 5-3"></path></svg>
+            <span>Redresser la ligne</span>
+          </button>
+        </div>
       </header>
 
       <!-- POPOVER : 8 FONDS DE PAGE & CANEVAS INFINI -->
@@ -1574,6 +1714,8 @@
         </button>
       </div>
 
+      <!-- ZONE SPLIT VIEW : PANNEAU PRINCIPAL + SÉPARATEUR REDIMENSIONNABLE + PANNEAU SECONDAIRE -->
+      <div class="workspace-split-shell" id="workspaceSplitShell">
       <!-- CANEVAS INTERACTIF INFINI : CALQUE DE FOND PDF VERROUILLÉ + DOUBLE CANVAS (STATIQUE + ACTIF 120 FPS) -->
       <div class="canvas-viewport drawing-mode-active" id="canvasViewport">
         <canvas id="pdfBgCanvas" aria-hidden="true"></canvas>
@@ -1587,6 +1729,21 @@
         <div class="lasso-floating-actions hidden" id="lassoFloatingActions">
           <button class="lasso-fab-btn" id="btnQuickColorLasso" title="Changer la couleur">
             <span class="lasso-color-dot" id="lassoQuickColorDot"></span>
+          </button>
+          <button class="lasso-fab-btn" id="btnQuickScreenshotLasso" title="Prendre une capture d'écran (PNG)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 8V6a2 2 0 0 1 2-2h2"></path>
+              <path d="M20 8V6a2 2 0 0 0-2-2h-2"></path>
+              <path d="M4 16v2a2 2 0 0 0 2 2h2"></path>
+              <path d="M20 16v2a2 2 0 0 1-2 2h-2"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
+          <button class="lasso-fab-btn" id="btnQuickStraightenLasso" title="Redresser la ligne manuscrite">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <line x1="3" y1="16" x2="21" y2="16"></line>
+              <path d="M5 12l5-3 4 2 5-3"></path>
+            </svg>
           </button>
           <button class="lasso-fab-btn" id="btnQuickSaveElementLasso" title="Enregistrer comme élément réutilisable">★</button>
           <button class="lasso-fab-btn" id="btnQuickDupLasso" title="Dupliquer">⧉</button>
@@ -1726,6 +1883,46 @@
             <span class="gn-pta-label" id="gnPtaLabel">Tirer pour ajouter une page</span>
           </div>
         </div>
+      </div>
+
+      <!-- SÉPARATEUR REDIMENSIONNABLE SPLIT VIEW -->
+      <div class="split-resizer hidden" id="splitResizer" role="separator" aria-orientation="vertical" title="Glisser pour ajuster la largeur · Double-cliquer pour 50/50">
+        <span class="split-resizer-grip" aria-hidden="true"></span>
+      </div>
+
+      <!-- PANNEAU SECONDAIRE SPLIT VIEW (Consultation interactive d'un 2e cahier ou d'une autre page) -->
+      <section class="split-secondary-pane hidden" id="splitSecondaryPane" aria-label="Panneau secondaire Vue divisée">
+        <div class="split-pane-toolbar" id="splitPaneToolbar">
+          <div class="split-pane-left">
+            <select class="split-nb-select" id="splitNotebookSelect" aria-label="Choisir le cahier du panneau secondaire"></select>
+            <div class="split-page-nav">
+              <button class="split-icon-btn" id="btnSplitPrevPage" type="button" title="Page précédente" aria-label="Page précédente">◀</button>
+              <span class="split-page-readout" id="splitPageReadout">1 / 1</span>
+              <button class="split-icon-btn" id="btnSplitNextPage" type="button" title="Page suivante" aria-label="Page suivante">▶</button>
+            </div>
+          </div>
+          <div class="split-pane-right">
+            <div class="split-zoom-group">
+              <button class="split-icon-btn" id="btnSplitZoomOut" type="button" title="Zoom arrière">−</button>
+              <button class="split-zoom-readout" id="btnSplitZoomFit" type="button" title="Ajuster à la largeur">100%</button>
+              <button class="split-icon-btn" id="btnSplitZoomIn" type="button" title="Zoom avant">+</button>
+            </div>
+            <button class="split-swap-btn" id="btnSplitSwapPanes" type="button" title="Échanger gauche / droite pour éditer ce cahier">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="17 1 21 5 17 9"></polyline>
+                <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                <polyline points="7 23 3 19 7 15"></polyline>
+                <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+              </svg>
+              <span>Éditer ici</span>
+            </button>
+            <button class="split-icon-btn danger" id="btnSplitClose" type="button" title="Fermer la vue divisée (Ctrl+\)" aria-label="Fermer la vue divisée">✕</button>
+          </div>
+        </div>
+        <div class="split-viewport" id="splitViewport">
+          <canvas id="splitCanvas"></canvas>
+        </div>
+      </section>
       </div>
 
     </main>
