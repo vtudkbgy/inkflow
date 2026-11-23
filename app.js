@@ -3975,6 +3975,10 @@
     if (state.activePointerId !== null && dom.inkCanvas) {
       try { dom.inkCanvas.releasePointerCapture(state.activePointerId); } catch (_) {}
     }
+    if (state.deselectTapPointerId !== null && dom.inkCanvas) {
+      try { dom.inkCanvas.releasePointerCapture(state.deselectTapPointerId); } catch (_) {}
+    }
+    state.deselectTapPointerId = null;
     state.isDrawing = false;
     state.isPanning = false;
     state.isPinching = false;
@@ -9912,28 +9916,43 @@
     if (closeDist > diag * 0.36) return false;
 
     const poly = pts.map((p) => ({ x: p.x, y: p.y }));
+    const filters = state.lassoFilters || { handwriting: true, shapes: true, texts: true, images: true };
     const selStrokes = new Set();
     const selShapes = new Set();
     const selTexts = new Set();
-    (page.strokes || []).forEach((s) => {
-      const sb = getCachedStrokeBounds(s);
-      if (sb && isPointInPolygon({ x: (sb.minX + sb.maxX) * 0.5, y: (sb.minY + sb.maxY) * 0.5 }, poly)) {
-        selStrokes.add(s.id);
-      }
-    });
-    (page.shapes || []).forEach((sh) => {
-      const sb = getShapeBoundingBox(sh);
-      if (sb && isPointInPolygon({ x: (sb.minX + sb.maxX) * 0.5, y: (sb.minY + sb.maxY) * 0.5 }, poly)) {
-        selShapes.add(sh.id);
-      }
-    });
-    (page.texts || []).forEach((t) => {
-      const cx = (t.x || 0) + (t.width || 200) * 0.5;
-      const cy = (t.y || 0) + 28;
-      if (isPointInPolygon({ x: cx, y: cy }, poly)) selTexts.add(t.id);
-    });
+    const selImages = new Set();
+    if (filters.handwriting !== false) {
+      (page.strokes || []).forEach((s) => {
+        const sb = getCachedStrokeBounds(s);
+        if (sb && pointInPolygon((sb.minX + sb.maxX) * 0.5, (sb.minY + sb.maxY) * 0.5, poly)) {
+          selStrokes.add(s.id);
+        }
+      });
+    }
+    if (filters.shapes !== false) {
+      (page.shapes || []).forEach((sh) => {
+        const sb = getShapeBoundingBox(sh);
+        if (sb && pointInPolygon((sb.minX + sb.maxX) * 0.5, (sb.minY + sb.maxY) * 0.5, poly)) {
+          selShapes.add(sh.id);
+        }
+      });
+    }
+    if (filters.texts !== false) {
+      (page.texts || []).forEach((t) => {
+        const cx = (t.x || 0) + (t.width || 200) * 0.5;
+        const cy = (t.y || 0) + 28;
+        if (pointInPolygon(cx, cy, poly)) selTexts.add(t.id);
+      });
+    }
+    if (filters.images !== false) {
+      (page.images || []).forEach((img) => {
+        const cx = (img.x || 0) + (img.width || 240) * 0.5;
+        const cy = (img.y || 0) + (img.height || 180) * 0.5;
+        if (pointInPolygon(cx, cy, poly)) selImages.add(img.id);
+      });
+    }
 
-    const total = selStrokes.size + selShapes.size + selTexts.size;
+    const total = selStrokes.size + selShapes.size + selTexts.size + selImages.size;
     if (total === 0) return false;
 
     state.currentStroke = null;
@@ -9945,11 +9964,13 @@
     state.selectedIds.strokes = selStrokes;
     state.selectedIds.shapes = selShapes;
     state.selectedIds.texts = selTexts;
-    if (state.selectedIds.images) state.selectedIds.images.clear();
-    else state.selectedIds.images = new Set();
-    recomputeLassoSelectionBounds();
+    state.selectedIds.images = selImages;
+    computeSelectionBounds();
     state.tool = 'lasso';
     updateToolbarActiveState();
+    updateLassoToolbarBadge();
+    updateLassoFloatingBarPosition();
+    renderWorldTextCards();
     clearActiveCanvas();
     invalidateStaticInkCache();
     requestRender();
@@ -10214,7 +10235,6 @@
     if (
       state.tool !== 'eraser' &&
       state.tool !== 'pan' &&
-      state.tool !== 'lasso' &&
       tryStartLassoSelectionTransform(worldPt)
     ) {
       deferPendingPageSaveDuringGesture(page);
@@ -10237,7 +10257,7 @@
 
     // Une sélection (lasso, forme ou zone de texte) est active et l'appui tombe hors de celle-ci :
     // cet appui sert uniquement à terminer la manœuvre (désélection), sans dessiner ni créer quoi que ce soit.
-    if (state.tool !== 'lasso' && state.tool !== 'pan' && !state.temporaryEraserOverride) {
+    if (state.tool !== 'pan' && !state.temporaryEraserOverride) {
       const hasLassoSel = hasAnyLassoSelection();
       const selShape = state.selectedShapeId ? getSelectedShape(page) : null;
       const keepForShapeEdit = Boolean(selShape) && state.tool === 'shape' && (
@@ -10245,7 +10265,7 @@
         isPointOnOrInsideShape(selShape, worldPt.x, worldPt.y) ||
         findShapeAtPoint(page, worldPt.x, worldPt.y)
       );
-      const hasTextSel = state.tool !== 'text' && Boolean(state.selectedTextId || state.editingTextId);
+      const hasTextSel = Boolean(state.selectedTextId || state.editingTextId);
       if (((hasLassoSel || selShape) && !keepForShapeEdit) || hasTextSel) {
         if (hasLassoSel) clearLassoSelection();
         if (state.selectedShapeId && !keepForShapeEdit) clearSelectedShape(false);
@@ -14130,7 +14150,12 @@
     };
   }
 
+  let initialDbLoadPromise = null;
+
   async function createNotebookProgrammatically(title, paperType = 'grid', coverColor = state.newNotebookCover, templatePageOrOptions = null) {
+    if (initialDbLoadPromise) {
+      try { await initialDbLoadPromise; } catch (_) {}
+    }
     finalizeActiveDrawingOnCurrentPage();
     await flushPendingPageSaves();
     cleanupTransientInteractionState(false);
@@ -14940,7 +14965,7 @@
     const aR = anchorEl.getBoundingClientRect();
     const pR = pop.getBoundingClientRect();
     const parentSubBar = typeof anchorEl.closest === 'function'
-      ? anchorEl.closest('.gn-pen-subbar, .gn-shape-subbar, .gn-eraser-subbar, .gn-text-subbar')
+      ? anchorEl.closest('.gn-pen-subbar, .gn-shape-subbar, .gn-eraser-subbar, .gn-text-subbar, .gn-lasso-subbar')
       : null;
     const barR = parentSubBar && typeof parentSubBar.getBoundingClientRect === 'function'
       ? parentSubBar.getBoundingClientRect()
@@ -20414,7 +20439,11 @@
 
   async function loadFromIndexedDB() {
     try {
-      let [notebooks, savedFolders] = await Promise.all([db.getAllNotebooks(), db.getFolders()]);
+      let [notebooks, savedFolders, ws] = await Promise.all([
+        db.getAllNotebooks(),
+        db.getFolders(),
+        db.getWorkspaceState().catch(() => null)
+      ]);
       if (Array.isArray(savedFolders)) state.folders = savedFolders;
       if (!notebooks || notebooks.length === 0) {
         const demo = createDemoNotebookAndPages();
@@ -20430,8 +20459,6 @@
         state.pagesByNotebook.set(nb.id, pages.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
       }
       // Rouvre le dernier cahier/page actif enregistré, sinon le premier cahier hors corbeille
-      let ws = null;
-      try { ws = await db.getWorkspaceState(); } catch (_) { ws = null; }
       const savedNb = ws && ws.activeNotebookId
         ? state.notebooks.find((n) => n.id === ws.activeNotebookId && !n.trashedAt)
         : null;
@@ -20443,6 +20470,7 @@
     } catch (_) {
       if (!state.notebooks || state.notebooks.length === 0) applyDemoStateSynchronously();
     }
+    initialDbLoadPromise = null;
     ensureActiveAndAdjacentPdfPagesLoaded(getActivePage());
     renderNotebooksSidebar();
     renderPagesSidebar();
@@ -22990,6 +23018,12 @@
           y: Math.round((p.y - minY) * 100) / 100
         }));
       }
+      if (Array.isArray(clone.vertices)) {
+        clone.vertices = clone.vertices.map((v) => ({
+          x: Math.round((v.x - minX) * 100) / 100,
+          y: Math.round((v.y - minY) * 100) / 100
+        }));
+      }
       return clone;
     });
 
@@ -23069,12 +23103,16 @@
       if (Array.isArray(nsh.points)) {
         nsh.points = nsh.points.map((p) => ({ x: p.x + ox, y: p.y + oy }));
       }
+      if (Array.isArray(nsh.vertices)) {
+        nsh.vertices = nsh.vertices.map((v) => ({ x: v.x + ox, y: v.y + oy }));
+      }
       page.shapes.push(nsh);
       state.selectedIds.shapes.add(nsh.id);
     });
 
     computeSelectionBounds();
     updateLassoToolbarBadge();
+    updateLassoFloatingBarPosition();
     invalidateStaticInkCache();
     requestRender();
     scheduleSaveActivePage(page);
@@ -24040,7 +24078,19 @@
       getToolColorPresets,
       applyColorFromGnPopover,
       duplicateLassoSelection,
+      deleteLassoSelection,
+      clearLassoSelection,
       computeSelectionBounds,
+      alignLassoHandwriting,
+      straightenLassoSelection,
+      captureLassoSelectionScreenshot,
+      tryCircleToLassoSelection,
+      syncGnLassoSubBarUi,
+      openSplitView,
+      closeSplitView,
+      toggleSplitView,
+      swapSplitViewPanes,
+      renderSplitPane,
       removeAllTapesOnActivePage,
       toggleVirtualRuler,
       snapWorldPointToVirtualRuler,
@@ -24093,6 +24143,6 @@
   renderWorldTextCards();
   fitPageToViewport();
   requestRender();
-  loadFromIndexedDB();
+  initialDbLoadPromise = loadFromIndexedDB();
   registerOfflineServiceWorker();
 })();

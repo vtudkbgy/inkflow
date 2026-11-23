@@ -636,7 +636,113 @@ async function runVerification() {
     throw new Error('La réinitialisation de la barre d\'outils par défaut a échoué');
   }
 
-  console.log(`✓ [4/4] Import PDF + Export annoté + Plein écran + Pile A4 + Couleurs + Lasso + Ruban + Pack #1/#3/#4/#6/#9 + Personnalisation barre d'outils vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+  // Vérification b34beab : Sous-barre Lasso enrichie (filtres, alignement, redressement, capture PNG, images) + Circle-to-Lasso + Split View
+  const lassoPage = api.getActivePage();
+  lassoPage.strokes.push(
+    { id: 'st_align_1', tool: 'pen', color: '#111827', size: 4, points: [{ x: 110, y: 200, pressure: 0.5 }, { x: 190, y: 214, pressure: 0.5 }, { x: 250, y: 224, pressure: 0.5 }] },
+    { id: 'st_align_2', tool: 'pen', color: '#111827', size: 4, points: [{ x: 160, y: 280, pressure: 0.5 }, { x: 260, y: 282, pressure: 0.5 }] }
+  );
+  lassoPage.images = lassoPage.images || [];
+  lassoPage.images.push({ id: 'img_lasso_1', x: 120, y: 210, width: 100, height: 80, src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' });
+  state.circleToLasso = true;
+  const circlePts = [];
+  for (let i = 0; i <= 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    circlePts.push({ x: 185 + Math.cos(a) * 140, y: 245 + Math.sin(a) * 110 });
+  }
+  const circleOk = api.tryCircleToLassoSelection(circlePts, lassoPage);
+  if (!circleOk || !state.selectedIds.images || !state.selectedIds.images.has('img_lasso_1') || !state.selectedIds.strokes.has('st_align_1')) {
+    throw new Error('La sélection Circle-to-Lasso (traits + images) a échoué');
+  }
+  const alignedOk = api.alignLassoHandwriting('left');
+  if (!alignedOk) {
+    throw new Error('L\'alignement de l\'écriture manuscrite au Lasso a échoué');
+  }
+  state.selectedIds.strokes.clear();
+  state.selectedIds.strokes.add('st_align_1');
+  api.computeSelectionBounds();
+  const straightenOk = api.straightenLassoSelection();
+  if (!straightenOk) {
+    throw new Error('Le redressement de ligne manuscrite au Lasso a échoué');
+  }
+  const shotOk = await api.captureLassoSelectionScreenshot();
+  if (!shotOk) {
+    throw new Error('La capture PNG de la sélection Lasso a échoué');
+  }
+
+  // Vérification Split View (ouverture, échange des 2 panneaux, fermeture)
+  const splitOpened = api.openSplitView();
+  if (!splitOpened || !state.splitView.open) {
+    throw new Error('L\'ouverture de la Vue divisée (Split View) a échoué');
+  }
+  const swapped = api.swapSplitViewPanes();
+  if (!swapped) {
+    throw new Error('L\'échange des panneaux de la Vue divisée a échoué');
+  }
+  const splitClosed = api.closeSplitView();
+  if (!splitClosed || state.splitView.open) {
+    throw new Error('La fermeture de la Vue divisée (Split View) a échoué');
+  }
+
+  // Vérification 56a57ab & 38a45ff : Un appui hors de la sélection (Lasso ou Forme) la termine sans dessiner ; suppression sans toast parasite
+  const activePg = api.getActivePage();
+  state.tool = 'pen';
+  state.selectedIds.strokes.clear();
+  state.selectedIds.shapes.clear();
+  state.selectedIds.texts.clear();
+  if (state.selectedIds.images) state.selectedIds.images.clear();
+  state.selectedIds.strokes.add(activePg.strokes[0].id);
+  api.computeSelectionBounds();
+  const strokesBeforeOutsideTap = activePg.strokes.length;
+  // Appui + glissement loin hors de la sélection Lasso : doit uniquement désélectionner sans créer de trait
+  api.handlePointerDown({
+    pointerId: 77,
+    pointerType: 'pen',
+    button: 0,
+    buttons: 1,
+    clientX: 15,
+    clientY: 15,
+    pressure: 0.6,
+    timeStamp: 6000,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  api.handlePointerMove({
+    pointerId: 77,
+    pointerType: 'pen',
+    button: -1,
+    buttons: 1,
+    clientX: 45,
+    clientY: 45,
+    pressure: 0.6,
+    timeStamp: 6020,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  api.handlePointerUpOrCancel({
+    pointerId: 77,
+    pointerType: 'pen',
+    button: 0,
+    buttons: 0,
+    clientX: 45,
+    clientY: 45,
+    pressure: 0,
+    timeStamp: 6040
+  });
+  if (state.selectedIds.strokes.size !== 0 || activePg.strokes.length !== strokesBeforeOutsideTap) {
+    throw new Error('Un appui hors de la sélection Lasso doit la terminer sans dessiner de nouveau trait');
+  }
+
+  const toastEl = sandbox.document.getElementById('toast');
+  if (toastEl) toastEl.textContent = '';
+  state.selectedIds.strokes.add(activePg.strokes[activePg.strokes.length - 1].id);
+  api.computeSelectionBounds();
+  api.deleteLassoSelection();
+  if (toastEl && toastEl.textContent === 'Sélection supprimée') {
+    throw new Error('La suppression d\'une sélection Lasso ne doit plus afficher la notification "Sélection supprimée"');
+  }
+
+  console.log(`✓ [4/4] Import PDF + Export annoté + Plein écran + Pile A4 + Couleurs + Lasso enrichi + Split View + Ruban + Pack #1/#3/#4/#6/#9 + UX Désélection vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {
