@@ -3043,6 +3043,7 @@
     isDrawing: false,
     strokeStartTime: 0,
     lastPointerUpTime: 0,
+    deselectTapPointerId: null,
     currentStroke: null,
     currentShape: null,
     temporaryEraserOverride: false,
@@ -8701,7 +8702,6 @@
     renderScene();
     renderActiveCanvasOnly();
     scheduleSaveActivePage(page);
-    showToast('Forme supprimée');
     return true;
   }
 
@@ -9854,7 +9854,6 @@
     invalidateStaticInkCache();
     clearActiveCanvas();
     scheduleSaveActivePage(page);
-    showToast(`✨ ${erasedCount} élément${erasedCount > 1 ? 's' : ''} effacé${erasedCount > 1 ? 's' : ''} par griffonnage`);
     return true;
   }
 
@@ -9957,7 +9956,6 @@
     state.currentShape = detected;
     state.currentStrokeSnappedFromAutoShape = true;
     if (dom.pointerTypeBadge) dom.pointerTypeBadge.textContent = `✨ Forme parfaite : ${detected.detectedName}`;
-    showToast(`✨ ${detected.detectedName}`);
     requestActiveRender();
   }
 
@@ -10179,6 +10177,30 @@
       updateLassoFloatingBarPosition();
       renderActiveCanvasOnly();
       return;
+    }
+
+    // Une sélection (lasso, forme ou zone de texte) est active et l'appui tombe hors de celle-ci :
+    // cet appui sert uniquement à terminer la manœuvre (désélection), sans dessiner ni créer quoi que ce soit.
+    if (state.tool !== 'lasso' && state.tool !== 'pan' && !state.temporaryEraserOverride) {
+      const hasLassoSel = hasAnyLassoSelection();
+      const selShape = state.selectedShapeId ? getSelectedShape(page) : null;
+      const keepForShapeEdit = Boolean(selShape) && state.tool === 'shape' && (
+        hitTestShapeEditHandle(selShape, worldPt.x, worldPt.y) ||
+        isPointOnOrInsideShape(selShape, worldPt.x, worldPt.y) ||
+        findShapeAtPoint(page, worldPt.x, worldPt.y)
+      );
+      const hasTextSel = state.tool !== 'text' && Boolean(state.selectedTextId || state.editingTextId);
+      if (((hasLassoSel || selShape) && !keepForShapeEdit) || hasTextSel) {
+        if (hasLassoSel) clearLassoSelection();
+        if (state.selectedShapeId && !keepForShapeEdit) clearSelectedShape(false);
+        if (hasTextSel) clearSelectedTextBox(true);
+        // Bloque tout tracé tant que ce même appui n'est pas relâché (le pointermove relancerait sinon un trait)
+        state.deselectTapPointerId = e.pointerId;
+        try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+        renderActiveCanvasOnly();
+        requestRender();
+        return;
+      }
     }
 
     if (state.tool === 'text') {
@@ -10481,6 +10503,10 @@
       const isStylusOrTouchContact =
         (e.pointerType === 'pen' && (tipActive || hoverBarrelAllowed)) ||
         (e.pointerType === 'mouse' && e.buttons === 1);
+      if (state.deselectTapPointerId != null) {
+        if (isStylusOrTouchContact && e.pointerId === state.deselectTapPointerId) return;
+        state.deselectTapPointerId = null;
+      }
       if (isStylusOrTouchContact && state.tool !== 'text') {
         handlePointerDown(e);
         return;
@@ -10837,6 +10863,11 @@
 
   function handlePointerUpOrCancel(e) {
     state.lastPointerUpTime = performance.now();
+    if (state.deselectTapPointerId != null && (e.pointerId === state.deselectTapPointerId || e.pointerId === undefined)) {
+      state.deselectTapPointerId = null;
+      try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      return;
+    }
     state.predictedPoints = [];
     virtualRulerState.activeEdge = null;
     cancelHoldShapeTimer();
@@ -11004,8 +11035,6 @@
             );
             if (instantDetected) {
               if (state.tool === 'shape') applyActiveShapeStrokeStyle(instantDetected);
-              const detName = instantDetected.detectedName;
-              const isConnected = Boolean(instantDetected.startConnection || instantDetected.endConnection);
               delete instantDetected.detectedName;
               page.shapes.push(instantDetected);
               state.currentStroke = null;
@@ -11013,7 +11042,6 @@
               mergeCompletedItemIntoStaticCanvas(instantDetected, 'shape');
               mergedDirectlyIntoStatic = true;
               scheduleSaveActivePage(page);
-              if (detName) showToast(isConnected ? `🔗 ${detName} connecté` : `✨ ${detName}`);
               clearActiveCanvas();
               requestRender();
               return;
@@ -11793,7 +11821,6 @@
     renderWorldTextCards();
     requestRender();
     scheduleSaveActivePage();
-    showToast('Sélection supprimée');
   }
 
   function recolorLassoSelection(newColor) {
