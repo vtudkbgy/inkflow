@@ -2894,6 +2894,8 @@
     folderModalColor: '#0072ce',
     folderModalIcon: 'folder',
     filesPageOpen: false,
+    detentePageOpen: false,
+    radialWheelSuppressClick: false,
     filesPageTab: 'all',
     filesPageViewMode: 'grid',
     filesPageFavFilter: 'any',
@@ -9478,7 +9480,7 @@
       (((e.buttons & PEN_LASSO_MASK) !== 0) || e.button === 2 || e.button === 3 || e.button === 4);
   }
 
-  const RADIAL_WHEEL_COLORS = [
+  const RADIAL_WHEEL_DEFAULT_COLORS = [
     { hex: '#1e293b', label: 'Noir' },
     { hex: '#1d4ed8', label: 'Bleu' },
     { hex: '#0284c7', label: 'Azur' },
@@ -9489,9 +9491,43 @@
     { hex: '#db2777', label: 'Rose' },
     { hex: '#7c3aed', label: 'Violet' }
   ];
+  const RADIAL_WHEEL_STORAGE_KEY = 'inkflow.radialWheelColors.v1';
+  const RADIAL_WHEEL_MIN_COLORS = 3;
+  const RADIAL_WHEEL_MAX_COLORS = 12;
+  // Tableau unique muté sur place : la roue, le survol et la sélection lisent toujours la même référence
+  const RADIAL_WHEEL_COLORS = RADIAL_WHEEL_DEFAULT_COLORS.map((c) => ({ ...c }));
 
-  function renderRadialColorWheelSvg(activeHex) {
-    if (!dom.radialWheelSvg) return;
+  function radialWheelLabelFor(hex) {
+    const norm = String(hex).toLowerCase();
+    const known = RADIAL_WHEEL_DEFAULT_COLORS.find((c) => c.hex === norm);
+    return known ? known.label : norm.toUpperCase();
+  }
+
+  function loadRadialWheelColors() {
+    try {
+      const raw = localStorage.getItem(RADIAL_WHEEL_STORAGE_KEY);
+      if (!raw) return;
+      const list = JSON.parse(raw);
+      if (!Array.isArray(list)) return;
+      const clean = list
+        .map((hex) => (typeof normalizeHexColor === 'function' ? normalizeHexColor(hex) : null))
+        .filter(Boolean)
+        .slice(0, RADIAL_WHEEL_MAX_COLORS);
+      if (clean.length < RADIAL_WHEEL_MIN_COLORS) return;
+      RADIAL_WHEEL_COLORS.splice(0, RADIAL_WHEEL_COLORS.length, ...clean.map((hex) => ({ hex: hex.toLowerCase(), label: radialWheelLabelFor(hex) })));
+    } catch (_) { /* stockage indisponible : couleurs par défaut */ }
+  }
+
+  function saveRadialWheelColors() {
+    try {
+      const isDefault = RADIAL_WHEEL_COLORS.length === RADIAL_WHEEL_DEFAULT_COLORS.length &&
+        RADIAL_WHEEL_COLORS.every((c, i) => c.hex === RADIAL_WHEEL_DEFAULT_COLORS[i].hex);
+      if (isDefault) localStorage.removeItem(RADIAL_WHEEL_STORAGE_KEY);
+      else localStorage.setItem(RADIAL_WHEEL_STORAGE_KEY, JSON.stringify(RADIAL_WHEEL_COLORS.map((c) => c.hex)));
+    } catch (_) { /* quota ou mode privé : sans conséquence */ }
+  }
+
+  function buildRadialWheelSlicesMarkup(activeHex, extraClassForIdx) {
     const n = RADIAL_WHEEL_COLORS.length;
     const cx = 92, cy = 92, innerR = 35, outerR = 82;
     const gap = 0.032;
@@ -9506,10 +9542,232 @@
       const x3 = cx + innerR * Math.cos(endA), y3 = cy + innerR * Math.sin(endA);
       const x4 = cx + innerR * Math.cos(startA), y4 = cy + innerR * Math.sin(startA);
       const isAct = activeHex && c.hex.toLowerCase() === activeHex.toLowerCase();
+      const extra = extraClassForIdx ? extraClassForIdx(i) : '';
       const d = `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${outerR} ${outerR} 0 0 1 ${x2.toFixed(2)} ${y2.toFixed(2)} L ${x3.toFixed(2)} ${y3.toFixed(2)} A ${innerR} ${innerR} 0 0 0 ${x4.toFixed(2)} ${y4.toFixed(2)} Z`;
-      markup += `<path class="radial-slice${isAct ? ' active-color' : ''}" data-wheel-idx="${i}" data-wheel-color="${c.hex}" data-wheel-label="${c.label}" d="${d}" fill="${c.hex}" stroke="rgba(255,255,255,0.65)" stroke-width="1.4" />`;
+      markup += `<path class="radial-slice${isAct ? ' active-color' : ''}${extra}" data-wheel-idx="${i}" data-wheel-color="${c.hex}" data-wheel-label="${escapeHtml(c.label)}" d="${d}" fill="${c.hex}" stroke="rgba(255,255,255,0.65)" stroke-width="1.4" />`;
     }
-    dom.radialWheelSvg.innerHTML = markup;
+    return markup;
+  }
+
+  function renderRadialColorWheelSvg(activeHex) {
+    if (!dom.radialWheelSvg) return;
+    dom.radialWheelSvg.innerHTML = buildRadialWheelSlicesMarkup(activeHex);
+  }
+
+  // ---------- Éditeur des couleurs de la roue (ajouter, remplacer, réordonner, retirer) ----------
+  const radialEditorState = { selected: 0 };
+
+  function renderRadialWheelEditor() {
+    const wheel = document.getElementById('radialEditorWheel');
+    const sel = Math.max(0, Math.min(RADIAL_WHEEL_COLORS.length - 1, radialEditorState.selected));
+    radialEditorState.selected = sel;
+    if (wheel) wheel.innerHTML = buildRadialWheelSlicesMarkup(null, (i) => (i === sel ? ' editor-selected' : ''));
+    const list = document.getElementById('radialEditorSwatches');
+    if (list) {
+      list.innerHTML = '';
+      RADIAL_WHEEL_COLORS.forEach((c, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `radial-editor-swatch${i === sel ? ' selected' : ''}`;
+        b.style.background = c.hex;
+        b.dataset.radialIdx = String(i);
+        b.setAttribute('role', 'option');
+        b.setAttribute('aria-selected', i === sel ? 'true' : 'false');
+        b.title = `${c.label} (${c.hex.toUpperCase()})`;
+        b.setAttribute('aria-label', b.title);
+        list.appendChild(b);
+      });
+      if (RADIAL_WHEEL_COLORS.length < RADIAL_WHEEL_MAX_COLORS) {
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'radial-editor-swatch radial-editor-add';
+        add.id = 'btnRadialAddColor';
+        add.title = 'Ajouter une couleur';
+        add.setAttribute('aria-label', 'Ajouter une couleur');
+        add.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+        list.appendChild(add);
+      }
+    }
+    const n = RADIAL_WHEEL_COLORS.length;
+    const left = document.getElementById('btnRadialMoveLeft');
+    if (left) left.disabled = sel <= 0;
+    const right = document.getElementById('btnRadialMoveRight');
+    if (right) right.disabled = sel >= n - 1;
+    const rm = document.getElementById('btnRadialRemove');
+    if (rm) rm.disabled = n <= RADIAL_WHEEL_MIN_COLORS;
+    const reset = document.getElementById('btnRadialResetDefaults');
+    if (reset) {
+      reset.disabled = n === RADIAL_WHEEL_DEFAULT_COLORS.length &&
+        RADIAL_WHEEL_COLORS.every((c, i) => c.hex === RADIAL_WHEEL_DEFAULT_COLORS[i].hex);
+    }
+  }
+
+  function openRadialWheelEditor(selectIdx = 0, openPicker = false) {
+    const modal = document.getElementById('modalRadialWheelColors');
+    if (!modal) return false;
+    if (state.colorWheelOpen) closeRadialColorWheel(true);
+    radialEditorState.selected = selectIdx;
+    modal.classList.remove('hidden');
+    renderRadialWheelEditor();
+    if (openPicker) openRadialSlotPicker(radialEditorState.selected);
+    requestRender();
+    return true;
+  }
+
+  function closeRadialWheelEditor() {
+    const modal = document.getElementById('modalRadialWheelColors');
+    if (gnColorPopoverState.open && String(gnColorPopoverState.mode).startsWith('radial-')) closeGnColorPopover();
+    if (modal) modal.classList.add('hidden');
+  }
+
+  function openRadialSlotPicker(idx, adding = false) {
+    const list = document.getElementById('radialEditorSwatches');
+    const anchor = adding
+      ? document.getElementById('btnRadialAddColor')
+      : (list && list.querySelector(`[data-radial-idx="${idx}"]`));
+    openGnColorPopover({
+      mode: adding ? 'radial-add' : 'radial-slot',
+      toolKey: 'pen',
+      scopeKey: 'radial',
+      slotIndex: adding ? -1 : idx,
+      anchorEl: anchor || null,
+      initialColor: adding ? '#0072ce' : (RADIAL_WHEEL_COLORS[idx] && RADIAL_WHEEL_COLORS[idx].hex),
+      forceOpen: true
+    });
+  }
+
+  // Appelé par le sélecteur de couleur (modes « radial-slot » et « radial-add »)
+  function applyRadialWheelPick(norm, closeAfter) {
+    const hex = norm.toLowerCase();
+    if (gnColorPopoverState.mode === 'radial-add') {
+      if (RADIAL_WHEEL_COLORS.length >= RADIAL_WHEEL_MAX_COLORS) { closeGnColorPopover(); return; }
+      RADIAL_WHEEL_COLORS.push({ hex, label: radialWheelLabelFor(hex) });
+      // Les aperçus suivants modifient la pastille ajoutée au lieu d'en ajouter d'autres
+      gnColorPopoverState.mode = 'radial-slot';
+      gnColorPopoverState.slotIndex = RADIAL_WHEEL_COLORS.length - 1;
+      radialEditorState.selected = gnColorPopoverState.slotIndex;
+    } else {
+      const idx = gnColorPopoverState.slotIndex;
+      if (!RADIAL_WHEEL_COLORS[idx]) { closeGnColorPopover(); return; }
+      RADIAL_WHEEL_COLORS[idx] = { hex, label: radialWheelLabelFor(hex) };
+    }
+    saveRadialWheelColors();
+    renderRadialWheelEditor();
+    if (closeAfter) closeGnColorPopover();
+    else {
+      const list = document.getElementById('radialEditorSwatches');
+      const anchor = list && list.querySelector(`[data-radial-idx="${gnColorPopoverState.slotIndex}"]`);
+      if (anchor) {
+        if (gnColorPopoverState.anchorEl && gnColorPopoverState.anchorEl.classList) gnColorPopoverState.anchorEl.classList.remove('popover-open');
+        gnColorPopoverState.anchorEl = anchor;
+      }
+      renderGnColorPopover();
+    }
+  }
+
+  function moveRadialWheelColor(dir) {
+    const i = radialEditorState.selected;
+    const j = i + dir;
+    if (j < 0 || j >= RADIAL_WHEEL_COLORS.length) return;
+    const tmp = RADIAL_WHEEL_COLORS[i];
+    RADIAL_WHEEL_COLORS[i] = RADIAL_WHEEL_COLORS[j];
+    RADIAL_WHEEL_COLORS[j] = tmp;
+    radialEditorState.selected = j;
+    saveRadialWheelColors();
+    renderRadialWheelEditor();
+  }
+
+  function removeRadialWheelColor() {
+    if (RADIAL_WHEEL_COLORS.length <= RADIAL_WHEEL_MIN_COLORS) return;
+    RADIAL_WHEEL_COLORS.splice(radialEditorState.selected, 1);
+    saveRadialWheelColors();
+    renderRadialWheelEditor();
+  }
+
+  function resetRadialWheelColors() {
+    RADIAL_WHEEL_COLORS.splice(0, RADIAL_WHEEL_COLORS.length, ...RADIAL_WHEEL_DEFAULT_COLORS.map((c) => ({ ...c })));
+    radialEditorState.selected = 0;
+    saveRadialWheelColors();
+    renderRadialWheelEditor();
+  }
+
+  function initRadialWheelEditor() {
+    loadRadialWheelColors();
+    document.getElementById('btnOpenRadialWheelEditor')?.addEventListener('click', () => openRadialWheelEditor(0));
+    document.getElementById('btnCloseRadialWheelEditor')?.addEventListener('click', closeRadialWheelEditor);
+    document.getElementById('btnRadialEditorDone')?.addEventListener('click', closeRadialWheelEditor);
+    document.getElementById('btnRadialResetDefaults')?.addEventListener('click', resetRadialWheelColors);
+    document.getElementById('btnRadialMoveLeft')?.addEventListener('click', () => moveRadialWheelColor(-1));
+    document.getElementById('btnRadialMoveRight')?.addEventListener('click', () => moveRadialWheelColor(1));
+    document.getElementById('btnRadialRemove')?.addEventListener('click', removeRadialWheelColor);
+    document.getElementById('btnRadialEditColor')?.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openRadialSlotPicker(radialEditorState.selected);
+    });
+    const list = document.getElementById('radialEditorSwatches');
+    if (list) {
+      list.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('button');
+        if (!btn) return;
+        ev.stopPropagation();
+        if (btn.id === 'btnRadialAddColor') { openRadialSlotPicker(-1, true); return; }
+        const idx = Number(btn.dataset.radialIdx);
+        if (!Number.isInteger(idx)) return;
+        if (idx === radialEditorState.selected) { openRadialSlotPicker(idx); return; }
+        radialEditorState.selected = idx;
+        if (gnColorPopoverState.open) closeGnColorPopover();
+        renderRadialWheelEditor();
+      });
+    }
+    const wheel = document.getElementById('radialEditorWheel');
+    if (wheel) {
+      wheel.addEventListener('click', (ev) => {
+        const slice = ev.target.closest('.radial-slice');
+        if (!slice) return;
+        ev.stopPropagation();
+        radialEditorState.selected = Number(slice.dataset.wheelIdx) || 0;
+        if (gnColorPopoverState.open) closeGnColorPopover();
+        renderRadialWheelEditor();
+      });
+    }
+    // Roue ouverte en mode « toucher » : bouton Modifier, clic droit (souris) ou appui long sur une pastille
+    document.getElementById('btnRadialWheelEdit')?.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openRadialWheelEditor(0);
+    });
+    if (dom.radialColorWheel) {
+      let holdTimer = null;
+      const cancelHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } };
+      dom.radialColorWheel.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const slice = ev.target.closest && ev.target.closest('.radial-slice');
+        if (!slice || !state.colorWheelTapMode || ev.pointerType === 'pen' || ev.pointerType === 'touch') return;
+        openRadialWheelEditor(Number(slice.dataset.wheelIdx) || 0, true);
+      });
+      dom.radialColorWheel.addEventListener('pointerdown', (ev) => {
+        cancelHold();
+        const slice = ev.target.closest && ev.target.closest('.radial-slice');
+        if (!slice || !state.colorWheelTapMode || ev.button !== 0 || isPenLassoButton(ev) || isPenEraserButton(ev)) return;
+        const idx = Number(slice.dataset.wheelIdx) || 0;
+        const x0 = ev.clientX, y0 = ev.clientY;
+        holdTimer = setTimeout(() => {
+          holdTimer = null;
+          state.radialWheelSuppressClick = true;
+          openRadialWheelEditor(idx, true);
+        }, 560);
+        const onMove = (mv) => { if (Math.hypot(mv.clientX - x0, mv.clientY - y0) > 10) cancelHold(); };
+        const onEnd = () => {
+          cancelHold();
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onEnd);
+          window.removeEventListener('pointercancel', onEnd);
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onEnd);
+        window.addEventListener('pointercancel', onEnd);
+      });
+    }
   }
 
   function openRadialColorWheelAt(clientX, clientY) {
@@ -14886,6 +15144,7 @@
     'text-box-border': 'Couleur De Bordure',
     laser: 'Couleur Du Pointeur',
     lasso: 'Changer La Couleur',
+    radial: 'Couleur De La Roue',
     cover: 'Couleur De Couverture',
     folder: 'Couleur Du Dossier'
   };
@@ -15118,6 +15377,11 @@
     if (!norm) return;
     const { mode, toolKey, slotIndex, textCardId } = gnColorPopoverState;
     const closeAfter = options.close !== false;
+
+    if (mode === 'radial-slot' || mode === 'radial-add') {
+      applyRadialWheelPick(norm, closeAfter);
+      return;
+    }
 
     if (mode === 'add-slot') {
       const addedIdx = addToolColorSlot(toolKey, norm);
@@ -15358,6 +15622,8 @@
         currentSelectedHex = (normalizeHexColor(state.newNotebookCover) || '').toLowerCase();
       } else if (mode === 'folder-color' && state.folderModalColor) {
         currentSelectedHex = (normalizeHexColor(state.folderModalColor) || '').toLowerCase();
+      } else if (mode === 'radial-slot' && RADIAL_WHEEL_COLORS[slotIndex]) {
+        currentSelectedHex = RADIAL_WHEEL_COLORS[slotIndex].hex.toLowerCase();
       }
 
       presets.forEach((presetHex, pIdx) => {
@@ -18013,6 +18279,7 @@
       });
       dom.radialColorWheel.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (state.radialWheelSuppressClick) { state.radialWheelSuppressClick = false; return; }
         if (!state.colorWheelOpen) return;
         const slice = e.target.closest('.radial-slice');
         if (slice && slice.dataset.wheelColor) {
@@ -18520,6 +18787,11 @@
         toggleFullscreenMode();
         return;
       }
+      // Page Détente ouverte : seuls ses propres raccourcis agissent (aucun raccourci de dessin)
+      if (state.detentePageOpen) {
+        if (!e.defaultPrevented) handleDetenteKeydown(e);
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
         e.preventDefault();
         toggleFilesPage();
@@ -18597,8 +18869,8 @@
         else if (hasAnyLassoSelection()) { clearLassoSelection(); requestRender(); }
         return;
       }
-      // Une fenêtre modale ou la page Fichiers est ouverte : aucun raccourci de toile ne doit agir derrière
-      if (isAnyModalOpen() || state.filesPageOpen) return;
+      // Une fenêtre modale, la page Fichiers ou la page Détente est ouverte : aucun raccourci de toile ne doit agir derrière
+      if (isAnyModalOpen() || state.filesPageOpen || state.detentePageOpen) return;
       if (e.code === 'Space') {
         // Empêche Espace d'« activer » le bouton d'outil qui a gardé le focus (ouverture de la sous-barre au keyup)
         e.preventDefault();
@@ -18611,6 +18883,7 @@
       if ((e.key === 'Delete' || e.key === 'Backspace') && hasAnyLassoSelection()) { e.preventDefault(); deleteLassoSelection(); return; }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const k = e.key.toLowerCase();
+      if (k === 'j' && e.shiftKey) { e.preventDefault(); openDetentePage(); return; }
       if (k === 'p') setActiveTool('pen');
       else if (k === 'h') setActiveTool('highlighter');
       else if (k === 'e') setActiveTool('eraser');
@@ -19706,12 +19979,604 @@
     }
   }
 
+  // ==================== PAGE DÉTENTE : MACHINE À SOUS (JETONS FICTIFS UNIQUEMENT) ====================
+  // Aucun argent réel, aucun achat, aucun lien externe : un solde fictif sauvegardé dans localStorage.
+  const DETENTE_STORAGE_KEY = 'inkflow.detente.v1';
+  const DETENTE_START_BALANCE = 1000;
+  const DETENTE_BETS = [1, 2, 5, 10, 25, 50, 100];
+  const DETENTE_HISTORY_MAX = 8;
+  const DETENTE_CELL_H = 88;
+  // Symboles au trait (viewBox 48×48). Poids = fréquence sur la bande ; mult = gain pour trois identiques.
+  // Taux de retour théorique ≈ 93 %, gain sur ~37 % des lancers (paires adjacentes comprises).
+  const DETENTE_SYMBOLS = [
+    { id: 'goutte', label: 'Goutte d’encre', weight: 6, mult: 3,
+      svg: '<path d="M24 6.5C21 11.5 12.5 21 12.5 29a11.5 11.5 0 0 0 23 0C35.5 21 27 11.5 24 6.5Z"/><path class="ink-soft" d="M18.2 29.6a6 6 0 0 0 5.2 5.6"/>' },
+    { id: 'feuille', label: 'Feuille', weight: 5, mult: 5,
+      svg: '<path d="M10.5 37.5C9.5 21 21 10 38.5 9.5 38.5 27 27.5 38.5 10.5 37.5Z"/><path class="ink-soft" d="M10.5 37.5 30.5 17.5M19 29h7.5M23.5 24.5V18"/>' },
+    { id: 'lune', label: 'Lune', weight: 4, mult: 8,
+      svg: '<path d="M30.5 7.5A17 17 0 1 0 40.5 35 13.5 13.5 0 1 1 30.5 7.5Z"/><path class="ink-soft" d="M36 13.5l1.2 2.6 2.6 1.2-2.6 1.2-1.2 2.6-1.2-2.6-2.6-1.2 2.6-1.2Z"/>' },
+    { id: 'etoile', label: 'Étoile', weight: 3, mult: 12,
+      svg: '<path d="M24 7.5l4.9 10.4 11.3 1.4-8.3 7.8 2.1 11.2L24 32.8l-10 5.5 2.1-11.2-8.3-7.8 11.3-1.4Z"/>' },
+    { id: 'coeur', label: 'Cœur', weight: 2, mult: 25,
+      svg: '<path d="M24 39C11 30.5 7.5 23 9.6 16.6 11.8 10.4 19.8 9.6 24 16 28.2 9.6 36.2 10.4 38.4 16.6 40.5 23 37 30.5 24 39Z"/><path class="ink-soft" d="M14.5 17.5a4.5 4.5 0 0 1 4-3"/>' },
+    { id: 'plume', label: 'Plume', weight: 1, mult: 60,
+      svg: '<path d="M39.5 7.5C27 8.5 17.5 17.5 14.5 31.5 23 31.5 33 25 39.5 7.5Z"/><path class="ink-soft" d="M34 13 10 40M28 20.5h-6.5M31.5 16l-4.5-.5M24.5 25.5l-6 .5"/>' }
+  ];
+  const DETENTE_TWO_PLUMES_MULT = 8;
+  const DETENTE_PAIR_MULT = 2;
+  const detenteState = {
+    balance: DETENTE_START_BALANCE,
+    betIndex: 3,
+    volume: 25,
+    muted: false,
+    history: [],
+    spinning: false,
+    strip: [],
+    positions: [0, 0, 0],
+    cellH: DETENTE_CELL_H,
+    audioCtx: null,
+    resetArmedTimer: null,
+    leverDrag: null,
+    eventsBound: false
+  };
+
+  function loadDetenteState() {
+    try {
+      const raw = localStorage.getItem(DETENTE_STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (!data || typeof data !== 'object') return;
+      if (Number.isFinite(data.balance) && data.balance >= 0) detenteState.balance = Math.floor(data.balance);
+      if (Number.isInteger(data.betIndex) && data.betIndex >= 0 && data.betIndex < DETENTE_BETS.length) detenteState.betIndex = data.betIndex;
+      if (Number.isFinite(data.volume)) detenteState.volume = Math.max(0, Math.min(100, Math.round(data.volume)));
+      detenteState.muted = Boolean(data.muted);
+      if (Array.isArray(data.history)) {
+        detenteState.history = data.history
+          .filter((h) => h && Array.isArray(h.symbols) && h.symbols.length === 3 && Number.isFinite(h.win))
+          .slice(0, DETENTE_HISTORY_MAX);
+      }
+    } catch (_) { /* stockage indisponible : on garde les valeurs par défaut */ }
+  }
+
+  function saveDetenteState() {
+    try {
+      localStorage.setItem(DETENTE_STORAGE_KEY, JSON.stringify({
+        balance: detenteState.balance,
+        betIndex: detenteState.betIndex,
+        volume: detenteState.volume,
+        muted: detenteState.muted,
+        history: detenteState.history
+      }));
+    } catch (_) { /* quota ou mode privé : sans conséquence */ }
+  }
+
+  function detenteRandomInt(max) {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const buf = new Uint32Array(1);
+        crypto.getRandomValues(buf);
+        return buf[0] % max;
+      }
+    } catch (_) { /* repli sur Math.random */ }
+    return Math.floor(Math.random() * max);
+  }
+
+  // Bande de 21 cases (somme des poids), entrelacée pour éviter les suites d'un même symbole
+  function buildDetenteStrip() {
+    const pool = [];
+    DETENTE_SYMBOLS.forEach((sym, idx) => { for (let i = 0; i < sym.weight; i++) pool.push(idx); });
+    const strip = [];
+    const counts = DETENTE_SYMBOLS.map((s) => s.weight);
+    while (strip.length < pool.length) {
+      let best = -1;
+      for (let i = 0; i < counts.length; i++) {
+        if (!counts[i]) continue;
+        if (strip.length && strip[strip.length - 1] === i && counts.some((c, j) => c && j !== i)) continue;
+        if (best < 0 || counts[i] > counts[best]) best = i;
+      }
+      strip.push(best);
+      counts[best]--;
+    }
+    return strip;
+  }
+
+  function detenteSymbolSvg(symIdx, size = 48) {
+    const sym = DETENTE_SYMBOLS[symIdx];
+    return `<svg class="detente-sym detente-sym-${sym.id}" width="${size}" height="${size}" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${sym.svg}</svg>`;
+  }
+
+  function evaluateDetenteLine(symbols) {
+    const [a, b, c] = symbols;
+    const plumeIdx = DETENTE_SYMBOLS.length - 1;
+    if (a === b && b === c) return { mult: DETENTE_SYMBOLS[a].mult, cells: [0, 1, 2], kind: 'triple' };
+    const plumes = symbols.map((s, i) => (s === plumeIdx ? i : -1)).filter((i) => i >= 0);
+    if (plumes.length === 2) return { mult: DETENTE_TWO_PLUMES_MULT, cells: plumes, kind: 'plumes' };
+    if (a === b) return { mult: DETENTE_PAIR_MULT, cells: [0, 1], kind: 'pair' };
+    if (b === c) return { mult: DETENTE_PAIR_MULT, cells: [1, 2], kind: 'pair' };
+    return { mult: 0, cells: [], kind: 'none' };
+  }
+
+  function getDetenteBet() {
+    return DETENTE_BETS[detenteState.betIndex];
+  }
+
+  function renderDetenteReels() {
+    const n = detenteState.strip.length;
+    document.querySelectorAll('#detenteReels .detente-reel').forEach((reelEl, r) => {
+      const stripEl = reelEl.querySelector('.detente-strip');
+      if (!stripEl) return;
+      if (!stripEl.childElementCount) {
+        // 3 copies de la bande : le défilement boucle sans saut visible
+        let html = '';
+        for (let copy = 0; copy < 3; copy++) {
+          for (let i = 0; i < n; i++) html += `<div class="detente-cell">${detenteSymbolSvg(detenteState.strip[(i + r * 7) % n], 56)}</div>`;
+        }
+        stripEl.innerHTML = html;
+      }
+      const cell = stripEl.firstElementChild;
+      // offsetHeight ignore les transformations (fondu d'ouverture en scale) : hauteur de mise en page réelle
+      const h = cell ? cell.offsetHeight : 0;
+      if (h > 0) detenteState.cellH = h;
+      setDetenteReelPosition(r, detenteState.positions[r]);
+    });
+  }
+
+  // Position = index (flottant) de la case affichée sur la ligne de gain
+  function setDetenteReelPosition(r, pos) {
+    const n = detenteState.strip.length;
+    detenteState.positions[r] = pos;
+    const reelEl = document.querySelector(`#detenteReels .detente-reel[data-reel="${r}"]`);
+    const stripEl = reelEl && reelEl.querySelector('.detente-strip');
+    if (!stripEl) return;
+    const wrapped = ((pos % n) + n) % n;
+    const topIndex = wrapped + n - 1; // copie du milieu, une case au-dessus visible
+    stripEl.style.transform = `translate3d(0, ${(-topIndex * detenteState.cellH).toFixed(2)}px, 0)`;
+  }
+
+  function getDetenteReelSymbol(r) {
+    const n = detenteState.strip.length;
+    const idx = ((Math.round(detenteState.positions[r]) % n) + n) % n;
+    return detenteState.strip[(idx + r * 7) % n];
+  }
+
+  function renderDetentePaytable() {
+    const list = document.getElementById('detentePaytable');
+    if (!list) return;
+    const plumeIdx = DETENTE_SYMBOLS.length - 1;
+    let html = '';
+    for (let i = DETENTE_SYMBOLS.length - 1; i >= 0; i--) {
+      const icons = detenteSymbolSvg(i, 22).repeat(3);
+      html += `<li><span class="detente-pt-icons" title="${escapeHtml(DETENTE_SYMBOLS[i].label)} × 3">${icons}</span><span class="detente-pt-mult">×${DETENTE_SYMBOLS[i].mult}</span></li>`;
+    }
+    html += `<li><span class="detente-pt-icons" title="Deux plumes">${detenteSymbolSvg(plumeIdx, 22).repeat(2)}<span class="detente-pt-any">n’importe où</span></span><span class="detente-pt-mult">×${DETENTE_TWO_PLUMES_MULT}</span></li>`;
+    html += `<li><span class="detente-pt-icons"><span class="detente-pt-any">Deux identiques côte à côte</span></span><span class="detente-pt-mult">×${DETENTE_PAIR_MULT}</span></li>`;
+    list.innerHTML = html;
+  }
+
+  function renderDetenteHistory() {
+    const list = document.getElementById('detenteHistory');
+    if (!list) return;
+    if (!detenteState.history.length) {
+      list.innerHTML = '<li class="detente-history-empty">Aucun gain pour l’instant.</li>';
+      return;
+    }
+    list.innerHTML = detenteState.history.map((h) => {
+      const icons = h.symbols.map((s) => (DETENTE_SYMBOLS[s] ? detenteSymbolSvg(s, 18) : '')).join('');
+      const t = new Date(h.at || Date.now());
+      const time = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+      return `<li><span class="detente-h-icons">${icons}</span><span class="detente-h-win">+${h.win}</span><span class="detente-h-time">${time}</span></li>`;
+    }).join('');
+  }
+
+  function renderDetenteHud() {
+    const bal = document.getElementById('detenteBalance');
+    if (bal) bal.textContent = String(detenteState.balance);
+    const betEl = document.getElementById('detenteBet');
+    if (betEl) betEl.textContent = String(getDetenteBet());
+    const canPlay = detenteState.balance >= getDetenteBet();
+    const spinBtn = document.getElementById('btnDetenteSpin');
+    if (spinBtn) spinBtn.disabled = detenteState.spinning || !canPlay;
+    const lever = document.getElementById('detenteLever');
+    if (lever) lever.classList.toggle('disabled', detenteState.spinning || !canPlay);
+    const down = document.getElementById('btnDetenteBetDown');
+    if (down) down.disabled = detenteState.spinning || detenteState.betIndex <= 0;
+    const up = document.getElementById('btnDetenteBetUp');
+    if (up) up.disabled = detenteState.spinning || detenteState.betIndex >= DETENTE_BETS.length - 1;
+    const vol = document.getElementById('detenteVolume');
+    if (vol && Number(vol.value) !== detenteState.volume) vol.value = String(detenteState.volume);
+    const volVal = document.getElementById('detenteVolumeValue');
+    if (volVal) volVal.textContent = `${detenteState.volume} %`;
+    const muteBtn = document.getElementById('btnDetenteMute');
+    if (muteBtn) {
+      muteBtn.classList.toggle('muted', detenteState.muted);
+      muteBtn.setAttribute('aria-pressed', detenteState.muted ? 'true' : 'false');
+      const lbl = detenteState.muted ? 'Rétablir le son' : 'Couper le son';
+      muteBtn.title = lbl;
+      muteBtn.setAttribute('aria-label', lbl);
+    }
+    const page = document.getElementById('detentePage');
+    if (page) page.classList.toggle('is-broke', !canPlay && !detenteState.spinning);
+  }
+
+  function setDetenteResult(text, tone = '') {
+    const el = document.getElementById('detenteResult');
+    if (!el) return;
+    el.textContent = text;
+    el.dataset.tone = tone;
+  }
+
+  // ---------- Carillon discret (WebAudio), jamais de son système ----------
+  function getDetenteGain() {
+    if (detenteState.muted || detenteState.volume <= 0) return 0;
+    return detenteState.volume / 100;
+  }
+
+  function getDetenteAudioCtx() {
+    if (getDetenteGain() <= 0) return null;
+    if (!detenteState.audioCtx) {
+      const Ctx = (typeof window !== 'undefined') && (window.AudioContext || window.webkitAudioContext);
+      if (!Ctx) return null;
+      try { detenteState.audioCtx = new Ctx(); } catch (_) { return null; }
+    }
+    if (detenteState.audioCtx.state === 'suspended') detenteState.audioCtx.resume().catch(() => {});
+    return detenteState.audioCtx;
+  }
+
+  function playDetenteTone(freq, startOffset, duration, peak) {
+    const ctx = getDetenteAudioCtx();
+    const vol = getDetenteGain();
+    if (!ctx || vol <= 0) return;
+    const t0 = ctx.currentTime + startOffset;
+    const osc = ctx.createOscillator();
+    const overtone = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const overGain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, t0);
+    overtone.type = 'sine';
+    overtone.frequency.setValueAtTime(freq * 2.01, t0);
+    overGain.gain.setValueAtTime(0.18, t0);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak * vol), t0 + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    osc.connect(gain);
+    overtone.connect(overGain);
+    overGain.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t0);
+    overtone.start(t0);
+    osc.stop(t0 + duration + 0.02);
+    overtone.stop(t0 + duration + 0.02);
+  }
+
+  function playDetenteReelStop(r) {
+    playDetenteTone([523.25, 587.33, 659.25][r] || 600, 0, 0.09, 0.07);
+  }
+
+  function playDetenteChime(big) {
+    const notes = big ? [659.25, 783.99, 987.77, 1318.51] : [783.99, 1046.5];
+    notes.forEach((f, i) => playDetenteTone(f, i * 0.11, big ? 0.9 : 0.6, 0.16));
+  }
+
+  // ---------- Lancer ----------
+  // Position d'un rouleau à l'instant t (0..1) : décélération douce qui dépasse
+  // d'un tiers de case, puis calage sur la case cible (vitesse continue)
+  function detenteReelPos(from, to, t) {
+    const overshoot = 0.32;
+    if (t >= 1) return to;
+    if (t < 0.88) {
+      const u = t / 0.88;
+      return from + (to + overshoot - from) * (1 - Math.pow(1 - u, 3));
+    }
+    const u = (t - 0.88) / 0.12;
+    return to + overshoot * (1 + Math.cos(Math.PI * u)) / 2;
+  }
+
+  function spinDetente() {
+    if (detenteState.spinning || !state.detentePageOpen) return false;
+    const bet = getDetenteBet();
+    if (detenteState.balance < bet) {
+      setDetenteResult('Solde insuffisant : baissez la mise ou réinitialisez les jetons.', 'muted');
+      return false;
+    }
+    detenteState.spinning = true;
+    detenteState.balance -= bet;
+    saveDetenteState();
+    clearDetenteWinMarks();
+    setDetenteResult('…', '');
+    renderDetenteHud();
+    getDetenteAudioCtx(); // déverrouille l'audio dans le geste utilisateur (si son actif)
+
+    const n = detenteState.strip.length;
+    const reduced = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reels = [0, 1, 2].map((r) => {
+      const stopIdx = detenteRandomInt(n);
+      const from = detenteState.positions[r];
+      const fromWrapped = ((Math.round(from) % n) + n) % n;
+      let delta = (stopIdx - fromWrapped + n) % n;
+      const loops = reduced ? 1 : 3 + r * 2;
+      const to = Math.round(from) + loops * n + delta;
+      const duration = reduced ? 380 + r * 120 : 1250 + r * 520;
+      return { r, from, to, duration, done: false };
+    });
+    const reelEls = document.querySelectorAll('#detenteReels .detente-reel');
+    reelEls.forEach((el) => el.classList.add('spinning'));
+    const t0 = performance.now();
+
+    const frame = (now) => {
+      if (!state.detentePageOpen) {
+        // Page fermée en plein lancer : on cale directement les rouleaux
+        reels.forEach((rl) => { setDetenteReelPosition(rl.r, rl.to); rl.done = true; });
+      }
+      let allDone = true;
+      reels.forEach((rl) => {
+        if (rl.done) return;
+        const t = Math.min(1, (now - t0) / rl.duration);
+        setDetenteReelPosition(rl.r, detenteReelPos(rl.from, rl.to, t));
+        if (t > 0.82 && reelEls[rl.r]) reelEls[rl.r].classList.remove('spinning');
+        if (t >= 1) {
+          rl.done = true;
+          setDetenteReelPosition(rl.r, rl.to);
+          if (reelEls[rl.r]) reelEls[rl.r].classList.remove('spinning');
+          if (state.detentePageOpen) playDetenteReelStop(rl.r);
+        } else {
+          allDone = false;
+        }
+      });
+      if (!allDone) {
+        requestAnimationFrame(frame);
+        return;
+      }
+      finishDetenteSpin(bet);
+    };
+    requestAnimationFrame(frame);
+    return true;
+  }
+
+  function clearDetenteWinMarks() {
+    document.querySelectorAll('#detenteReels .detente-reel').forEach((el) => el.classList.remove('win'));
+    const machine = document.querySelector('#detentePage .detente-machine');
+    if (machine) machine.classList.remove('won', 'won-big');
+  }
+
+  function finishDetenteSpin(bet) {
+    detenteState.spinning = false;
+    const symbols = [0, 1, 2].map(getDetenteReelSymbol);
+    const result = evaluateDetenteLine(symbols);
+    const win = bet * result.mult;
+    if (win > 0) {
+      const startBalance = detenteState.balance;
+      detenteState.balance += win;
+      detenteState.history.unshift({ symbols, win, at: Date.now() });
+      detenteState.history = detenteState.history.slice(0, DETENTE_HISTORY_MAX);
+      const big = result.kind === 'triple' && result.mult >= 12;
+      const reelEls = document.querySelectorAll('#detenteReels .detente-reel');
+      result.cells.forEach((i) => reelEls[i] && reelEls[i].classList.add('win'));
+      const machine = document.querySelector('#detentePage .detente-machine');
+      if (machine) {
+        void machine.offsetWidth;
+        machine.classList.add(big ? 'won-big' : 'won');
+      }
+      const label = result.kind === 'triple'
+        ? `${DETENTE_SYMBOLS[symbols[0]].label} × 3`
+        : (result.kind === 'plumes' ? 'Deux plumes' : 'Paire');
+      setDetenteResult(`${label} : +${win} jetons`, 'win');
+      animateDetenteBalance(startBalance, detenteState.balance);
+      playDetenteChime(big);
+      renderDetenteHistory();
+    } else {
+      setDetenteResult(detenteState.balance < DETENTE_BETS[0] ? 'Plus de jetons. Réinitialisez pour rejouer.' : 'Pas cette fois.', 'muted');
+    }
+    saveDetenteState();
+    renderDetenteHud();
+  }
+
+  function animateDetenteBalance(from, to) {
+    const el = document.getElementById('detenteBalance');
+    if (!el) return;
+    const t0 = performance.now();
+    const dur = Math.min(900, 300 + (to - from) * 2);
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / dur);
+      el.textContent = String(Math.round(from + (to - from) * (1 - Math.pow(1 - t, 3))));
+      if (t < 1 && state.detentePageOpen) requestAnimationFrame(step);
+      else el.textContent = String(detenteState.balance);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function changeDetenteBet(dir) {
+    if (detenteState.spinning) return;
+    detenteState.betIndex = Math.max(0, Math.min(DETENTE_BETS.length - 1, detenteState.betIndex + dir));
+    saveDetenteState();
+    renderDetenteHud();
+  }
+
+  function resetDetenteBalance() {
+    const label = document.getElementById('detenteResetLabel');
+    const btn = document.getElementById('btnDetenteReset');
+    // Confirmation en deux temps, sans fenêtre supplémentaire
+    if (!detenteState.resetArmedTimer) {
+      if (label) label.textContent = 'Confirmer la remise à zéro';
+      if (btn) btn.classList.add('armed');
+      detenteState.resetArmedTimer = setTimeout(() => {
+        detenteState.resetArmedTimer = null;
+        if (label) label.textContent = 'Réinitialiser les jetons';
+        if (btn) btn.classList.remove('armed');
+      }, 3000);
+      return;
+    }
+    clearTimeout(detenteState.resetArmedTimer);
+    detenteState.resetArmedTimer = null;
+    if (label) label.textContent = 'Réinitialiser les jetons';
+    if (btn) btn.classList.remove('armed');
+    if (detenteState.spinning) return;
+    detenteState.balance = DETENTE_START_BALANCE;
+    detenteState.history = [];
+    saveDetenteState();
+    clearDetenteWinMarks();
+    setDetenteResult('Solde remis à 1000 jetons.', '');
+    renderDetenteHistory();
+    renderDetenteHud();
+  }
+
+  // ---------- Levier (souris, doigt, stylet) ----------
+  function setDetenteLeverPull(ratio, animate) {
+    const arm = document.getElementById('detenteLeverArm');
+    if (!arm) return;
+    arm.style.transition = animate ? 'transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1)' : 'none';
+    arm.style.transform = `translateY(${(Math.max(0, Math.min(1, ratio)) * 96).toFixed(1)}px)`;
+  }
+
+  function pullDetenteLever() {
+    if (detenteState.spinning) return;
+    setDetenteLeverPull(1, true);
+    setTimeout(() => setDetenteLeverPull(0, true), 220);
+    spinDetente();
+  }
+
+  function bindDetenteLever() {
+    const lever = document.getElementById('detenteLever');
+    if (!lever) return;
+    lever.addEventListener('pointerdown', (e) => {
+      if (detenteState.spinning || e.button > 0) return;
+      e.preventDefault();
+      try { lever.setPointerCapture(e.pointerId); } catch (_) {}
+      detenteState.leverDrag = { id: e.pointerId, y0: e.clientY, ratio: 0, moved: false };
+    });
+    lever.addEventListener('pointermove', (e) => {
+      const d = detenteState.leverDrag;
+      if (!d || d.id !== e.pointerId) return;
+      d.ratio = Math.max(0, Math.min(1, (e.clientY - d.y0) / 96));
+      if (d.ratio > 0.05) d.moved = true;
+      setDetenteLeverPull(d.ratio, false);
+    });
+    const release = (e) => {
+      const d = detenteState.leverDrag;
+      if (!d || d.id !== e.pointerId) return;
+      detenteState.leverDrag = null;
+      setDetenteLeverPull(0, true);
+      // Un appui simple ou une traction suffisante lance la partie
+      if (e.type === 'pointerup' && (!d.moved || d.ratio >= 0.55)) spinDetente();
+    };
+    lever.addEventListener('pointerup', release);
+    lever.addEventListener('pointercancel', release);
+    lever.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pullDetenteLever(); }
+    });
+  }
+
+  function initDetentePage() {
+    if (detenteState.eventsBound) return;
+    const pageEl = document.getElementById('detentePage');
+    if (!pageEl) return;
+    detenteState.eventsBound = true;
+    loadDetenteState();
+    detenteState.strip = buildDetenteStrip();
+    detenteState.positions = [detenteRandomInt(detenteState.strip.length), detenteRandomInt(detenteState.strip.length), detenteRandomInt(detenteState.strip.length)];
+
+    document.getElementById('btnOpenDetente')?.addEventListener('click', () => toggleDetentePage());
+    document.getElementById('btnCloseDetentePage')?.addEventListener('click', closeDetentePage);
+    document.getElementById('btnDetenteSpin')?.addEventListener('click', () => pullDetenteLever());
+    document.getElementById('btnDetenteBetDown')?.addEventListener('click', () => changeDetenteBet(-1));
+    document.getElementById('btnDetenteBetUp')?.addEventListener('click', () => changeDetenteBet(1));
+    document.getElementById('btnDetenteReset')?.addEventListener('click', resetDetenteBalance);
+    document.getElementById('btnDetenteMute')?.addEventListener('click', () => {
+      detenteState.muted = !detenteState.muted;
+      saveDetenteState();
+      renderDetenteHud();
+    });
+    const vol = document.getElementById('detenteVolume');
+    if (vol) {
+      vol.addEventListener('input', () => {
+        detenteState.volume = Math.max(0, Math.min(100, Math.round(Number(vol.value) || 0)));
+        if (detenteState.volume > 0 && detenteState.muted) detenteState.muted = false;
+        renderDetenteHud();
+      });
+      vol.addEventListener('change', () => {
+        saveDetenteState();
+        playDetenteTone(783.99, 0, 0.35, 0.14); // aperçu du carillon au volume choisi
+      });
+    }
+    bindDetenteLever();
+    window.addEventListener('resize', () => { if (state.detentePageOpen && !detenteState.spinning) renderDetenteReels(); });
+    // La page capte tous ses gestes : rien ne doit atteindre la toile en dessous
+    ['wheel', 'contextmenu'].forEach((type) => pageEl.addEventListener(type, (e) => {
+      if (type === 'wheel' && e.ctrlKey) e.preventDefault();
+      e.stopPropagation();
+    }, { passive: false }));
+  }
+
+  function handleDetenteKeydown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeDetentePage();
+      return;
+    }
+    const tag = e.target && e.target.tagName;
+    if ((e.key === ' ' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Espace / Entrée lancent, sauf sur un bouton ou un curseur qui a le focus (comportement natif)
+      if (tag === 'BUTTON' || tag === 'INPUT' || (e.target && e.target.id === 'detenteLever')) return;
+      e.preventDefault();
+      pullDetenteLever();
+      return;
+    }
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowRight' || e.key === '+') && tag !== 'INPUT') { e.preventDefault(); changeDetenteBet(1); return; }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === '-') && tag !== 'INPUT') { e.preventDefault(); changeDetenteBet(-1); return; }
+    if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'j') {
+      e.preventDefault();
+      closeDetentePage();
+    }
+  }
+
+  function openDetentePage() {
+    const pageEl = document.getElementById('detentePage');
+    if (!pageEl) return false;
+    initDetentePage();
+    finalizeActiveDrawingOnCurrentPage();
+    flushPendingPageSaves();
+    if (state.filesPageOpen) closeFilesPage();
+    if (state.colorWheelOpen) closeRadialColorWheel(true);
+    if (gnColorPopoverState.open) closeGnColorPopover();
+    state.detentePageOpen = true;
+    pageEl.classList.remove('hidden');
+    document.getElementById('btnOpenDetente')?.classList.add('active');
+    renderDetentePaytable();
+    renderDetenteHistory();
+    renderDetenteReels();
+    renderDetenteHud();
+    // Retire le focus de la toile ou de la barre d'outils : Espace et Entrée lancent la machine
+    if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
+    return true;
+  }
+
+  function closeDetentePage() {
+    const pageEl = document.getElementById('detentePage');
+    state.detentePageOpen = false;
+    detenteState.leverDrag = null;
+    if (pageEl) pageEl.classList.add('hidden');
+    document.getElementById('btnOpenDetente')?.classList.remove('active');
+    if (detenteState.audioCtx && detenteState.audioCtx.state === 'running') {
+      detenteState.audioCtx.suspend().catch(() => {});
+    }
+    if (document.activeElement && pageEl && pageEl.contains(document.activeElement) && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
+    requestRender();
+    return false;
+  }
+
+  function toggleDetentePage() {
+    return state.detentePageOpen ? closeDetentePage() : openDetentePage();
+  }
+
   function openFilesPage(initialTab) {
     const pageEl = document.getElementById('gnFilesPage');
     if (!pageEl) return false;
     finalizeActiveDrawingOnCurrentPage();
     flushPendingPageSaves();
     if (initialTab) state.filesPageTab = initialTab;
+    if (state.detentePageOpen) closeDetentePage();
     state.filesPageOpen = true;
     closeGnFilesMenus();
     pageEl.classList.remove('hidden');
@@ -19990,6 +20855,8 @@
   let gdriveAutoBackupInterval = null;
   function initGoodnotesExtensions() {
     initGnFilesPageEvents();
+    initDetentePage();
+    initRadialWheelEditor();
     // 1. Dossiers, Recherche, Tri, Vue Grille/Liste, Corbeille & Favoris Goodnotes
     const btnNewFolder = document.getElementById('btnNewFolder');
     if (btnNewFolder) {
@@ -20430,7 +21297,7 @@
     // 5. Raccourcis clavier Goodnotes (Maj+R = Ruban, K = Laser ; R seul = Règle)
     window.addEventListener('keydown', (e) => {
       if (isKeyboardTypingTarget(e.target) || isKeyboardTypingTarget(document.activeElement)) return;
-      if (e.ctrlKey || e.metaKey || e.altKey || isAnyModalOpen() || state.filesPageOpen) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || isAnyModalOpen() || state.filesPageOpen || state.detentePageOpen) return;
       const k = e.key.toLowerCase();
       if (k === 'r' && e.shiftKey) setActiveTool('tape', false);
       else if (k === 'k') setActiveTool('laser', false);
@@ -22052,6 +22919,7 @@
     // Raccourci clavier Ctrl+\ pour basculer Split View + resize fenêtre
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+        if (state.detentePageOpen) return;
         e.preventDefault();
         toggleSplitView();
       }
@@ -24057,6 +24925,11 @@
       openFilesPage,
       closeFilesPage,
       toggleFilesPage,
+      openDetentePage,
+      closeDetentePage,
+      evaluateDetenteLine,
+      openRadialWheelEditor,
+      RADIAL_WHEEL_COLORS,
       duplicateNotebookById,
       moveFolderToParent,
       moveFolderToTrash,
