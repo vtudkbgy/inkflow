@@ -2568,7 +2568,7 @@
         }
       });
     }
-    async deleteNotebook(notebookId) {
+    async deleteNotebook(notebookId, keepPdfIds = null) {
       const nb = this.memNotebooks.get(notebookId);
       this.memNotebooks.delete(notebookId);
       const pdfIdsToDelete = new Set();
@@ -2582,11 +2582,13 @@
       for (const [pdfId, rec] of this.memPdfs.entries()) {
         if (rec.notebookId === notebookId) pdfIdsToDelete.add(pdfId);
       }
-      for (const pdfId of pdfIdsToDelete) this.memPdfs.delete(pdfId);
+      const isKept = (id) => Boolean(keepPdfIds && keepPdfIds.has(id));
+      for (const pdfId of pdfIdsToDelete) { if (!isKept(pdfId)) this.memPdfs.delete(pdfId); }
       await this.open();
       if (this.fallbackMode || !this.db) return;
       const pages = await this.getPagesForNotebook(notebookId);
       pages.forEach((p) => { if (p.pdfId) pdfIdsToDelete.add(p.pdfId); });
+      if (keepPdfIds) keepPdfIds.forEach((id) => pdfIdsToDelete.delete(id));
       return new Promise((resolve) => {
         try {
           const stores = this.db.objectStoreNames.contains('pdfs') ? ['notebooks', 'pages', 'pdfs'] : ['notebooks', 'pages'];
@@ -4008,6 +4010,47 @@
     }
   }
 
+  // Restaure l'outil d'origine si un outil temporaire du stylet (gomme/lasso) est resté actif sans geste en cours
+  // (ex. bouton pressé en survol hors de la page A4/PDF puis relâché)
+  function releaseStaleTemporaryPenTool(e) {
+    if (state.isDrawing || !e || e.pointerType !== 'pen') return;
+    let changed = false;
+    if (state.temporaryEraserOverride && !isPenEraserButton(e)) {
+      state.temporaryEraserOverride = false;
+      state.tool = state.previousToolBeforeEraser || 'pen';
+      changed = true;
+    }
+    if (state.temporaryLassoOverride && !isPenLassoButton(e)) {
+      state.temporaryLassoOverride = false;
+      state.tool = state.previousToolBeforeLasso || 'pen';
+      changed = true;
+    }
+    if (changed) updateToolbarActiveState();
+  }
+
+  function isKeyboardTypingTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || Boolean(el.isContentEditable);
+  }
+  function getOpenModalBackdrops() {
+    return Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden), .gn-tpl-backdrop:not(.hidden)'))
+      .filter((el) => getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0);
+  }
+  function isAnyModalOpen() {
+    return getOpenModalBackdrops().length > 0;
+  }
+  // Ferme la dernière fenêtre modale ouverte via son bouton Fermer/Annuler (garde la logique propre à chaque modale)
+  function closeTopOpenModal(preferredBackdrop = null) {
+    const open = getOpenModalBackdrops().filter((el) => el.classList.contains('modal-backdrop'));
+    if (!open.length) return false;
+    const top = (preferredBackdrop && open.includes(preferredBackdrop)) ? preferredBackdrop : open[open.length - 1];
+    const closeBtn = top.querySelector('[id^="btnClose"], [id^="btnCancel"], .modal-close, [data-close], [aria-label="Fermer"]');
+    if (closeBtn) closeBtn.click();
+    else top.classList.add('hidden');
+    return true;
+  }
+
   let isUndoRedoBusy = false;
   function performUndo() {
     if (isUndoRedoBusy) return false;
@@ -4046,7 +4089,6 @@
         updateSingleSidebarThumbnailDom(page);
       }
       scheduleSaveActivePage(page);
-      showToast('Action annulée', 'info', 'undo-redo');
       return true;
     } finally {
       isUndoRedoBusy = false;
@@ -4090,7 +4132,6 @@
         updateSingleSidebarThumbnailDom(page);
       }
       scheduleSaveActivePage(page);
-      showToast('Action rétablie', 'info', 'undo-redo');
       return true;
     } finally {
       isUndoRedoBusy = false;
@@ -9558,7 +9599,6 @@
     updateToolbarActiveState();
     triggerToolOptionsPulse();
     requestRender();
-    showToast(`Couleur : ${entry ? entry.label : hex}`);
   }
 
   function cancelColorWheelTimer() {
@@ -9898,16 +9938,21 @@
 
     state.currentStroke = null;
     state.isDrawing = false;
+    // Le stylet est encore posé : on ignore la suite de ce contact pour ne pas effacer aussitôt la sélection créée
+    state.deselectTapPointerId = state.activePointerId;
     state.activePointerId = null;
     state.lassoPolygon = [];
-    state.selectedIds = { strokes: selStrokes, shapes: selShapes, texts: selTexts };
+    state.selectedIds.strokes = selStrokes;
+    state.selectedIds.shapes = selShapes;
+    state.selectedIds.texts = selTexts;
+    if (state.selectedIds.images) state.selectedIds.images.clear();
+    else state.selectedIds.images = new Set();
     recomputeLassoSelectionBounds();
     state.tool = 'lasso';
     updateToolbarActiveState();
     clearActiveCanvas();
     invalidateStaticInkCache();
     requestRender();
-    showToast(`✨ ${total} élément${total > 1 ? 's' : ''} sélectionné${total > 1 ? 's' : ''} au lasso`);
     return true;
   }
 
@@ -10061,6 +10106,11 @@
 
     // Suivi multi-touch pour le pincement (Pinch-to-Zoom) et le déplacement à 2 doigts
     if (e.pointerType === 'touch') {
+      // Paume ou doigt posé pendant un tracé au stylet/souris : ignoré pour ne pas voler ni annuler le trait en cours
+      if (state.isDrawing && !state.isPanning && state.activePointerId != null && state.activePointerId !== e.pointerId &&
+        !state.temporaryLassoOverride && !state.temporaryEraserOverride) {
+        return;
+      }
       state.touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (state.touchPoints.size >= 2) {
         cancelHoldShapeTimer();
@@ -10072,6 +10122,12 @@
           state.currentStrokeSnappedFromAutoShape = false;
           state.activePointerId = null;
           clearActiveCanvas();
+        }
+        // Le 1er doigt avait démarré un pan : on l'arrête, sinon la vue sauterait à l'origine du pan au relâchement du 2e doigt
+        if (state.isPanning) {
+          state.isPanning = false;
+          state.activePointerId = null;
+          dom.canvasViewport.classList.remove('panning');
         }
         state.isPinching = true;
         const pts = Array.from(state.touchPoints.values());
@@ -10161,7 +10217,7 @@
       state.tool !== 'lasso' &&
       tryStartLassoSelectionTransform(worldPt)
     ) {
-      cancelPendingPageSave(page.id);
+      deferPendingPageSaveDuringGesture(page);
       if (state.gnPenPopoverOpen || state.gnPencilPopoverOpen || state.gnHighlighterPopoverOpen || state.gnTapePopoverOpen || state.gnStrokePopoverOpen || state.gnShapeStrokePopoverOpen) {
         state.gnPenPopoverOpen = false;
         state.gnPencilPopoverOpen = false;
@@ -10229,7 +10285,7 @@
     }
 
     // Annule le minuteur de sauvegarde différée (500 ms) si un nouveau trait commence pour ne jamais bloquer le Main Thread pendant l'écriture
-    cancelPendingPageSave(page.id);
+    deferPendingPageSaveDuringGesture(page);
 
     // Édition interactive de forme sélectionnée (GoodNotes ShapeTool Editing : poignées + déplacement + clic sur forme)
     state.pendingShapeTapCandidateId = null;
@@ -10496,6 +10552,7 @@
       if (e.pointerType === 'pen' && !isPenEraserButton(e) && !isPenLassoButton(e)) {
         state.waitBarrelReleaseBeforeHoverTrigger = false;
       }
+      releaseStaleTemporaryPenTool(e);
       if (performance.now() - state.lastPointerUpTime < 40) return;
       const tipActive = e.pointerType === 'pen' ? (e.pressure > 0.02 || (e.buttons & 1) !== 0) : false;
       const hoverBarrelAllowed = e.pointerType === 'pen' && !state.waitBarrelReleaseBeforeHoverTrigger &&
@@ -10863,6 +10920,8 @@
 
   function handlePointerUpOrCancel(e) {
     state.lastPointerUpTime = performance.now();
+    restoreDeferredPageSaveAfterGesture();
+    if (!state.isDrawing && !state.isPanning && !state.colorWheelOpen) releaseStaleTemporaryPenTool(e);
     if (state.deselectTapPointerId != null && (e.pointerId === state.deselectTapPointerId || e.pointerId === undefined)) {
       state.deselectTapPointerId = null;
       try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
@@ -10879,9 +10938,25 @@
       if (state.touchPoints.size < 2) {
         state.isPinching = false;
         if (wasPinching) {
-          snapBackBoundedViewportIfZoomedOut();
+          const snappingBack = snapBackBoundedViewportIfZoomedOut();
+          // Le doigt restant reprend un pan à partir de sa position actuelle (sans saut), sauf pendant le recalage animé
+          if (!snappingBack && state.touchPoints.size === 1) {
+            const [restId, restPt] = Array.from(state.touchPoints.entries())[0];
+            state.isPanning = true;
+            state.activePointerId = restId;
+            state.panStartScreen = { x: restPt.x, y: restPt.y };
+            state.panStartOffset = { x: state.panX, y: state.panY };
+            panVelocitySamples.length = 0;
+            dom.canvasViewport.classList.add('panning');
+          }
         }
+      } else if (wasPinching) {
+        // Encore 2 doigts ou plus : on ré-ancre le pincement sur les deux premiers pour éviter un saut de zoom
+        const pts = Array.from(state.touchPoints.values());
+        state.pinchLastDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        state.pinchLastCenter = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
       }
+      if (wasPinching) return;
     }
 
     if (state.isPanning && (e.pointerId === state.activePointerId || state.activePointerId === null)) {
@@ -11233,7 +11308,7 @@
     if (state.eraserHighlighterOnly) return s.tool === 'highlighter';
     const f = state.eraserFilters || { pen: true, pencil: true, highlighter: true, tape: true };
     if (s.tool === 'highlighter') return f.highlighter !== false;
-    if (s.tool === 'pencil' || s.penStyle === 'ballpoint' || s.penStyle === 'pencil') return f.pencil !== false;
+    if (s.tool === 'pencil' || s.penStyle === 'pencil') return f.pencil !== false;
     return f.pen !== false;
   }
 
@@ -12964,6 +13039,28 @@
     return dataUrl;
   }
 
+  // Pendant un geste, on suspend la sauvegarde différée en attente (Main Thread libre) mais on la mémorise :
+  // elle est replanifiée au relâchement si le geste lui-même n'a rien sauvegardé (lasso, laser, tap…)
+  let pageSaveDeferredByGesture = null;
+  function deferPendingPageSaveDuringGesture(page) {
+    if (!page || !page.id) return;
+    if (hasPendingPageSave(page.id)) pageSaveDeferredByGesture = page;
+    cancelPendingPageSave(page.id);
+  }
+  function restoreDeferredPageSaveAfterGesture() {
+    const page = pageSaveDeferredByGesture;
+    if (!page) return;
+    const retry = () => {
+      if (pageSaveDeferredByGesture !== page) return;
+      // Un autre geste est en cours (ex. paume relevée pendant un trait) : on réessaie après lui
+      if (state.isDrawing) { setTimeout(retry, 250); return; }
+      pageSaveDeferredByGesture = null;
+      const stillExists = (state.pagesByNotebook.get(page.notebookId) || []).includes(page);
+      if (stillExists && !hasPendingPageSave(page.id) && !inFlightPageSaves.has(page.id)) scheduleSaveActivePage(page);
+    };
+    setTimeout(retry, 0);
+  }
+
   function cancelPendingPageSave(pageId) {
     if (!pageId) return;
     const pending = pageSaveTimers.get(pageId);
@@ -12978,9 +13075,15 @@
     const pageId = targetPage.id;
     cancelPendingPageSave(pageId);
 
-    const savePromise = (async () => {
+    let savePromise = null;
+    savePromise = (async () => {
       try {
-        targetPage.thumbnail = generatePageThumbnail(targetPage);
+        try {
+          targetPage.thumbnail = generatePageThumbnail(targetPage);
+        } catch (thumbErr) {
+          // Une miniature impossible à générer ne doit jamais empêcher la sauvegarde de la page
+          console.warn('[InkFlow] Miniature non générée :', thumbErr);
+        }
         targetPage.updatedAt = Date.now();
         await db.savePage(targetPage);
         await db.saveWorkspaceState({ activeNotebookId: state.activeNotebookId, activePageId: state.activePageId });
@@ -13032,6 +13135,14 @@
   }
 
   async function flushPendingPageSaves() {
+    // Inclut une sauvegarde suspendue par un geste en cours (changement de page/cahier, fermeture)
+    if (pageSaveDeferredByGesture) {
+      const deferredPage = pageSaveDeferredByGesture;
+      pageSaveDeferredByGesture = null;
+      if ((state.pagesByNotebook.get(deferredPage.notebookId) || []).includes(deferredPage) && !hasPendingPageSave(deferredPage.id)) {
+        scheduleSaveActivePage(deferredPage);
+      }
+    }
     const pendingEntries = Array.from(pageSaveTimers.values());
     pageSaveTimers.clear();
     for (const entry of pendingEntries) {
@@ -13226,22 +13337,31 @@
       createdAt: now,
       updatedAt: now
     };
+    const pageIdMap = new Map();
     const copiedPages = srcPages.map((pg, idx) => {
       const cloned = clonePageContent(pg);
+      const newId = createUid('pg');
+      pageIdMap.set(pg.id, newId);
       return {
         ...pg,
-        id: createUid('pg'),
+        id: newId,
         notebookId: copyNb.id,
         order: idx,
         strokes: cloned.strokes,
         shapes: cloned.shapes,
-        textCards: cloned.textCards,
+        texts: cloned.texts,
         tapes: cloned.tapes,
         images: cloned.images,
         createdAt: now,
         updatedAt: now
       };
     });
+    // Le plan de la copie pointe vers ses propres pages (et non vers celles de l'original)
+    copyNb.outline = Array.isArray(srcNb.outline)
+      ? srcNb.outline
+        .filter((entry) => entry && pageIdMap.has(entry.pageId))
+        .map((entry) => ({ ...entry, id: createUid('out'), pageId: pageIdMap.get(entry.pageId) }))
+      : [];
     state.notebooks.push(copyNb);
     state.pagesByNotebook.set(copyNb.id, copiedPages);
     await db.saveNotebook(copyNb);
@@ -13934,6 +14054,8 @@
     updateUndoRedoButtons();
     renderWorldTextCards();
     requestRender();
+    // Mémorise le cahier ouvert pour le rouvrir au prochain lancement
+    Promise.resolve(db.saveWorkspaceState({ activeNotebookId: state.activeNotebookId, activePageId: state.activePageId })).catch(() => {});
   }
 
   function selectPage(pageId) {
@@ -14217,15 +14339,28 @@
     state.notebooks = state.notebooks.filter((n) => n.id !== nbId);
     state.pagesByNotebook.delete(nbId);
 
+    // Un PDF peut être partagé avec une copie du cahier : on ne supprime que ceux qui ne sont plus référencés
+    const keepPdfIds = new Set();
     for (const pdfId of pdfIdsToCheck) {
-      if (!isPdfIdStillReferenced(pdfId)) {
+      if (isPdfIdStillReferenced(pdfId)) {
+        keepPdfIds.add(pdfId);
+      } else {
         await destroyPdfDocumentResources(pdfId, true);
       }
     }
+    for (const nb of state.notebooks) {
+      if (nb.pdfId) keepPdfIds.add(nb.pdfId);
+      (state.pagesByNotebook.get(nb.id) || []).forEach((p) => { if (p.pdfId) keepPdfIds.add(p.pdfId); });
+    }
 
-    await db.deleteNotebook(nbId);
+    // Laisse se terminer les sauvegardes déjà en vol de ces pages pour qu'elles ne ressuscitent pas après la suppression
+    const pendingSaves = deletedPages.map((p) => inFlightPageSaves.get(p.id)).filter(Boolean);
+    if (pendingSaves.length) await Promise.allSettled(pendingSaves);
+
+    await db.deleteNotebook(nbId, keepPdfIds);
     if (state.activeNotebookId === nbId) {
-      selectNotebook(state.notebooks[0].id);
+      const nextNb = state.notebooks.find((n) => !n.trashedAt) || state.notebooks[0];
+      selectNotebook(nextNb.id);
     } else {
       renderNotebooksSidebar();
       syncOpenTabsWithActiveNotebook();
@@ -14821,7 +14956,7 @@
 
     const refBottom = barR && barR.height > 0 ? barR.bottom : aR.bottom;
     const refTop = barR && barR.height > 0 ? barR.top : aR.top;
-    const preferAbove = Boolean(document.body && document.body.classList && document.body.classList.contains('toolbar-pos-bottom') && barR);
+    const preferAbove = Boolean(document.documentElement.classList.contains('toolbar-pos-bottom') && barR);
     let top = Math.round(refBottom + 10);
     let placeAbove = false;
     if ((preferAbove || top + popH > vh - 12) && refTop - popH - 10 >= 12) {
@@ -14870,7 +15005,7 @@
 
       const refBottom = barR && barR.height > 0 ? barR.bottom : aR.bottom;
       const refTop = barR && barR.height > 0 ? barR.top : aR.top;
-      const preferAbove = Boolean(document.body && document.body.classList && document.body.classList.contains('toolbar-pos-bottom') && barR);
+      const preferAbove = Boolean(document.documentElement.classList.contains('toolbar-pos-bottom') && barR);
       let top = Math.round(refBottom + 10);
       let placeAbove = false;
       if ((preferAbove || top + popH > vh - 12) && refTop - popH - 10 >= 12) {
@@ -15622,6 +15757,7 @@
 
     document.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape' && gnColorPopoverState.open) {
+        ev.preventDefault(); // ne ferme pas aussi la fenêtre modale en dessous
         closeGnColorPopover();
       }
     });
@@ -17465,6 +17601,8 @@
 
     // Double-clic sur la page infinie -> crée immédiatement un emplacement de texte clavier à cet endroit !
     dom.inkCanvas.addEventListener('dblclick', (e) => {
+      // Uniquement avec l'outil Texte : un double appui au stylo (point d'un i, ponctuation) ne doit pas créer de zone de texte
+      if (state.tool !== 'text') return;
       const wPt = screenToWorld(e.clientX, e.clientY);
       createInteractiveTextCardAt(wPt.x, wPt.y, '', false, true);
     });
@@ -17597,8 +17735,8 @@
       chip.addEventListener('click', () => {
         const ins = chip.dataset.insert;
         const ta = dom.inputLatexCode;
-        const start = ta.selectionStart || ta.value.length;
-        const end = ta.selectionEnd || ta.value.length;
+        const start = ta.selectionStart ?? ta.value.length;
+        const end = ta.selectionEnd ?? ta.value.length;
         ta.value = ta.value.slice(0, start) + ins + ta.value.slice(end);
         dom.latexLivePreview.innerHTML = renderLatexToHtml(ta.value, true);
         ta.focus();
@@ -18200,10 +18338,18 @@
       });
     }
 
+    // Thème clair/sombre mémorisé d'une session à l'autre
+    try {
+      const savedTheme = localStorage.getItem('inkflow.theme');
+      if (savedTheme === 'dark' || savedTheme === 'light') document.documentElement.setAttribute('data-theme', savedTheme);
+    } catch (_) {}
     dom.btnThemeToggle.addEventListener('click', () => {
       const h = document.documentElement;
-      h.setAttribute('data-theme', h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+      const nextTheme = h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      h.setAttribute('data-theme', nextTheme);
+      try { localStorage.setItem('inkflow.theme', nextTheme); } catch (_) {}
       if (virtualRulerState.visible) renderVirtualRuler();
+      if (typeof scheduleSplitPaneRender === 'function') scheduleSplitPaneRender();
       requestRender();
     });
 
@@ -18267,7 +18413,6 @@
         const r = dom.canvasViewport.getBoundingClientRect();
         zoomAtScreenPoint(Math.max(0.35, state.zoom * 0.62), r.width / 2, r.height / 2);
         updateBreadcrumbs();
-        showToast('Page infinie étendue ! Déplacez-vous librement ou pincez pour zoomer.');
       });
     }
     if (dom.btnFitPage) {
@@ -18360,8 +18505,28 @@
         openPdfSearchBar();
         return;
       }
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      // Dans un champ d'une fenêtre modale : Entrée valide, Échap ferme
+      if (e.target && e.target.tagName === 'INPUT' && !e.isComposing) {
+        const enterConfirm = {
+          inputNotebookName: 'btnCreateNotebookConfirm',
+          inputRenameValue: 'btnConfirmRenameModal',
+          inputFolderCustomizeName: 'btnConfirmFolderCustomizeModal'
+        }[e.target.id];
+        if (e.key === 'Enter' && enterConfirm) {
+          const confirmBtn = document.getElementById(enterConfirm);
+          if (confirmBtn && !confirmBtn.disabled) { e.preventDefault(); confirmBtn.click(); }
+          return;
+        }
+      }
+      if (e.key === 'Escape' && !e.defaultPrevented && isKeyboardTypingTarget(e.target) && e.target.closest && e.target.closest('.modal-backdrop')) {
+        closeTopOpenModal(e.target.closest('.modal-backdrop'));
+        return;
+      }
+      if (isKeyboardTypingTarget(e.target)) return;
       if (e.key === 'Escape') {
+        if (e.defaultPrevented) return;
+        // Échap ferme d'abord la fenêtre modale ouverte (création de cahier, renommage, import PDF, LaTeX…)
+        if (closeTopOpenModal()) return;
         if (pdfSearchState.open) {
           closePdfSearchBar();
           return;
@@ -18407,12 +18572,19 @@
         else if (hasAnyLassoSelection()) { clearLassoSelection(); requestRender(); }
         return;
       }
-      if (e.code === 'Space' && !state.isSpacePressed) { state.isSpacePressed = true; dom.canvasViewport.classList.add('pan-cursor'); }
+      // Une fenêtre modale ou la page Fichiers est ouverte : aucun raccourci de toile ne doit agir derrière
+      if (isAnyModalOpen() || state.filesPageOpen) return;
+      if (e.code === 'Space') {
+        // Empêche Espace d'« activer » le bouton d'outil qui a gardé le focus (ouverture de la sous-barre au keyup)
+        e.preventDefault();
+        if (!state.isSpacePressed) { state.isSpacePressed = true; dom.canvasViewport.classList.add('pan-cursor'); }
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) performRedo(); else performUndo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); performRedo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleSb(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedShapeId) { e.preventDefault(); deleteSelectedShape(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && hasAnyLassoSelection()) { e.preventDefault(); deleteLassoSelection(); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const k = e.key.toLowerCase();
       if (k === 'p') setActiveTool('pen');
       else if (k === 'h') setActiveTool('highlighter');
@@ -18420,13 +18592,18 @@
       else if (k === 'l') setActiveTool('lasso');
       else if (k === 't') setActiveTool('text');
       else if (k === 's') setActiveTool('shape');
-      else if (k === 'r') toggleVirtualRuler();
+      else if (k === 'r' && !e.shiftKey) toggleVirtualRuler();
       else if (k === 'm') openLatexModalForCard(null, null);
     });
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Space') { state.isSpacePressed = false; if (state.tool !== 'pan') dom.canvasViewport.classList.remove('pan-cursor'); }
     });
     window.addEventListener('blur', () => {
+      // La touche Espace relâchée hors de la fenêtre ne doit pas laisser le mode Main (pan) bloqué
+      if (state.isSpacePressed) {
+        state.isSpacePressed = false;
+        if (state.tool !== 'pan') dom.canvasViewport.classList.remove('pan-cursor');
+      }
       finalizeActiveDrawingOnCurrentPage();
       cleanupTransientInteractionState(false);
       requestRender();
@@ -20225,12 +20402,12 @@
       });
     }
 
-    // 5. Raccourcis clavier Goodnotes (R = Ruban, K = Laser)
+    // 5. Raccourcis clavier Goodnotes (Maj+R = Ruban, K = Laser ; R seul = Règle)
     window.addEventListener('keydown', (e) => {
-      const tag = document.activeElement && document.activeElement.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isKeyboardTypingTarget(e.target) || isKeyboardTypingTarget(document.activeElement)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || isAnyModalOpen() || state.filesPageOpen) return;
       const k = e.key.toLowerCase();
-      if (k === 'r') setActiveTool('tape', false);
+      if (k === 'r' && e.shiftKey) setActiveTool('tape', false);
       else if (k === 'k') setActiveTool('laser', false);
     });
   }
@@ -20252,8 +20429,17 @@
         pages.forEach((p) => { if (!p.viewMode) p.viewMode = 'infinite'; });
         state.pagesByNotebook.set(nb.id, pages.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
       }
-      state.activeNotebookId = state.notebooks[0].id;
-      state.activePageId = getActiveNotebookPages()[0]?.id;
+      // Rouvre le dernier cahier/page actif enregistré, sinon le premier cahier hors corbeille
+      let ws = null;
+      try { ws = await db.getWorkspaceState(); } catch (_) { ws = null; }
+      const savedNb = ws && ws.activeNotebookId
+        ? state.notebooks.find((n) => n.id === ws.activeNotebookId && !n.trashedAt)
+        : null;
+      const startNb = savedNb || state.notebooks.find((n) => !n.trashedAt) || state.notebooks[0];
+      state.activeNotebookId = startNb.id;
+      const startPages = getActiveNotebookPages();
+      const savedPg = savedNb && ws.activePageId ? startPages.find((p) => p.id === ws.activePageId) : null;
+      state.activePageId = (savedPg || startPages[0])?.id;
     } catch (_) {
       if (!state.notebooks || state.notebooks.length === 0) applyDemoStateSynchronously();
     }
@@ -21067,6 +21253,7 @@
     document.addEventListener('keydown', (e) => {
       if (!gnTemplateModalState.open) return;
       if (e.key === 'Escape') {
+        e.preventDefault(); // Échap consommé : le raccourci global ne doit pas fermer aussi la fenêtre en dessous
         if (gnTemplateModalState.openDropdown) closeAllGnTplDropdowns();
         else closeGnTemplateLibraryModal();
       }
@@ -21349,7 +21536,7 @@
 
       const dot = document.createElement('span');
       dot.className = 'doc-tab-dot';
-      dot.style.background = nb.color || '#0072ce';
+      dot.style.background = nb.coverColor || nb.color || '#0072ce';
       tabBtn.appendChild(dot);
 
       const titleSpan = document.createElement('span');
@@ -21394,7 +21581,7 @@
       item.className = 'doc-tab-pop-item';
       const dot = document.createElement('span');
       dot.className = 'doc-tab-dot';
-      dot.style.background = nb.color || '#0072ce';
+      dot.style.background = nb.coverColor || nb.color || '#0072ce';
       const name = document.createElement('span');
       name.className = 'doc-tab-pop-name';
       name.textContent = nb.title || 'Sans titre';
@@ -23197,9 +23384,8 @@
   }
 
   function initNewFeaturesPack() {
-    // #4 Onglets multi-documents
-    loadOpenNotebookTabs();
-    syncOpenTabsWithActiveNotebook();
+    // #4 Onglets multi-documents : les onglets enregistrés sont chargés par loadFromIndexedDB une fois les vrais cahiers connus
+    // (les charger ici, avec le cahier de démo provisoire, effaçait la liste enregistrée)
     if (typeof document !== 'undefined') {
       const btnTabAdd = document.getElementById('btnDocTabAdd');
       const popTabAdd = document.getElementById('docTabAddPopover');
