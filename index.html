@@ -144,7 +144,7 @@
             </svg>
             <span>Drive</span>
           </button>
-          <button class="sb-footer-btn" id="btnOpenDetente" type="button" title="Détente : machine à sous, jetons fictifs (Maj+J)" aria-label="Ouvrir la page Détente">
+          <button class="sb-footer-btn" id="btnOpenDetente" type="button" title="Détente : jeux, boutique et banque, jetons fictifs (Maj+J)" aria-label="Ouvrir la page Détente">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M17 8h1a4 4 0 1 1 0 8h-1"></path>
               <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path>
@@ -1682,6 +1682,10 @@
             <button class="tone-btn" data-tone="sepia" style="background:#f5eedc;color:#451a03;">Parchemin</button>
             <button class="tone-btn" data-tone="blueprint" style="background:#0d2847;color:#e0f2fe;">Blueprint</button>
             <button class="tone-btn" data-tone="dark" style="background:#14171f;color:#f1f5f9;">Ardoise</button>
+            <button class="tone-btn hidden" data-tone="mint" data-detente-item="tone-mint" style="background:#eef6f0;color:#14532d;">Vert d’eau</button>
+            <button class="tone-btn hidden" data-tone="rose" data-detente-item="tone-rose" style="background:#fbf0f0;color:#881337;">Rose poudré</button>
+            <button class="tone-btn hidden" data-tone="sky" data-detente-item="tone-sky" style="background:#eef4fb;color:#1e3a8a;">Bleu ciel</button>
+            <button class="tone-btn hidden" data-tone="kraft" data-detente-item="tone-kraft" style="background:#ecdfc6;color:#451a03;">Kraft</button>
           </div>
         </div>
 
@@ -2446,6 +2450,7 @@
           <option value="blank">Blanc uni</option>
         </select>
       </div>
+      <p class="detente-cost-hint" id="newNotebookCostHint"></p>
       <div class="modal-actions">
         <button class="btn-secondary" id="btnCancelNotebookModal">Annuler</button>
         <button class="btn-primary" id="btnCreateNotebookConfirm">Créer</button>
@@ -2689,12 +2694,18 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
     </div>
   </div>
 
-  <!-- ==================== PAGE DÉTENTE : MACHINE À SOUS (JETONS FICTIFS) ==================== -->
+  <!-- ==================== PAGE DÉTENTE : JEUX ET MONNAIE INTERNE (JETONS FICTIFS) ==================== -->
   <div class="detente-page hidden" id="detentePage" role="dialog" aria-modal="true" aria-labelledby="detenteTitle">
     <header class="detente-header">
       <div class="detente-title-wrap">
         <h2 class="detente-title" id="detenteTitle">Détente</h2>
-        <span class="detente-subtitle">Une pause entre deux pages. Jetons fictifs uniquement.</span>
+        <span class="detente-subtitle">Une pause entre deux pages. Jetons fictifs uniquement, jamais d’argent réel.</span>
+      </div>
+      <div class="detente-wallet" aria-live="polite">
+        <span class="detente-label">Solde</span>
+        <strong class="detente-balance-value" id="detenteBalance">1000</strong>
+        <span class="detente-label">jetons</span>
+        <span class="detente-debt hidden" id="detenteDebtWrap"><span class="detente-label">Dette</span> <strong id="detenteDebt">0</strong></span>
       </div>
       <div class="detente-header-actions">
         <div class="detente-sound" role="group" aria-label="Son du carillon">
@@ -2721,66 +2732,233 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
       </div>
     </header>
 
+    <nav class="detente-tabs" id="detenteTabs" role="tablist" aria-label="Sections de la page Détente">
+      <button type="button" role="tab" class="detente-tab active" data-detente-tab="slot" aria-selected="true">Machine à sous</button>
+      <button type="button" role="tab" class="detente-tab" data-detente-tab="blackjack" aria-selected="false" tabindex="-1">Blackjack</button>
+      <button type="button" role="tab" class="detente-tab" data-detente-tab="roulette" aria-selected="false" tabindex="-1">Roulette</button>
+      <span class="detente-tab-sep" aria-hidden="true"></span>
+      <button type="button" role="tab" class="detente-tab" data-detente-tab="shop" aria-selected="false" tabindex="-1">Boutique</button>
+      <button type="button" role="tab" class="detente-tab" data-detente-tab="bank" aria-selected="false" tabindex="-1">Banque</button>
+      <button type="button" role="tab" class="detente-tab" data-detente-tab="odds" aria-selected="false" tabindex="-1">Probabilités</button>
+    </nav>
+
     <main class="detente-body">
-      <section class="detente-machine" aria-label="Machine à sous">
-        <div class="detente-machine-top">
-          <div class="detente-balance" aria-live="polite">
-            <span class="detente-label">Solde</span>
-            <strong class="detente-balance-value" id="detenteBalance">1000</strong>
-            <span class="detente-label">jetons</span>
+      <!-- Machine à sous -->
+      <div class="detente-panel detente-split" data-detente-panel="slot" role="tabpanel">
+        <section class="detente-machine" aria-label="Machine à sous">
+          <div class="detente-machine-top">
+            <div class="detente-result" id="detenteResult" aria-live="polite">Bonne pause.</div>
           </div>
-          <div class="detente-result" id="detenteResult" aria-live="polite">Bonne pause.</div>
-        </div>
 
-        <div class="detente-cabinet">
-          <div class="detente-window" id="detenteReels">
-            <div class="detente-reel" data-reel="0"><div class="detente-strip"></div></div>
-            <div class="detente-reel" data-reel="1"><div class="detente-strip"></div></div>
-            <div class="detente-reel" data-reel="2"><div class="detente-strip"></div></div>
-            <div class="detente-payline" aria-hidden="true"></div>
-          </div>
-          <div class="detente-lever" id="detenteLever" role="button" tabindex="0" aria-label="Tirer le levier pour lancer" title="Tirer le levier">
-            <div class="detente-lever-track" aria-hidden="true"></div>
-            <div class="detente-lever-arm" id="detenteLeverArm" aria-hidden="true"><span class="detente-lever-knob"></span></div>
-          </div>
-        </div>
-
-        <div class="detente-controls">
-          <div class="detente-bet" role="group" aria-label="Mise">
-            <button class="detente-icon-btn" type="button" id="btnDetenteBetDown" title="Baisser la mise" aria-label="Baisser la mise">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-            <div class="detente-bet-value-wrap">
-              <span class="detente-label">Mise</span>
-              <strong class="detente-bet-value" id="detenteBet">10</strong>
+          <div class="detente-cabinet">
+            <div class="detente-window" id="detenteReels">
+              <div class="detente-reel" data-reel="0"><div class="detente-strip"></div></div>
+              <div class="detente-reel" data-reel="1"><div class="detente-strip"></div></div>
+              <div class="detente-reel" data-reel="2"><div class="detente-strip"></div></div>
+              <div class="detente-payline" aria-hidden="true"></div>
             </div>
-            <button class="detente-icon-btn" type="button" id="btnDetenteBetUp" title="Augmenter la mise" aria-label="Augmenter la mise">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
+            <div class="detente-lever" id="detenteLever" role="button" tabindex="0" aria-label="Tirer le levier pour lancer" title="Tirer le levier">
+              <div class="detente-lever-track" aria-hidden="true"></div>
+              <div class="detente-lever-arm" id="detenteLeverArm" aria-hidden="true"><span class="detente-lever-knob"></span></div>
+            </div>
           </div>
-          <button class="detente-spin-btn" type="button" id="btnDetenteSpin" title="Lancer (Espace ou Entrée)">Lancer</button>
-        </div>
-      </section>
 
-      <aside class="detente-side">
-        <section class="detente-card" aria-labelledby="detentePaytableTitle">
-          <h3 class="detente-card-title" id="detentePaytableTitle">Table des gains</h3>
-          <ul class="detente-paytable" id="detentePaytable"></ul>
-          <p class="detente-note">Gain = mise × multiplicateur, sur la ligne du milieu.</p>
+          <div class="detente-controls">
+            <div class="detente-bet" role="group" aria-label="Mise">
+              <button class="detente-icon-btn" type="button" id="btnDetenteBetDown" title="Baisser la mise" aria-label="Baisser la mise">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <div class="detente-bet-value-wrap">
+                <span class="detente-label">Mise</span>
+                <strong class="detente-bet-value" id="detenteBet">10</strong>
+              </div>
+              <button class="detente-icon-btn" type="button" id="btnDetenteBetUp" title="Augmenter la mise" aria-label="Augmenter la mise">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+            </div>
+            <button class="detente-spin-btn" type="button" id="btnDetenteSpin" title="Lancer (Espace ou Entrée)">Lancer</button>
+          </div>
         </section>
-        <section class="detente-card" aria-labelledby="detenteHistoryTitle">
-          <h3 class="detente-card-title" id="detenteHistoryTitle">Derniers gains</h3>
-          <ul class="detente-history" id="detenteHistory"></ul>
+
+        <aside class="detente-side">
+          <section class="detente-card" aria-labelledby="detentePaytableTitle">
+            <h3 class="detente-card-title" id="detentePaytableTitle">Table des gains</h3>
+            <ul class="detente-paytable" id="detentePaytable"></ul>
+            <p class="detente-note">Gain = mise × multiplicateur, sur la ligne du milieu.</p>
+          </section>
+          <section class="detente-card" aria-labelledby="detenteHistoryTitle">
+            <h3 class="detente-card-title" id="detenteHistoryTitle">Derniers gains</h3>
+            <ul class="detente-history" id="detenteHistory"></ul>
+          </section>
+        </aside>
+      </div>
+
+      <!-- Blackjack -->
+      <div class="detente-panel hidden" data-detente-panel="blackjack" role="tabpanel">
+        <section class="detente-machine bj-table" aria-label="Table de blackjack">
+          <div class="bj-row">
+            <div class="bj-row-head"><span class="detente-label">Croupier</span><span class="bj-total" id="bjDealerTotal"></span></div>
+            <div class="bj-cards" id="bjDealerCards"></div>
+          </div>
+          <div class="bj-felt-rule">Le croupier reste sur 17 souple · Blackjack payé 3 pour 2</div>
+          <div class="bj-row">
+            <div class="bj-row-head"><span class="detente-label">Toi</span></div>
+            <div class="bj-hands" id="bjPlayerHands"></div>
+          </div>
+          <div class="detente-result bj-result" id="bjResult" aria-live="polite">Bonne partie.</div>
+          <div class="detente-controls">
+            <div class="detente-bet" role="group" aria-label="Mise du blackjack">
+              <button class="detente-icon-btn" type="button" id="btnBjBetDown" title="Baisser la mise" aria-label="Baisser la mise">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <div class="detente-bet-value-wrap">
+                <span class="detente-label">Mise</span>
+                <strong class="detente-bet-value" id="bjBet">10</strong>
+              </div>
+              <button class="detente-icon-btn" type="button" id="btnBjBetUp" title="Augmenter la mise" aria-label="Augmenter la mise">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+            </div>
+            <button class="detente-spin-btn" type="button" id="btnBjDeal">Distribuer</button>
+            <div class="bj-actions hidden" id="bjActions" role="group" aria-label="Actions">
+              <button type="button" class="detente-chip-btn" id="btnBjHit">Tirer</button>
+              <button type="button" class="detente-chip-btn" id="btnBjStand">Rester</button>
+              <button type="button" class="detente-chip-btn" id="btnBjDouble">Doubler</button>
+              <button type="button" class="detente-chip-btn" id="btnBjSplit">Séparer</button>
+            </div>
+          </div>
+          <div class="detente-note bj-shoe" id="bjShoeCount"></div>
         </section>
-        <button class="detente-reset-btn" type="button" id="btnDetenteReset" title="Remettre le solde à 1000 jetons et vider l'historique">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="1 4 1 10 7 10"></polyline>
-            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-          </svg>
-          <span id="detenteResetLabel">Réinitialiser les jetons</span>
-        </button>
-      </aside>
+      </div>
+
+      <!-- Roulette -->
+      <div class="detente-panel hidden" data-detente-panel="roulette" role="tabpanel">
+        <section class="detente-machine rl-layout" aria-label="Roulette européenne">
+          <div class="rl-top">
+            <svg class="rl-wheel" id="rlWheel" viewBox="-112 -112 224 224" aria-hidden="true"></svg>
+            <div class="rl-info">
+              <div class="detente-result rl-result" id="rlResult" aria-live="polite">Faites vos jeux.</div>
+              <div class="rl-history" id="rlHistory" aria-label="Derniers numéros"></div>
+              <div class="rl-stake"><span class="detente-label">Mise totale</span> <strong id="rlStake">0</strong></div>
+              <div class="rl-chips" id="rlChipRack" role="group" aria-label="Valeur du jeton"></div>
+            </div>
+          </div>
+          <svg class="rl-table" id="rlTable" role="img" aria-label="Tapis de roulette : touche une case, un bord ou un coin pour miser"></svg>
+          <div class="detente-note rl-hint" id="rlHint">Touche le tapis pour miser : case, bord ou coin.</div>
+          <div class="detente-controls rl-controls">
+            <div class="rl-secondary">
+              <button type="button" class="detente-chip-btn" id="btnRlUndo">Annuler</button>
+              <button type="button" class="detente-chip-btn" id="btnRlClear">Effacer</button>
+              <button type="button" class="detente-chip-btn" id="btnRlRebet">Remiser</button>
+            </div>
+            <button class="detente-spin-btn" type="button" id="btnRlSpin">Lancer la bille</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- Boutique -->
+      <div class="detente-panel hidden" data-detente-panel="shop" role="tabpanel">
+        <div class="detente-wide">
+          <div class="detente-result detente-panel-msg" id="detenteShopMsg" aria-live="polite">Les jetons débloquent des personnalisations. Un achat est définitif.</div>
+          <div class="detente-shop" id="detenteShopGroups"></div>
+        </div>
+      </div>
+
+      <!-- Banque -->
+      <div class="detente-panel hidden" data-detente-panel="bank" role="tabpanel">
+        <div class="detente-wide detente-bank">
+          <section class="detente-card" aria-labelledby="detenteCodeTitle">
+            <h3 class="detente-card-title" id="detenteCodeTitle">Code du banquier</h3>
+            <p class="detente-note detente-note-top">Un code cadeau crédite le solde. Un code de prêt crédite le solde et ajoute la même somme à ta dette.</p>
+            <div class="detente-code-row">
+              <input type="text" class="form-input detente-code-input" id="detenteCodeInput" placeholder="XXXX-XXXX-XXXX" maxlength="18" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Code" />
+              <button type="button" class="detente-chip-btn primary" id="btnDetenteCode">Valider</button>
+            </div>
+            <div class="detente-result detente-panel-msg" id="detenteCodeMsg" aria-live="polite"></div>
+            <p class="detente-note">Chaque code ne sert qu’une fois sur cet appareil : sans serveur, l’usage est mémorisé localement.</p>
+          </section>
+          <section class="detente-card" aria-labelledby="detenteLoanTitle">
+            <h3 class="detente-card-title" id="detenteLoanTitle">Prêt</h3>
+            <ul class="detente-kv">
+              <li><span>Emprunté au total</span><strong id="detenteBankBorrowed">0</strong></li>
+              <li><span>Dette restante</span><strong id="detenteBankDebt">0</strong></li>
+            </ul>
+            <p class="detente-note detente-note-top">Pour emprunter, saisis ci-dessus un code de prêt remis par le banquier. Le remboursement se fait depuis le solde, sans intérêts.</p>
+            <div class="detente-code-row">
+              <input type="number" class="form-input detente-code-input" id="detenteRepayAmount" min="1" step="1" inputmode="numeric" placeholder="Montant" aria-label="Montant à rembourser" />
+              <button type="button" class="detente-chip-btn" id="btnDetenteRepay">Rembourser</button>
+              <button type="button" class="detente-chip-btn" id="btnDetenteRepayAll">Tout</button>
+            </div>
+            <div class="detente-result detente-panel-msg" id="detenteBankMsg" aria-live="polite"></div>
+          </section>
+          <section class="detente-card" aria-labelledby="detenteCostsTitle">
+            <h3 class="detente-card-title" id="detenteCostsTitle">Tarifs</h3>
+            <ul class="detente-kv" id="detenteOddsCosts"></ul>
+          </section>
+        </div>
+      </div>
+
+      <!-- Probabilités -->
+      <div class="detente-panel hidden" data-detente-panel="odds" role="tabpanel">
+        <div class="detente-wide detente-odds">
+          <section class="detente-card">
+            <h3 class="detente-card-title">Machine à sous</h3>
+            <ul class="detente-kv">
+              <li><span>Taux de retour (RTP)</span><strong>93,4 %</strong></li>
+              <li><span>Avantage de la maison</span><strong>6,6 %</strong></li>
+              <li><span>Lancers gagnants</span><strong>36,7 %</strong></li>
+            </ul>
+            <p class="detente-note">Trois rouleaux indépendants de 21 cases (goutte 6, feuille 5, lune 4, étoile 3, cœur 2, plume 1). Calcul exact sur les 9 261 combinaisons.</p>
+          </section>
+          <section class="detente-card">
+            <h3 class="detente-card-title">Blackjack</h3>
+            <ul class="detente-kv">
+              <li><span>Avantage de la maison, stratégie de base</span><strong>≈ 0,45 %</strong></li>
+              <li><span>Blackjack naturel</span><strong>3 pour 2</strong></li>
+            </ul>
+            <p class="detente-note">Six jeux, rebattus au dernier quart du sabot. Le croupier regarde sa carte cachée sous un As ou un 10, tire jusqu’à 16 et reste sur tous les 17, souples compris. Doubler sur deux cartes, aussi après séparation. Une seule séparation ; As séparés : une carte chacun. Pas d’assurance ni d’abandon. Sans stratégie de base, l’avantage de la maison monte à 2 % et plus.</p>
+          </section>
+          <section class="detente-card">
+            <h3 class="detente-card-title">Roulette européenne</h3>
+            <ul class="detente-kv">
+              <li><span>Avantage de la maison, toutes mises</span><strong>2,70 %</strong></li>
+              <li><span>Plein (1 numéro)</span><strong>35 pour 1</strong></li>
+              <li><span>Cheval (2)</span><strong>17 pour 1</strong></li>
+              <li><span>Transversale (3)</span><strong>11 pour 1</strong></li>
+              <li><span>Carré (4)</span><strong>8 pour 1</strong></li>
+              <li><span>Sixain (6)</span><strong>5 pour 1</strong></li>
+              <li><span>Douzaine, colonne (12)</span><strong>2 pour 1</strong></li>
+              <li><span>Rouge, noir, pair, impair, manque, passe (18)</span><strong>1 pour 1</strong></li>
+            </ul>
+            <p class="detente-note">Un seul zéro, 37 cases : chaque mise rend en moyenne 36/37 de son montant. Le zéro fait perdre les mises simples, sans « en prison ».</p>
+          </section>
+          <p class="detente-note detente-odds-foot">Tous les tirages utilisent le générateur aléatoire cryptographique du système. À long terme, la maison gagne toujours : ces jeux restent une pause, avec des jetons fictifs.</p>
+        </div>
+      </div>
     </main>
+  </div>
+
+  <!-- ==================== MODAL : JETONS INSUFFISANTS ==================== -->
+  <div class="modal-backdrop hidden" id="modalDetenteFunds" role="dialog" aria-modal="true" aria-labelledby="detenteFundsTitle">
+    <div class="modal-card detente-funds-card">
+      <div class="modal-header">
+        <h3 id="detenteFundsTitle">Jetons insuffisants</h3>
+        <button class="icon-btn-tiny" type="button" id="btnCloseDetenteFunds" aria-label="Fermer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <p class="detente-funds-text" id="detenteFundsText"></p>
+      <div class="detente-code-row">
+        <input type="text" class="form-input detente-code-input" id="detenteFundsCode" placeholder="XXXX-XXXX-XXXX" maxlength="18" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Code du banquier" />
+        <button type="button" class="btn-secondary" id="btnDetenteFundsCode">Valider le code</button>
+      </div>
+      <div class="detente-result detente-panel-msg" id="detenteFundsMsg" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="btnDetenteFundsBank">Ouvrir la Banque</button>
+        <button type="button" class="btn-secondary" id="btnCancelDetenteFunds">Annuler</button>
+        <button type="button" class="btn-primary" id="btnDetenteFundsContinue" disabled>Continuer</button>
+      </div>
+    </div>
   </div>
 
   <!-- ==================== MODAL : COULEURS DE LA ROUE RADIALE ==================== -->
