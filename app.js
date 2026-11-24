@@ -2958,7 +2958,10 @@
       panY: 24,
       isPanning: false,
       panStartScreen: { x: 0, y: 0 },
-      panStartOffset: { x: 0, y: 0 }
+      panStartOffset: { x: 0, y: 0 },
+      pickerOpen: false,
+      sortMode: 'folders',
+      searchQuery: ''
     },
     shapeType: 'auto',
     shapeFilled: false,
@@ -3088,6 +3091,17 @@
     lassoInitialBounds: null,
     historyByPage: new Map(),
     newNotebookCover: '#0072ce',
+    newNotebookTemplate: {
+      paperType: 'grid',
+      paperTone: 'white',
+      gridSize: 28,
+      language: 'fr',
+      sizeId: 'goodnotes_standard',
+      orientation: 'portrait',
+      customTemplateDataUrl: null,
+      coverTemplateId: null,
+      coverCustomDataUrl: null
+    },
     editingLatexCardId: null,
     pendingLatexWorldPos: null,
     lastRecognizedStrokes: [],
@@ -10416,6 +10430,7 @@
       e.target.closest('.gn-lasso-popover') ||
       e.target.closest('.split-secondary-pane') ||
       e.target.closest('.split-resizer') ||
+      e.target.closest('.split-nb-popover') ||
       e.target.closest('.radial-color-wheel')
     )) {
       return;
@@ -14835,6 +14850,8 @@
       folderId: state.currentFolderId || null,
       starred: false,
       coverColor: coverColor || '#1d4ed8',
+      coverTemplateId: (templatePageOrOptions && templatePageOrOptions.coverTemplateId) || undefined,
+      coverCustomDataUrl: (templatePageOrOptions && templatePageOrOptions.coverCustomDataUrl) || null,
       defaultPaperType: inherited.paperType,
       createdAt: Date.now(),
       updatedAt: Date.now()
@@ -19122,10 +19139,12 @@
       dom.btnFitPage.addEventListener('click', fitPageToViewport);
     }
 
-    dom.btnNewNotebook.addEventListener('click', () => {
-      dom.inputNotebookName.value = '';
-      dom.modalNewNotebook.classList.remove('hidden');
-    });
+    const openNewNotebookModal = () => {
+      if (dom.inputNotebookName) dom.inputNotebookName.value = '';
+      if (typeof updateNewNotebookPaperPreview === 'function') updateNewNotebookPaperPreview();
+      if (dom.modalNewNotebook) dom.modalNewNotebook.classList.remove('hidden');
+    };
+    dom.btnNewNotebook.addEventListener('click', openNewNotebookModal);
     const closeNb = () => {
       closeGnColorPopover();
       dom.modalNewNotebook.classList.add('hidden');
@@ -19134,6 +19153,10 @@
     dom.btnCancelNotebookModal.addEventListener('click', closeNb);
     dom.notebookCoverSwatches.forEach((sw) => sw.addEventListener('click', () => {
       state.newNotebookCover = sw.dataset.cover;
+      if (state.newNotebookTemplate) {
+        state.newNotebookTemplate.coverTemplateId = null;
+        state.newNotebookTemplate.coverCustomDataUrl = null;
+      }
       const nbWrap = document.getElementById('notebookCoverSwatches');
       if (nbWrap) nbWrap.querySelectorAll('[data-cover]').forEach((s) => s.classList.toggle('active', s === sw));
     }));
@@ -19150,11 +19173,62 @@
         });
       });
     }
+    const btnChooseNewNotebookPaper = document.getElementById('btnChooseNewNotebookPaper');
+    if (btnChooseNewNotebookPaper) {
+      btnChooseNewNotebookPaper.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openGnTemplateLibraryModal('paper', {
+          mode: 'new-notebook',
+          initial: state.newNotebookTemplate,
+          onApply: (picked) => {
+            if (!picked) return;
+            const prev = state.newNotebookTemplate || {};
+            state.newNotebookTemplate = {
+              paperType: picked.paperType || 'grid',
+              paperTone: picked.paperTone || 'white',
+              gridSize: Number.isFinite(picked.gridSize) ? picked.gridSize : 28,
+              language: picked.language || 'fr',
+              sizeId: picked.sizeId || 'goodnotes_standard',
+              orientation: picked.orientation || 'portrait',
+              customTemplateDataUrl: picked.customTemplateDataUrl || null,
+              coverTemplateId: picked.coverSelected ? picked.coverTemplateId : (prev.coverTemplateId || null),
+              coverCustomDataUrl: picked.coverSelected ? picked.coverCustomDataUrl : (prev.coverCustomDataUrl || null)
+            };
+            if (picked.coverSelected && picked.coverColor) {
+              state.newNotebookCover = picked.coverColor;
+              const nbWrap = document.getElementById('notebookCoverSwatches');
+              if (nbWrap) {
+                nbWrap.querySelectorAll('[data-cover]').forEach((s) => {
+                  s.classList.toggle('active', String(s.dataset.cover || '').toLowerCase() === String(picked.coverColor).toLowerCase());
+                });
+              }
+            }
+            updateNewNotebookPaperPreview();
+          }
+        });
+      });
+    }
     dom.btnCreateNotebookConfirm.addEventListener('click', async () => {
       const title = dom.inputNotebookName.value.trim() || `Cahier ${state.notebooks.length + 1}`;
-      const paperType = dom.selectDefaultPaper.value || 'grid';
+      const tpl = state.newNotebookTemplate || {};
+      const paperType = (dom.selectDefaultPaper && dom.selectDefaultPaper.value) || tpl.paperType || 'grid';
+      const dims = getPageDimensionsForSizeAndOrientation(tpl.sizeId || 'goodnotes_standard', tpl.orientation || 'portrait');
+      const templateOptions = {
+        paperType,
+        paperTone: tpl.paperTone === 'all' ? 'white' : (tpl.paperTone || 'white'),
+        gridSize: Number.isFinite(tpl.gridSize) ? tpl.gridSize : 28,
+        viewMode: dims.viewMode,
+        pageSize: tpl.sizeId || 'goodnotes_standard',
+        pageOrientation: tpl.orientation || 'portrait',
+        pageWidth: dims.width,
+        pageHeight: dims.height,
+        templateLanguage: tpl.language || 'fr',
+        customTemplateDataUrl: tpl.customTemplateDataUrl || null,
+        coverTemplateId: tpl.coverTemplateId || undefined,
+        coverCustomDataUrl: tpl.coverCustomDataUrl || null
+      };
       closeNb();
-      const created = await paidCreateNotebook(title, paperType, state.newNotebookCover);
+      const created = await paidCreateNotebook(title, paperType, state.newNotebookCover, templateOptions);
       if (created && state.filesPageOpen && typeof closeFilesPage === 'function') {
         closeFilesPage();
       }
@@ -22795,6 +22869,7 @@
         closeGnFilesMenus();
         if (act === 'notebook') {
           if (dom.inputNotebookName) dom.inputNotebookName.value = '';
+          if (typeof updateNewNotebookPaperPreview === 'function') updateNewNotebookPaperPreview();
           if (dom.modalNewNotebook) dom.modalNewNotebook.classList.remove('hidden');
         } else if (act === 'folder') {
           openFolderCustomizeModal(null);
@@ -23576,6 +23651,9 @@
 
   const gnTemplateModalState = {
     open: false,
+    mode: 'page', // 'page' | 'new-notebook'
+    onApplyNewNotebook: null,
+    coverTouchedInPicker: false,
     activeTab: 'paper', // 'paper' | 'cover'
     editMode: false,
     sizeId: 'goodnotes_standard',
@@ -23905,15 +23983,20 @@
     const colorLbl = document.getElementById('gnTplColorLabel');
     const langLbl = document.getElementById('gnTplLangLabel');
     const scopeLbl = document.getElementById('gnTplScopeLabel');
+    const scopeWrap = document.querySelector('.gn-tpl-scope-wrap');
+    const applyBtn = document.getElementById('gnTplBtnApply');
     const colorWrap = document.getElementById('gnTplColorFilterWrap');
     const spacingCtrl = document.getElementById('gnTplSpacingControl');
     const spacingSlider = document.getElementById('gnTplGridSpacingSlider');
     const spacingVal = document.getElementById('gnTplGridSpacingVal');
 
+    const isNewNbPicker = st.mode === 'new-notebook';
     if (sizeLbl) sizeLbl.textContent = curSize.label;
     if (colorLbl) colorLbl.textContent = curTone.label;
     if (langLbl) langLbl.textContent = curLang.label;
     if (scopeLbl) scopeLbl.textContent = st.scope === 'all' ? 'Toutes les pages' : 'Page actuelle';
+    if (scopeWrap) scopeWrap.classList.toggle('hidden', isNewNbPicker);
+    if (applyBtn) applyBtn.textContent = isNewNbPicker ? 'Sélectionner' : 'Appliquer';
     if (colorWrap) colorWrap.classList.toggle('hidden', !isPaper);
     if (spacingCtrl) spacingCtrl.classList.toggle('hidden', !isPaper);
     if (spacingSlider) spacingSlider.value = String(st.gridSize || 28);
@@ -24056,6 +24139,7 @@
             st.selectedCustomDataUrl = item.dataUrl || null;
           } else {
             st.selectedCoverId = item.id;
+            st.coverTouchedInPicker = true;
           }
           renderGnTemplateLibraryModal();
         });
@@ -24067,6 +24151,7 @@
             st.selectedCustomDataUrl = item.dataUrl || null;
           } else {
             st.selectedCoverId = item.id;
+            st.coverTouchedInPicker = true;
           }
           applyGnTemplateLibrarySelection();
         });
@@ -24097,36 +24182,105 @@
     }
   }
 
-  function openGnTemplateLibraryModal(initialTab = 'paper') {
+  function updateNewNotebookPaperPreview() {
+    loadGnCustomTemplatesStore();
+    const tpl = state.newNotebookTemplate || {
+      paperType: 'grid',
+      paperTone: 'white',
+      gridSize: 28,
+      language: 'fr',
+      sizeId: 'goodnotes_standard',
+      orientation: 'portrait',
+      customTemplateDataUrl: null
+    };
+    const paperId = tpl.paperType || 'grid';
+    if (dom.selectDefaultPaper) dom.selectDefaultPaper.value = paperId;
+
+    const flatPapers = [
+      ...GN_PAPER_TEMPLATE_GROUPS.flatMap((g) => g.items),
+      ...(gnTemplateModalState.customStore.templates || []).filter((t) => (t.type || 'paper') === 'paper')
+    ];
+    const item = flatPapers.find((p) => p.id === paperId) || {
+      id: paperId,
+      label: paperId,
+      dataUrl: tpl.customTemplateDataUrl || null
+    };
+    const sizePreset = GN_PAGE_SIZE_PRESETS.find((s) => s.id === tpl.sizeId) || GN_PAGE_SIZE_PRESETS[0];
+    const tonePreset = GN_PAPER_TONE_OPTIONS.find((t) => t.id === (tpl.paperTone || 'white')) || GN_PAPER_TONE_OPTIONS[0];
+    const isInfinite = Boolean(sizePreset && sizePreset.isInfinite);
+    const isLand = tpl.orientation === 'landscape';
+
+    const titleEl = document.getElementById('newNotebookPaperTitle');
+    const metaEl = document.getElementById('newNotebookPaperMeta');
+    const previewWrap = document.getElementById('newNotebookPaperPreviewWrap');
+    const previewCanvas = document.getElementById('newNotebookPaperPreviewCanvas');
+
+    if (titleEl) titleEl.textContent = item.label || 'Papier quadrillé';
+    if (metaEl) {
+      const parts = [sizePreset.label, tonePreset.label];
+      if (!isInfinite) parts.push(isLand ? 'Paysage' : 'Portrait');
+      parts.push(`${Number.isFinite(tpl.gridSize) ? tpl.gridSize : 28}px`);
+      metaEl.textContent = parts.join(' · ');
+    }
+    if (previewWrap) previewWrap.classList.toggle('landscape', !isInfinite && isLand);
+    if (previewCanvas) {
+      renderGnPaperThumbnail(
+        previewCanvas,
+        { ...item, dataUrl: tpl.customTemplateDataUrl || item.dataUrl || null },
+        tpl.paperTone || 'white',
+        isInfinite ? 'portrait' : (tpl.orientation || 'portrait'),
+        tpl.language || 'fr',
+        Number.isFinite(tpl.gridSize) ? tpl.gridSize : 28
+      );
+    }
+  }
+
+  function openGnTemplateLibraryModal(initialTab = 'paper', options = null) {
     const modal = document.getElementById('gnTemplateLibraryModal');
     if (!modal) return;
     loadGnCustomTemplatesStore();
 
-    const page = getActivePage();
-    const nb = getActiveNotebook();
     const st = gnTemplateModalState;
+    const isNewNbPicker = Boolean(options && options.mode === 'new-notebook');
 
     st.open = true;
+    st.mode = isNewNbPicker ? 'new-notebook' : 'page';
+    st.onApplyNewNotebook = (isNewNbPicker && typeof options.onApply === 'function') ? options.onApply : null;
+    st.coverTouchedInPicker = false;
     st.activeTab = initialTab === 'cover' ? 'cover' : 'paper';
     st.editMode = false;
     st.selectedForDeletion.clear();
     closeAllGnTplDropdowns();
 
-    if (page) {
-      st.selectedPaperId = page.paperType || 'grid';
-      st.selectedCustomDataUrl = page.customTemplateDataUrl || null;
-      st.toneId = page.paperTone || 'white';
-      st.gridSize = Number.isFinite(page.gridSize) ? page.gridSize : 28;
-      st.language = page.templateLanguage || 'fr';
-      st.orientation = page.pageOrientation || ((page.pageWidth && page.pageHeight && page.pageWidth > page.pageHeight) ? 'landscape' : 'portrait');
-      if ((page.viewMode || 'infinite') === 'infinite' && !page.pdfId) {
-        st.sizeId = 'infinite';
-      } else {
-        st.sizeId = page.pageSize || 'goodnotes_standard';
+    if (isNewNbPicker) {
+      const init = (options && options.initial) || state.newNotebookTemplate || {};
+      st.selectedPaperId = init.paperType || 'grid';
+      st.selectedCustomDataUrl = init.customTemplateDataUrl || null;
+      st.toneId = init.paperTone || 'white';
+      st.gridSize = Number.isFinite(init.gridSize) ? init.gridSize : 28;
+      st.language = init.language || 'fr';
+      st.orientation = init.orientation || 'portrait';
+      st.sizeId = init.sizeId || 'goodnotes_standard';
+      st.selectedCoverId = init.coverTemplateId || 'simple-blue';
+    } else {
+      const page = getActivePage();
+      const nb = getActiveNotebook();
+      if (page) {
+        st.selectedPaperId = page.paperType || 'grid';
+        st.selectedCustomDataUrl = page.customTemplateDataUrl || null;
+        st.toneId = page.paperTone || 'white';
+        st.gridSize = Number.isFinite(page.gridSize) ? page.gridSize : 28;
+        st.language = page.templateLanguage || 'fr';
+        st.orientation = page.pageOrientation || ((page.pageWidth && page.pageHeight && page.pageWidth > page.pageHeight) ? 'landscape' : 'portrait');
+        if ((page.viewMode || 'infinite') === 'infinite' && !page.pdfId) {
+          st.sizeId = 'infinite';
+        } else {
+          st.sizeId = page.pageSize || 'goodnotes_standard';
+        }
       }
-    }
-    if (nb) {
-      st.selectedCoverId = nb.coverTemplateId || 'simple-blue';
+      if (nb) {
+        st.selectedCoverId = nb.coverTemplateId || 'simple-blue';
+      }
     }
 
     modal.classList.remove('hidden');
@@ -24137,6 +24291,9 @@
     const modal = document.getElementById('gnTemplateLibraryModal');
     if (modal) modal.classList.add('hidden');
     gnTemplateModalState.open = false;
+    gnTemplateModalState.mode = 'page';
+    gnTemplateModalState.onApplyNewNotebook = null;
+    gnTemplateModalState.coverTouchedInPicker = false;
     gnTemplateModalState.editMode = false;
     gnTemplateModalState.selectedForDeletion.clear();
     closeAllGnTplDropdowns();
@@ -24144,6 +24301,33 @@
 
   function applyGnTemplateLibrarySelection() {
     const st = gnTemplateModalState;
+
+    if (st.mode === 'new-notebook') {
+      const flatCovers = [
+        ...GN_COVER_TEMPLATE_GROUPS.flatMap((g) => g.items),
+        ...(st.customStore.templates || []).filter((t) => t.type === 'cover')
+      ];
+      const coverSelected = Boolean(st.activeTab === 'cover' || st.coverTouchedInPicker);
+      const chosenCover = coverSelected ? flatCovers.find((c) => c.id === st.selectedCoverId) : null;
+      const picked = {
+        paperType: st.selectedPaperId || 'grid',
+        paperTone: st.toneId === 'all' ? 'white' : (st.toneId || 'white'),
+        gridSize: Number.isFinite(st.gridSize) ? st.gridSize : 28,
+        language: st.language || 'fr',
+        sizeId: st.sizeId || 'goodnotes_standard',
+        orientation: st.orientation || 'portrait',
+        customTemplateDataUrl: st.selectedCustomDataUrl || null,
+        coverSelected: Boolean(chosenCover),
+        coverTemplateId: chosenCover ? chosenCover.id : null,
+        coverColor: chosenCover ? (chosenCover.coverColor || null) : null,
+        coverCustomDataUrl: chosenCover ? (chosenCover.dataUrl || null) : null
+      };
+      const cb = st.onApplyNewNotebook;
+      closeGnTemplateLibraryModal();
+      if (typeof cb === 'function') cb(picked);
+      return;
+    }
+
     const page = getActivePage();
     const nb = getActiveNotebook();
     if (!page || !nb) {
@@ -24658,24 +24842,31 @@
     }
     if (resizer) resizer.classList.toggle('hidden', !sv.open);
     if (pane) pane.classList.toggle('hidden', !sv.open);
-    if (!sv.open) return;
+    if (!sv.open) {
+      closeSplitNotebookPopover();
+      return;
+    }
 
-    const sel = document.getElementById('splitNotebookSelect');
     const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
-    if (sel) {
-      if (!activeNbs.some((n) => n.id === sv.notebookId)) {
-        const other = activeNbs.find((n) => n.id !== state.activeNotebookId) || activeNbs[0];
-        sv.notebookId = other ? other.id : null;
-        sv.pageId = null;
-      }
-      sel.innerHTML = '';
-      activeNbs.forEach((nb) => {
-        const opt = document.createElement('option');
-        opt.value = nb.id;
-        opt.textContent = nb.id === state.activeNotebookId ? `${nb.title || 'Cahier'} (actif)` : (nb.title || 'Sans titre');
-        if (nb.id === sv.notebookId) opt.selected = true;
-        sel.appendChild(opt);
-      });
+    if (!activeNbs.some((n) => n.id === sv.notebookId)) {
+      const other = activeNbs.find((n) => n.id !== state.activeNotebookId) || activeNbs[0];
+      sv.notebookId = other ? other.id : null;
+      sv.pageId = null;
+    }
+    const curNb = activeNbs.find((n) => n.id === sv.notebookId) || null;
+    const triggerBtn = document.getElementById('btnSplitNotebookPicker');
+    const triggerDot = document.getElementById('splitNbTriggerDot');
+    const triggerLabel = document.getElementById('splitNbTriggerLabel');
+    const triggerBadge = document.getElementById('splitNbTriggerBadge');
+    if (triggerDot) triggerDot.style.background = (curNb && curNb.color) || '#0072ce';
+    if (triggerLabel) triggerLabel.textContent = (curNb && curNb.title) || 'Choisir un fichier';
+    if (triggerBadge) triggerBadge.classList.toggle('hidden', !curNb || curNb.id !== state.activeNotebookId);
+    if (triggerBtn) {
+      triggerBtn.classList.toggle('open', Boolean(sv.pickerOpen));
+      triggerBtn.setAttribute('aria-expanded', String(Boolean(sv.pickerOpen)));
+    }
+    if (sv.pickerOpen) {
+      renderSplitNotebookPickerList();
     }
 
     const pages = getSplitPanePages();
@@ -24849,7 +25040,267 @@
     return true;
   }
 
+  const splitNaturalCollator = (typeof Intl !== 'undefined' && typeof Intl.Collator === 'function')
+    ? new Intl.Collator('fr', { numeric: true, sensitivity: 'base' })
+    : null;
+
+  function compareSplitTitles(a, b) {
+    const sa = String(a || '').trim();
+    const sb = String(b || '').trim();
+    if (splitNaturalCollator) return splitNaturalCollator.compare(sa, sb);
+    return sa.localeCompare(sb, undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  function getNotebookFolderPathLabel(nb) {
+    if (!nb || !nb.folderId) return '';
+    if (typeof getFolderPath === 'function') {
+      const chain = getFolderPath(nb.folderId) || [];
+      if (chain.length > 0) return chain.map((f) => f.name || 'Dossier').join(' / ');
+    }
+    const f = (state.folders || []).find((x) => x.id === nb.folderId && !x.trashedAt);
+    return f ? (f.name || 'Dossier') : '';
+  }
+
+  function getNotebookLastActivityTs(nb) {
+    if (!nb) return 0;
+    const pages = (state.pagesByNotebook.get(nb.id) || []).filter((p) => !p.trashedAt);
+    let latest = Number(nb.updatedAt || nb.createdAt || 0);
+    for (const p of pages) {
+      const ts = Number(p.updatedAt || p.createdAt || 0);
+      if (ts > latest) latest = ts;
+    }
+    return latest;
+  }
+
+  function positionSplitNotebookPopover() {
+    const pop = document.getElementById('splitNotebookPopover');
+    const caret = document.getElementById('splitNotebookPopoverCaret');
+    const anchor = document.getElementById('btnSplitNotebookPicker');
+    if (!pop || !anchor || typeof anchor.getBoundingClientRect !== 'function') return;
+    const aR = anchor.getBoundingClientRect();
+    const pR = pop.getBoundingClientRect();
+    const popW = pR.width > 0 ? pR.width : 300;
+    const popH = pR.height > 0 ? pR.height : 340;
+    const vw = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1200;
+    const vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
+
+    let left = Math.round(aR.left);
+    left = Math.max(12, Math.min(vw - popW - 12, left));
+    let top = Math.round(aR.bottom + 8);
+    if (top + popH > vh - 12 && aR.top - popH - 8 >= 12) {
+      top = Math.round(aR.top - popH - 8);
+    } else if (top + popH > vh - 12) {
+      top = Math.max(12, vh - popH - 12);
+    }
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+    if (caret) {
+      const anchorCenterX = aR.left + Math.min(aR.width * 0.5, 80);
+      const relX = Math.max(20, Math.min(popW - 20, anchorCenterX - left));
+      caret.style.left = `${Math.round(relX)}px`;
+    }
+  }
+
+  function closeSplitNotebookPopover() {
+    if (!state.splitView) return;
+    state.splitView.pickerOpen = false;
+    const pop = document.getElementById('splitNotebookPopover');
+    if (pop) pop.classList.add('hidden');
+    const triggerBtn = document.getElementById('btnSplitNotebookPicker');
+    if (triggerBtn) {
+      triggerBtn.classList.remove('open');
+      triggerBtn.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  function selectSplitNotebook(nbId) {
+    if (!nbId) return;
+    state.splitView.notebookId = nbId;
+    const pages = getSplitPanePages();
+    if (nbId === state.activeNotebookId && pages.length > 1) {
+      const curIdx = pages.findIndex((p) => p.id === state.activePageId);
+      state.splitView.pageId = pages[(curIdx + 1) % pages.length].id;
+    } else {
+      state.splitView.pageId = pages[0] ? pages[0].id : null;
+    }
+    closeSplitNotebookPopover();
+    syncSplitViewUi();
+    fitSplitPaneToWidth();
+  }
+
+  function renderSplitNotebookPickerList() {
+    const listEl = document.getElementById('splitNbList');
+    if (!listEl) return;
+    const sv = state.splitView;
+    const sortMode = sv.sortMode || 'folders';
+    const q = String(sv.searchQuery || '').trim().toLowerCase();
+
+    document.querySelectorAll('#splitNbSortPills .split-nb-sort-pill').forEach((pill) => {
+      const isAct = pill.dataset.splitSort === sortMode;
+      pill.classList.toggle('active', isAct);
+      pill.setAttribute('aria-selected', String(isAct));
+    });
+
+    const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
+    const enriched = activeNbs.map((nb) => {
+      const pages = (state.pagesByNotebook.get(nb.id) || []).filter((p) => !p.trashedAt);
+      const folderPath = getNotebookFolderPathLabel(nb);
+      const isPdf = pages.some((p) => Boolean(p.pdfId));
+      return {
+        nb,
+        title: nb.title || 'Sans titre',
+        folderPath,
+        pageCount: pages.length,
+        isPdf,
+        isActivePrimary: nb.id === state.activeNotebookId,
+        isSelectedSplit: nb.id === sv.notebookId,
+        lastTs: getNotebookLastActivityTs(nb)
+      };
+    }).filter((entry) => {
+      if (!q) return true;
+      return entry.title.toLowerCase().includes(q) || entry.folderPath.toLowerCase().includes(q);
+    });
+
+    listEl.innerHTML = '';
+    if (enriched.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'split-nb-empty';
+      empty.textContent = q ? 'Aucun fichier ne correspond à votre recherche.' : 'Aucun cahier disponible.';
+      listEl.appendChild(empty);
+      return;
+    }
+
+    const appendRow = (entry, showFolderSub) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `split-nb-item${entry.isSelectedSplit ? ' selected' : ''}`;
+      btn.setAttribute('role', 'option');
+      btn.setAttribute('aria-selected', String(entry.isSelectedSplit));
+      btn.dataset.splitNbId = entry.nb.id;
+
+      const dot = document.createElement('span');
+      dot.className = 'split-nb-item-dot';
+      dot.style.background = entry.nb.color || '#0072ce';
+      btn.appendChild(dot);
+
+      const main = document.createElement('span');
+      main.className = 'split-nb-item-main';
+      const titleEl = document.createElement('span');
+      titleEl.className = 'split-nb-item-title';
+      titleEl.textContent = entry.title;
+      main.appendChild(titleEl);
+      if (showFolderSub && entry.folderPath) {
+        const subEl = document.createElement('span');
+        subEl.className = 'split-nb-item-sub';
+        subEl.textContent = entry.folderPath;
+        main.appendChild(subEl);
+      }
+      btn.appendChild(main);
+
+      const right = document.createElement('span');
+      right.className = 'split-nb-item-right';
+      if (entry.isPdf) {
+        const pdfTag = document.createElement('span');
+        pdfTag.className = 'split-nb-item-tag pdf-doc';
+        pdfTag.textContent = 'PDF';
+        right.appendChild(pdfTag);
+      }
+      if (entry.isActivePrimary) {
+        const actTag = document.createElement('span');
+        actTag.className = 'split-nb-item-tag active-doc';
+        actTag.textContent = 'Actif';
+        right.appendChild(actTag);
+      }
+      const pagesEl = document.createElement('span');
+      pagesEl.className = 'split-nb-item-pages';
+      pagesEl.textContent = `${entry.pageCount} p.`;
+      right.appendChild(pagesEl);
+
+      if (entry.isSelectedSplit) {
+        const chk = document.createElement('span');
+        chk.className = 'split-nb-item-check';
+        chk.innerHTML = '<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10.5 8.2 14.8 16.5 6.2"></polyline></svg>';
+        right.appendChild(chk);
+      }
+      btn.appendChild(right);
+
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        selectSplitNotebook(entry.nb.id);
+      });
+      listEl.appendChild(btn);
+    };
+
+    if (sortMode === 'recent') {
+      enriched.sort((a, b) => (b.lastTs - a.lastTs) || compareSplitTitles(a.title, b.title));
+      enriched.forEach((entry) => appendRow(entry, true));
+    } else if (sortMode === 'alpha') {
+      enriched.sort((a, b) => compareSplitTitles(a.title, b.title));
+      enriched.forEach((entry) => appendRow(entry, true));
+    } else {
+      // Mode "Dossiers" : regroupe par dossier trié A–Z, puis fichiers triés naturellement (TD 3, TD 4, TD 5, TD 7…)
+      const hasAnyFolder = enriched.some((e) => Boolean(e.folderPath));
+      if (!hasAnyFolder) {
+        enriched.sort((a, b) => compareSplitTitles(a.title, b.title));
+        enriched.forEach((entry) => appendRow(entry, false));
+      } else {
+        const groups = new Map();
+        enriched.forEach((entry) => {
+          const key = entry.folderPath || '__root__';
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(entry);
+        });
+        const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
+          if (a === '__root__') return 1;
+          if (b === '__root__') return -1;
+          return compareSplitTitles(a, b);
+        });
+        sortedKeys.forEach((key) => {
+          const header = document.createElement('div');
+          header.className = 'split-nb-group-label';
+          header.innerHTML = key === '__root__'
+            ? '<span>Sans dossier</span>'
+            : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg><span></span>`;
+          if (key !== '__root__') {
+            const span = header.querySelector('span');
+            if (span) span.textContent = key;
+          }
+          listEl.appendChild(header);
+          const items = groups.get(key);
+          items.sort((a, b) => compareSplitTitles(a.title, b.title));
+          items.forEach((entry) => appendRow(entry, false));
+        });
+      }
+    }
+  }
+
+  function openSplitNotebookPopover() {
+    const pop = document.getElementById('splitNotebookPopover');
+    if (!pop) return;
+    state.splitView.pickerOpen = true;
+    state.splitView.searchQuery = '';
+    const searchInput = document.getElementById('splitNbSearchInput');
+    if (searchInput) searchInput.value = '';
+    pop.classList.remove('hidden');
+    syncSplitViewUi();
+    renderSplitNotebookPickerList();
+    positionSplitNotebookPopover();
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => positionSplitNotebookPopover());
+    }
+    if (searchInput) {
+      setTimeout(() => { try { searchInput.focus(); } catch (_) {} }, 20);
+    }
+  }
+
   function bindSplitViewEvents() {
+    try {
+      const savedSort = localStorage.getItem('inkflow_split_sort_v1');
+      if (savedSort === 'folders' || savedSort === 'alpha' || savedSort === 'recent') {
+        state.splitView.sortMode = savedSort;
+      }
+    } catch (_) {}
+
     const btnToggle = document.getElementById('btnToggleSplitView');
     if (btnToggle) {
       btnToggle.addEventListener('click', (e) => {
@@ -24863,16 +25314,58 @@
     const btnSwap = document.getElementById('btnSplitSwapPanes');
     if (btnSwap) btnSwap.addEventListener('click', () => swapSplitViewPanes());
 
-    const sel = document.getElementById('splitNotebookSelect');
-    if (sel) {
-      sel.addEventListener('change', () => {
-        state.splitView.notebookId = sel.value || state.activeNotebookId;
-        const pages = getSplitPanePages();
-        state.splitView.pageId = pages[0] ? pages[0].id : null;
-        syncSplitViewUi();
-        fitSplitPaneToWidth();
+    const btnPicker = document.getElementById('btnSplitNotebookPicker');
+    if (btnPicker) {
+      btnPicker.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (state.splitView.pickerOpen) closeSplitNotebookPopover();
+        else openSplitNotebookPopover();
       });
     }
+
+    const searchInput = document.getElementById('splitNbSearchInput');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        state.splitView.searchQuery = searchInput.value || '';
+        renderSplitNotebookPickerList();
+      });
+      searchInput.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeSplitNotebookPopover();
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          const firstItem = document.querySelector('#splitNbList .split-nb-item');
+          if (firstItem && firstItem.dataset.splitNbId) {
+            selectSplitNotebook(firstItem.dataset.splitNbId);
+          }
+        }
+      });
+    }
+
+    document.querySelectorAll('#splitNbSortPills .split-nb-sort-pill').forEach((pill) => {
+      pill.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const mode = pill.dataset.splitSort;
+        if (mode === 'folders' || mode === 'alpha' || mode === 'recent') {
+          state.splitView.sortMode = mode;
+          try { localStorage.setItem('inkflow_split_sort_v1', mode); } catch (_) {}
+          renderSplitNotebookPickerList();
+        }
+      });
+    });
+
+    document.addEventListener('pointerdown', (e) => {
+      if (!state.splitView || !state.splitView.pickerOpen) return;
+      if (e.target && typeof e.target.closest === 'function' && (
+        e.target.closest('#splitNotebookPopover') ||
+        e.target.closest('#btnSplitNotebookPicker')
+      )) {
+        return;
+      }
+      closeSplitNotebookPopover();
+    });
 
     const btnPrev = document.getElementById('btnSplitPrevPage');
     const btnNext = document.getElementById('btnSplitNextPage');
@@ -24972,6 +25465,7 @@
         invalidateStaticInkCache();
         requestRender();
         scheduleSplitPaneRender();
+        if (state.splitView.pickerOpen) positionSplitNotebookPopover();
       });
       const stopDrag = (e) => {
         if (!dragging) return;
@@ -25007,6 +25501,7 @@
       window.addEventListener('resize', () => {
         if (state.splitView && state.splitView.open) {
           scheduleSplitPaneRender();
+          if (state.splitView.pickerOpen) positionSplitNotebookPopover();
         }
       });
     }
@@ -27092,7 +27587,9 @@
       getGnColorPopoverState,
       openGnTemplateLibraryModal,
       closeGnTemplateLibraryModal,
+      applyGnTemplateLibrarySelection,
       getGnTemplateLibraryState,
+      updateNewNotebookPaperPreview,
       GN_PAGE_SIZE_PRESETS,
       GN_PAPER_TEMPLATE_GROUPS,
       GN_COVER_TEMPLATE_GROUPS,
@@ -27164,6 +27661,7 @@
   bindEvents();
   initGoodnotesExtensions();
   initGnTemplateLibraryModal();
+  updateNewNotebookPaperPreview();
   initNewFeaturesPack();
   updateToolbarActiveState();
   renderWorldTextCards();

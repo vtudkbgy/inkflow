@@ -864,7 +864,59 @@ async function runVerification() {
     throw new Error('La suppression d\'une sélection Lasso ne doit plus afficher la notification "Sélection supprimée"');
   }
 
-  console.log(`✓ [4/4] Import PDF + Export annoté + Plein écran + Pile A4 + Couleurs + Lasso enrichi + Split View + Ruban + Pack #1/#3/#4/#6/#9 + UX Désélection vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+  // Vérification : Sélecteur de feuille dans "Nouveau Cahier" -> ouvre la Bibliothèque de modèles (Papier) et applique au cahier créé
+  const btnChooseNbPaper = sandbox.document.getElementById('btnChooseNewNotebookPaper');
+  if (!btnChooseNbPaper) {
+    throw new Error('Le bouton #btnChooseNewNotebookPaper est introuvable dans #modalNewNotebook');
+  }
+  const activePageBeforeNewNbPicker = api.getActivePage();
+  const prevActivePagePaperType = activePageBeforeNewNbPicker.paperType;
+  state.newNotebookTemplate = {
+    paperType: 'seyes',
+    paperTone: 'ivory',
+    gridSize: 32,
+    language: 'fr',
+    sizeId: 'a4',
+    orientation: 'portrait',
+    customTemplateDataUrl: null,
+    coverTemplateId: null,
+    coverCustomDataUrl: null
+  };
+  btnChooseNbPaper.dispatchEvent({ type: 'click', stopPropagation: () => {}, preventDefault: () => {} });
+  const tplStateDuringPick = api.getGnTemplateLibraryState();
+  if (!tplStateDuringPick.open || tplStateDuringPick.mode !== 'new-notebook' || tplStateDuringPick.activeTab !== 'paper') {
+    throw new Error('Le clic sur #btnChooseNewNotebookPaper doit ouvrir la bibliothèque de modèles en mode new-notebook sur l\'onglet Papier');
+  }
+  const btnLand = sandbox.document.getElementById('gnTplOrientLandscape');
+  if (btnLand) btnLand.dispatchEvent({ type: 'click', stopPropagation: () => {}, preventDefault: () => {} });
+  const applyTplBtn = sandbox.document.getElementById('gnTplBtnApply');
+  if (!applyTplBtn || applyTplBtn.textContent !== 'Sélectionner') {
+    throw new Error('En mode nouveau cahier, le bouton de validation de la bibliothèque doit afficher "Sélectionner"');
+  }
+  applyTplBtn.dispatchEvent({ type: 'click', stopPropagation: () => {}, preventDefault: () => {} });
+  if (api.getGnTemplateLibraryState().open) {
+    throw new Error('La bibliothèque de modèles doit se fermer après sélection pour un nouveau cahier');
+  }
+  if (activePageBeforeNewNbPicker.paperType !== prevActivePagePaperType) {
+    throw new Error('Choisir un modèle pour un nouveau cahier ne doit pas modifier la page actuellement ouverte');
+  }
+  if (state.newNotebookTemplate.paperType !== 'seyes' || state.newNotebookTemplate.sizeId !== 'a4' || state.newNotebookTemplate.paperTone !== 'ivory' || state.newNotebookTemplate.orientation !== 'landscape') {
+    throw new Error('Le modèle choisi dans la bibliothèque n\'a pas été mémorisé dans state.newNotebookTemplate');
+  }
+  const selectDefaultPaperEl = sandbox.document.getElementById('selectDefaultPaper');
+  if (!selectDefaultPaperEl || selectDefaultPaperEl.value !== 'seyes') {
+    throw new Error('#selectDefaultPaper doit refléter le modèle choisi (seyes)');
+  }
+  const nbPaperTitleEl = sandbox.document.getElementById('newNotebookPaperTitle');
+  if (!nbPaperTitleEl || !/Seyès/i.test(nbPaperTitleEl.textContent)) {
+    throw new Error('L\'aperçu du modèle dans la modale Nouveau Cahier n\'affiche pas le nom du papier choisi');
+  }
+  const nbPaperMetaEl = sandbox.document.getElementById('newNotebookPaperMeta');
+  if (!nbPaperMetaEl || !/A4/.test(nbPaperMetaEl.textContent) || !/Paysage/.test(nbPaperMetaEl.textContent)) {
+    throw new Error('Le résumé du modèle dans la modale Nouveau Cahier doit refléter le format et l\'orientation choisis');
+  }
+
+  console.log(`✓ [4/4] Import PDF + Export annoté + Plein écran + Pile A4 + Couleurs + Lasso enrichi + Split View + Ruban + Pack #1/#3/#4/#6/#9 + UX Désélection + Sélecteur Feuille Nouveau Cahier vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {

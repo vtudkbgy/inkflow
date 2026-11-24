@@ -1918,7 +1918,14 @@
       <section class="split-secondary-pane hidden" id="splitSecondaryPane" aria-label="Panneau secondaire Vue divisée">
         <div class="split-pane-toolbar" id="splitPaneToolbar">
           <div class="split-pane-left">
-            <select class="split-nb-select" id="splitNotebookSelect" aria-label="Choisir le cahier du panneau secondaire"></select>
+            <button class="split-nb-trigger" id="btnSplitNotebookPicker" type="button" aria-haspopup="listbox" aria-expanded="false" title="Choisir le cahier ou PDF à afficher">
+              <span class="split-nb-trigger-dot" id="splitNbTriggerDot"></span>
+              <span class="split-nb-trigger-label" id="splitNbTriggerLabel">Cahier</span>
+              <span class="split-nb-trigger-badge hidden" id="splitNbTriggerBadge">Actif</span>
+              <svg class="split-nb-trigger-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2.5 4.2L6 7.8L9.5 4.2"></path>
+              </svg>
+            </button>
             <div class="split-page-nav">
               <button class="split-icon-btn" id="btnSplitPrevPage" type="button" title="Page précédente" aria-label="Page précédente">◀</button>
               <span class="split-page-readout" id="splitPageReadout">1 / 1</span>
@@ -1950,6 +1957,26 @@
       </div>
 
     </main>
+  </div>
+
+  <!-- POPOVER SÉLECTEUR DE FICHIER SPLIT VIEW (Épuré, trié par Dossiers / A-Z / Récents + recherche) -->
+  <div class="split-nb-popover hidden" id="splitNotebookPopover" role="dialog" aria-label="Choisir un fichier pour la vue divisée">
+    <div class="split-nb-popover-caret" id="splitNotebookPopoverCaret"></div>
+    <div class="split-nb-pop-top">
+      <div class="split-nb-search-wrap">
+        <svg class="split-nb-search-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"></circle>
+          <line x1="20" y1="20" x2="16.2" y2="16.2"></line>
+        </svg>
+        <input type="search" id="splitNbSearchInput" class="split-nb-search-input" placeholder="Rechercher un cahier ou PDF…" autocomplete="off" />
+      </div>
+      <div class="split-nb-sort-pills" id="splitNbSortPills" role="tablist" aria-label="Ordre de tri">
+        <button class="split-nb-sort-pill active" type="button" data-split-sort="folders" role="tab" aria-selected="true">Dossiers</button>
+        <button class="split-nb-sort-pill" type="button" data-split-sort="alpha" role="tab" aria-selected="false">A–Z</button>
+        <button class="split-nb-sort-pill" type="button" data-split-sort="recent" role="tab" aria-selected="false">Récents</button>
+      </div>
+    </div>
+    <div class="split-nb-list" id="splitNbList" role="listbox"></div>
   </div>
 
   <!-- ==================== MODAL : ÉDITEUR D'ÉQUATION LATEX ==================== -->
@@ -2441,20 +2468,21 @@
         </div>
       </div>
       <div class="form-field">
-        <label for="selectDefaultPaper">Fond de papier par défaut</label>
-        <select id="selectDefaultPaper" class="form-input">
-          <option value="grid">Quadrillé (5×5)</option>
-          <option value="seyes">Grands Carreaux Seyès (Français)</option>
-          <option value="engineering">Papier Millimétré Ingénieur</option>
-          <option value="isometric">Grille Isométrique 3D</option>
-          <option value="lined">Ligné Classique</option>
-          <option value="cornell">Notes Cornell (Marge + Résumé)</option>
-          <option value="twocolumn">Deux Colonnes</option>
-          <option value="planner">Planning Hebdomadaire</option>
-          <option value="dotted">Pointillé (Bullet)</option>
-          <option value="music">Portée Musicale</option>
-          <option value="blank">Blanc uni</option>
-        </select>
+        <label for="btnChooseNewNotebookPaper">Fond de papier par défaut</label>
+        <input type="hidden" id="selectDefaultPaper" value="grid" />
+        <button type="button" id="btnChooseNewNotebookPaper" class="new-nb-paper-picker-btn" aria-label="Choisir le modèle de papier par défaut">
+          <span class="new-nb-paper-preview-wrap" id="newNotebookPaperPreviewWrap">
+            <canvas id="newNotebookPaperPreviewCanvas" class="new-nb-paper-preview-canvas" width="96" height="124" aria-hidden="true"></canvas>
+          </span>
+          <span class="new-nb-paper-info">
+            <span class="new-nb-paper-title" id="newNotebookPaperTitle">Papier quadrillé</span>
+            <span class="new-nb-paper-meta" id="newNotebookPaperMeta">Standard · Papier blanc · Portrait · 28px</span>
+          </span>
+          <span class="new-nb-paper-action">
+            <span>Choisir</span>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+          </span>
+        </button>
       </div>
       <p class="detente-cost-hint" id="newNotebookCostHint"></p>
       <div class="modal-actions">
