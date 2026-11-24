@@ -447,6 +447,82 @@ async function runVerification() {
     throw new Error('L\'exportation PDF via pdf-lib + Tauri v2 save_binary_file a échoué');
   }
 
+  // Vérification du Lasso sur zone PDF : sélection, déplacement, copie/collage et enregistrement dans Éléments
+  const pdfImgBefore = (pdfPages[0].images || []).length;
+  state.tool = 'lasso';
+  state.lassoAction = 'draw';
+  state.lassoPolygon = [
+    { x: 420, y: 340 },
+    { x: 560, y: 340 },
+    { x: 560, y: 440 },
+    { x: 420, y: 440 }
+  ];
+  api.handleLassoPointerUp();
+  if (!state.lassoPdfClip || !state.selectionBounds || state.lassoPdfClip.width < 100) {
+    throw new Error('La sélection d\'une zone PDF au Lasso n\'a pas généré de lassoPdfClip');
+  }
+  const savedPdfEl = api.saveLassoSelectionAsElement('Extrait PDF Vérif');
+  if (!savedPdfEl || !Array.isArray(savedPdfEl.images) || savedPdfEl.images.length !== 1) {
+    throw new Error('L\'enregistrement d\'une zone PDF sélectionnée dans les Éléments a échoué');
+  }
+  const copiedPdfOk = api.copyLassoSelection();
+  if (!copiedPdfOk || !state.lassoClipboard || !state.lassoClipboard.images || state.lassoClipboard.images.length !== 1) {
+    throw new Error('La copie (Ctrl+C) d\'une zone PDF sélectionnée au Lasso a échoué');
+  }
+  // Déplacement direct de la zone PDF sélectionnée : doit matérialiser l'image et la déplacer
+  const pdfBoxCenterX = (state.selectionBounds.minX + state.selectionBounds.maxX) * 0.5;
+  const pdfBoxCenterY = (state.selectionBounds.minY + state.selectionBounds.maxY) * 0.5;
+  api.handlePointerDown({
+    pointerId: 88,
+    pointerType: 'mouse',
+    button: 0,
+    buttons: 1,
+    clientX: pdfBoxCenterX * state.zoom + state.panX,
+    clientY: pdfBoxCenterY * state.zoom + state.panY,
+    pressure: 0.5,
+    timeStamp: 5100,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  api.handlePointerMove({
+    pointerId: 88,
+    pointerType: 'mouse',
+    button: 0,
+    buttons: 1,
+    clientX: (pdfBoxCenterX + 45) * state.zoom + state.panX,
+    clientY: (pdfBoxCenterY + 30) * state.zoom + state.panY,
+    pressure: 0.5,
+    timeStamp: 5120,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  api.handlePointerUpOrCancel({
+    pointerId: 88,
+    pointerType: 'mouse',
+    button: 0,
+    buttons: 0,
+    clientX: (pdfBoxCenterX + 45) * state.zoom + state.panX,
+    clientY: (pdfBoxCenterY + 30) * state.zoom + state.panY,
+    pressure: 0,
+    timeStamp: 5140
+  });
+  if ((pdfPages[0].images || []).length !== pdfImgBefore + 1 || state.lassoPdfClip !== null) {
+    throw new Error('Le déplacement d\'une zone PDF au Lasso n\'a pas matérialisé l\'image sur la page');
+  }
+  const pastedPdfOk = api.pasteLassoSelection();
+  if (!pastedPdfOk || (pdfPages[0].images || []).length !== pdfImgBefore + 2) {
+    throw new Error('Le collage (Ctrl+V) d\'une zone PDF copiée a échoué');
+  }
+  const insertedPdfElOk = api.insertElementIntoActivePage(savedPdfEl);
+  if (!insertedPdfElOk || (pdfPages[0].images || []).length !== pdfImgBefore + 3) {
+    throw new Error('La réinsertion d\'un élément PDF depuis la bibliothèque Éléments a échoué');
+  }
+  pdfPages[0].images.splice(pdfImgBefore);
+  state.selectedIds.images.clear();
+  state.lassoPdfClip = null;
+  state.selectionBounds = null;
+  state.tool = 'pen';
+
   // Vérification du mode plein écran natif Tauri v2 (masquage de la barre de titre Windows)
   const fsOn = await api.toggleFullscreenMode();
   const fsBtn = elementsById.get('btnFullscreenToggle');

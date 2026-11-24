@@ -3079,6 +3079,8 @@
     // Lasso
     lassoPolygon: [],
     selectedIds: { strokes: new Set(), shapes: new Set(), texts: new Set(), images: new Set() },
+    lassoPdfClip: null,
+    lassoClipboard: null,
     selectionBounds: null,
     lassoAction: null,
     lassoDragStartWorld: null,
@@ -9477,6 +9479,10 @@
     if (state.selectionBounds && hasAnyLassoSelection()) {
       const b = state.selectionBounds;
       targetCtx.save();
+      if (state.lassoPdfClip) {
+        targetCtx.fillStyle = 'rgba(37, 99, 235, 0.06)';
+        targetCtx.fillRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY);
+      }
       targetCtx.strokeStyle = '#1d4ed8';
       targetCtx.lineWidth = 1.8 / state.zoom;
       targetCtx.setLineDash([6 / state.zoom, 4 / state.zoom]);
@@ -11879,7 +11885,8 @@
       state.selectedIds.strokes.size > 0 ||
       state.selectedIds.shapes.size > 0 ||
       state.selectedIds.texts.size > 0 ||
-      (state.selectedIds.images && state.selectedIds.images.size > 0)
+      (state.selectedIds.images && state.selectedIds.images.size > 0) ||
+      Boolean(state.lassoPdfClip)
     );
   }
   function clearLassoSelection() {
@@ -11888,12 +11895,112 @@
     state.selectedIds.shapes.clear();
     state.selectedIds.texts.clear();
     if (state.selectedIds.images) state.selectedIds.images.clear();
+    state.lassoPdfClip = null;
     state.selectionBounds = null;
     state.lassoAction = null;
     state.gnLassoAlignPopoverOpen = false;
     updateLassoToolbarBadge();
     updateLassoFloatingBarPosition();
     if (typeof syncGnLassoSubBarUi === 'function') syncGnLassoSubBarUi();
+  }
+  function extractPdfRegionFromLassoPolygon(page, polygon) {
+    if (!page || !page.pdfId || !page.pdfPageNumber || !Array.isArray(polygon) || polygon.length < 3) return null;
+    const pw = page.pdfWidth || PAGE_WIDTH;
+    const ph = page.pdfHeight || PAGE_HEIGHT;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const pt of polygon) {
+      if (pt.x < minX) minX = pt.x;
+      if (pt.y < minY) minY = pt.y;
+      if (pt.x > maxX) maxX = pt.x;
+      if (pt.y > maxY) maxY = pt.y;
+    }
+    minX = Math.max(0, Math.min(pw, minX));
+    minY = Math.max(0, Math.min(ph, minY));
+    maxX = Math.max(0, Math.min(pw, maxX));
+    maxY = Math.max(0, Math.min(ph, maxY));
+    const w = maxX - minX;
+    const h = maxY - minY;
+    if (w < 12 || h < 12) return null;
+
+    const key = `${page.pdfId}_${page.pdfPageNumber}`;
+    const cached = pdfRenderedCanvasCache.get(key);
+    const hasCachedCanvas = Boolean(cached && cached.canvas && cached.canvas.width > 0 && cached.canvas.height > 0);
+    const rawScaleX = hasCachedCanvas ? (cached.canvas.width / pw) : 2;
+    const rawScaleY = hasCachedCanvas ? (cached.canvas.height / ph) : 2;
+    const maxDim = 1200;
+    const limitScale = Math.min(1, maxDim / Math.max(1, w * rawScaleX, h * rawScaleY));
+    const outW = Math.max(16, Math.round(w * rawScaleX * limitScale));
+    const outH = Math.max(16, Math.round(h * rawScaleY * limitScale));
+
+    let src = '';
+    if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+      try {
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = outW;
+        cropCanvas.height = outH;
+        const cCtx = cropCanvas.getContext('2d');
+        if (cCtx) {
+          const sxFactor = outW / w;
+          const syFactor = outH / h;
+          cCtx.save();
+          cCtx.beginPath();
+          cCtx.moveTo((polygon[0].x - minX) * sxFactor, (polygon[0].y - minY) * syFactor);
+          for (let i = 1; i < polygon.length; i++) {
+            cCtx.lineTo((polygon[i].x - minX) * sxFactor, (polygon[i].y - minY) * syFactor);
+          }
+          cCtx.closePath();
+          if (typeof cCtx.clip === 'function') cCtx.clip();
+          cCtx.fillStyle = '#ffffff';
+          cCtx.fillRect(0, 0, outW, outH);
+          if (hasCachedCanvas && typeof cCtx.drawImage === 'function') {
+            const srcX = (minX / pw) * cached.canvas.width;
+            const srcY = (minY / ph) * cached.canvas.height;
+            const srcW = (w / pw) * cached.canvas.width;
+            const srcH = (h / ph) * cached.canvas.height;
+            cCtx.imageSmoothingEnabled = true;
+            cCtx.imageSmoothingQuality = 'high';
+            cCtx.drawImage(cached.canvas, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+          }
+          cCtx.restore();
+          if (typeof cropCanvas.toDataURL === 'function') {
+            src = cropCanvas.toDataURL('image/png');
+          }
+        }
+        releaseCanvasMemory(cropCanvas);
+      } catch (_) {}
+    }
+    if (!src) {
+      src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
+    }
+    return {
+      pageId: page.id,
+      pdfId: page.pdfId,
+      pdfPageNumber: page.pdfPageNumber,
+      x: Math.round(minX * 100) / 100,
+      y: Math.round(minY * 100) / 100,
+      width: Math.max(16, Math.round(w)),
+      height: Math.max(16, Math.round(h)),
+      src
+    };
+  }
+  function materializePdfLassoClipIfNeeded(page) {
+    if (!page || !state.lassoPdfClip) return null;
+    const clip = state.lassoPdfClip;
+    if (!Array.isArray(page.images)) page.images = [];
+    const imgItem = {
+      id: createUid('img'),
+      x: clip.x,
+      y: clip.y,
+      width: clip.width,
+      height: clip.height,
+      src: clip.src
+    };
+    page.images.push(imgItem);
+    state.lassoPdfClip = null;
+    if (state.selectedIds.images) state.selectedIds.images.add(imgItem.id);
+    invalidateStaticInkCache();
+    renderWorldTextCards();
+    return imgItem;
   }
   function pointInPolygon(x, y, poly) {
     let inside = false;
@@ -11935,6 +12042,13 @@
         maxY = Math.max(maxY, (img.y || 0) + (img.height || 180));
       }
     });
+    if (state.lassoPdfClip) {
+      const clip = state.lassoPdfClip;
+      minX = Math.min(minX, clip.x || 0);
+      minY = Math.min(minY, clip.y || 0);
+      maxX = Math.max(maxX, (clip.x || 0) + (clip.width || 120));
+      maxY = Math.max(maxY, (clip.y || 0) + (clip.height || 90));
+    }
     state.selectionBounds = minX < Infinity ? { minX: minX - 10, minY: minY - 10, maxX: maxX + 10, maxY: maxY + 10 } : null;
   }
 
@@ -11966,6 +12080,7 @@
     const invZoom = 1 / Math.max(0.25, state.zoom);
     if (Math.hypot(worldPt.x - b.maxX, worldPt.y - b.maxY) <= 18 * invZoom) {
       pushHistorySnapshot();
+      materializePdfLassoClipIfNeeded(page);
       state.lassoAction = 'scale';
       state.lassoDragStartWorld = worldPt;
       state.lassoInitialBounds = { ...b };
@@ -11980,6 +12095,7 @@
       worldPt.y <= b.maxY + pad
     ) {
       pushHistorySnapshot();
+      materializePdfLassoClipIfNeeded(page);
       state.lassoAction = 'move';
       state.lassoDragStartWorld = worldPt;
       state.lassoInitialSnapshot = clonePageContent(page);
@@ -12159,6 +12275,13 @@
             if (samples.some((pt) => pointInPolygon(pt.x, pt.y, state.lassoPolygon))) state.selectedIds.images.add(img.id);
           });
         }
+        // Sur une page PDF : si aucun élément vectoriel/image n'a été entouré, capture la zone PDF pour pouvoir la déplacer, copier ou enregistrer en Élément
+        if (!hasAnyLassoSelection() && page.pdfId && page.pdfPageNumber && filters.images !== false) {
+          const pdfClip = extractPdfRegionFromLassoPolygon(page, state.lassoPolygon);
+          if (pdfClip) {
+            state.lassoPdfClip = pdfClip;
+          }
+        }
       }
       state.lassoPolygon = [];
       invalidateStaticInkCache();
@@ -12179,17 +12302,178 @@
       state.selectedIds.strokes.size +
       state.selectedIds.shapes.size +
       state.selectedIds.texts.size +
-      (state.selectedIds.images ? state.selectedIds.images.size : 0);
+      (state.selectedIds.images ? state.selectedIds.images.size : 0) +
+      (state.lassoPdfClip ? 1 : 0);
     const has = total > 0;
-    if (dom.lassoSelectionBadge) dom.lassoSelectionBadge.textContent = has ? `${total} sélectionné${total > 1 ? 's' : ''}` : 'Entourez des traits';
+    const isPdfZoneOnly = Boolean(state.lassoPdfClip) && total === 1;
+    if (dom.lassoSelectionBadge) dom.lassoSelectionBadge.textContent = has ? (isPdfZoneOnly ? 'Zone PDF' : `${total} sélectionné${total > 1 ? 's' : ''}`) : 'Entourez des traits';
     if (dom.btnDuplicateSelection) dom.btnDuplicateSelection.disabled = !has;
     if (dom.btnScaleUpSelection) dom.btnScaleUpSelection.disabled = !has;
     if (dom.btnScaleDownSelection) dom.btnScaleDownSelection.disabled = !has;
     if (dom.btnDeleteSelection) dom.btnDeleteSelection.disabled = !has;
     if (state.tool === 'lasso' && dom.activeToolSummaryText) {
-      dom.activeToolSummaryText.textContent = has ? `${total} sél.` : 'Options';
+      dom.activeToolSummaryText.textContent = has ? (isPdfZoneOnly ? 'Zone PDF' : `${total} sél.`) : 'Options';
     }
     if (typeof syncGnLassoSubBarUi === 'function') syncGnLassoSubBarUi();
+  }
+
+  function copyLassoSelection() {
+    const page = getActivePage();
+    if (!page || !hasAnyLassoSelection()) return false;
+    const selStrokes = (page.strokes || []).filter((s) => state.selectedIds.strokes.has(s.id));
+    const selShapes = (page.shapes || []).filter((sh) => state.selectedIds.shapes.has(sh.id));
+    const selTexts = (page.texts || []).filter((tb) => state.selectedIds.texts.has(tb.id));
+    const selImages = (page.images || []).filter((img) => state.selectedIds.images && state.selectedIds.images.has(img.id));
+    const rawImages = selImages.map((img) => ({
+      x: img.x || 0,
+      y: img.y || 0,
+      width: img.width || 240,
+      height: img.height || 180,
+      src: img.src
+    }));
+    if (state.lassoPdfClip) {
+      rawImages.push({
+        x: state.lassoPdfClip.x || 0,
+        y: state.lassoPdfClip.y || 0,
+        width: state.lassoPdfClip.width || 200,
+        height: state.lassoPdfClip.height || 140,
+        src: state.lassoPdfClip.src
+      });
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    selStrokes.forEach((s) => (s.points || []).forEach((p) => {
+      if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
+    }));
+    selShapes.forEach((sh) => {
+      const bb = getShapeBoundingBox(sh);
+      minX = Math.min(minX, bb.minX); minY = Math.min(minY, bb.minY);
+      maxX = Math.max(maxX, bb.maxX); maxY = Math.max(maxY, bb.maxY);
+    });
+    selTexts.forEach((tb) => {
+      minX = Math.min(minX, tb.x || 0); minY = Math.min(minY, tb.y || 0);
+      maxX = Math.max(maxX, (tb.x || 0) + (tb.width || 240));
+      maxY = Math.max(maxY, (tb.y || 0) + 60);
+    });
+    rawImages.forEach((img) => {
+      minX = Math.min(minX, img.x); minY = Math.min(minY, img.y);
+      maxX = Math.max(maxX, img.x + img.width); maxY = Math.max(maxY, img.y + img.height);
+    });
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return false;
+
+    state.lassoClipboard = {
+      sourcePageId: page.id,
+      origX: minX,
+      origY: minY,
+      width: Math.max(16, Math.round(maxX - minX)),
+      height: Math.max(16, Math.round(maxY - minY)),
+      strokes: selStrokes.map((s) => {
+        const c = JSON.parse(JSON.stringify(s));
+        delete c.id;
+        c.points = (c.points || []).map((p) => ({ ...p, x: p.x - minX, y: p.y - minY }));
+        return c;
+      }),
+      shapes: selShapes.map((sh) => {
+        const c = JSON.parse(JSON.stringify(sh));
+        delete c.id; delete c.startConnection; delete c.endConnection;
+        c.x1 -= minX; c.y1 -= minY; c.x2 -= minX; c.y2 -= minY;
+        if (Array.isArray(c.points)) c.points = c.points.map((p) => ({ x: p.x - minX, y: p.y - minY }));
+        if (Array.isArray(c.vertices)) c.vertices = c.vertices.map((v) => ({ x: v.x - minX, y: v.y - minY }));
+        return c;
+      }),
+      texts: selTexts.map((tb) => {
+        const c = JSON.parse(JSON.stringify(tb));
+        delete c.id;
+        c.x = (c.x || 0) - minX; c.y = (c.y || 0) - minY;
+        return c;
+      }),
+      images: rawImages.map((img) => ({
+        x: img.x - minX,
+        y: img.y - minY,
+        width: img.width,
+        height: img.height,
+        src: img.src
+      }))
+    };
+    showToast(state.lassoPdfClip ? 'Zone PDF copiée (Ctrl+V pour coller)' : 'Sélection copiée (Ctrl+V pour coller)');
+    return true;
+  }
+
+  function pasteLassoSelection() {
+    const page = getActivePage();
+    const clip = state.lassoClipboard;
+    if (!page || !clip) return false;
+    let ox = clip.origX + 28;
+    let oy = clip.origY + 28;
+    if (clip.sourcePageId !== page.id) {
+      let cx = 300, cy = 260;
+      if (dom.canvasViewport && typeof dom.canvasViewport.getBoundingClientRect === 'function') {
+        const rect = dom.canvasViewport.getBoundingClientRect();
+        if (rect && rect.width > 0 && rect.height > 0) {
+          const center = screenToWorld(rect.left + rect.width * 0.5, rect.top + rect.height * 0.5);
+          cx = center.x; cy = center.y;
+        }
+      }
+      ox = cx - (clip.width || 120) * 0.5;
+      oy = cy - (clip.height || 90) * 0.5;
+    }
+    if (isBoundedPage(page)) {
+      const pb = getPageBounds(page);
+      ox = Math.max(12, Math.min(Math.max(12, pb.maxX - (clip.width || 60) - 12), ox));
+      oy = Math.max(12, Math.min(Math.max(12, pb.maxY - (clip.height || 60) - 12), oy));
+    }
+    pushHistorySnapshot(page);
+    if (!Array.isArray(page.strokes)) page.strokes = [];
+    if (!Array.isArray(page.shapes)) page.shapes = [];
+    if (!Array.isArray(page.texts)) page.texts = [];
+    if (!Array.isArray(page.images)) page.images = [];
+    clearLassoSelection();
+
+    (clip.strokes || []).forEach((s) => {
+      const ns = JSON.parse(JSON.stringify(s));
+      ns.id = createUid('st');
+      ns.points = (ns.points || []).map((p) => ({ ...p, x: p.x + ox, y: p.y + oy }));
+      invalidateStrokeCache(ns);
+      page.strokes.push(ns);
+      state.selectedIds.strokes.add(ns.id);
+    });
+    (clip.shapes || []).forEach((sh) => {
+      const nsh = JSON.parse(JSON.stringify(sh));
+      nsh.id = createUid('sh');
+      nsh.x1 += ox; nsh.y1 += oy; nsh.x2 += ox; nsh.y2 += oy;
+      if (Array.isArray(nsh.points)) nsh.points = nsh.points.map((p) => ({ x: p.x + ox, y: p.y + oy }));
+      if (Array.isArray(nsh.vertices)) nsh.vertices = nsh.vertices.map((v) => ({ x: v.x + ox, y: v.y + oy }));
+      page.shapes.push(nsh);
+      state.selectedIds.shapes.add(nsh.id);
+    });
+    (clip.texts || []).forEach((tb) => {
+      const ntb = JSON.parse(JSON.stringify(tb));
+      ntb.id = createUid('tx');
+      ntb.x = (ntb.x || 0) + ox; ntb.y = (ntb.y || 0) + oy;
+      page.texts.push(ntb);
+      state.selectedIds.texts.add(ntb.id);
+    });
+    (clip.images || []).forEach((img) => {
+      const nimg = {
+        id: createUid('img'),
+        x: Math.round((img.x || 0) + ox),
+        y: Math.round((img.y || 0) + oy),
+        width: Math.max(16, Math.round(img.width || 200)),
+        height: Math.max(16, Math.round(img.height || 140)),
+        src: img.src
+      };
+      page.images.push(nimg);
+      if (state.selectedIds.images) state.selectedIds.images.add(nimg.id);
+    });
+    invalidateStaticInkCache();
+    computeSelectionBounds();
+    updateLassoToolbarBadge();
+    updateLassoFloatingBarPosition();
+    renderWorldTextCards();
+    requestRender();
+    scheduleSaveActivePage(page);
+    showToast('Sélection collée');
+    return true;
   }
 
   function duplicateLassoSelection() {
@@ -12197,6 +12481,21 @@
     if (!page || !hasAnyLassoSelection()) return;
     pushHistorySnapshot();
     const ns = new Set(), nsh = new Set(), nt = new Set(), ni = new Set(), off = 28;
+    if (!Array.isArray(page.images)) page.images = [];
+    if (state.lassoPdfClip) {
+      const clip = state.lassoPdfClip;
+      const c = {
+        id: createUid('img'),
+        x: Math.round((clip.x || 0) + off),
+        y: Math.round((clip.y || 0) + off),
+        width: Math.max(16, Math.round(clip.width || 200)),
+        height: Math.max(16, Math.round(clip.height || 140)),
+        src: clip.src
+      };
+      page.images.push(c);
+      ni.add(c.id);
+      state.lassoPdfClip = null;
+    }
     page.strokes.forEach((s) => {
       if (state.selectedIds.strokes.has(s.id)) {
         const c = { ...cloneStrokeFast(s), id: createUid('st'), points: s.points.map((p) => ({ ...p, x: p.x + off, y: p.y + off })), _bounds: null };
@@ -12239,6 +12538,7 @@
     const page = getActivePage();
     if (!page || !hasAnyLassoSelection() || !state.selectionBounds) return;
     pushHistorySnapshot();
+    materializePdfLassoClipIfNeeded(page);
     const cx = (state.selectionBounds.minX + state.selectionBounds.maxX) / 2;
     const cy = (state.selectionBounds.minY + state.selectionBounds.maxY) / 2;
     state.lassoInitialSnapshot = clonePageContent(page);
@@ -12254,6 +12554,16 @@
   function deleteLassoSelection() {
     const page = getActivePage();
     if (!page || !hasAnyLassoSelection()) return;
+    const onlyPdfClip = Boolean(state.lassoPdfClip) &&
+      state.selectedIds.strokes.size === 0 &&
+      state.selectedIds.shapes.size === 0 &&
+      state.selectedIds.texts.size === 0 &&
+      (!state.selectedIds.images || state.selectedIds.images.size === 0);
+    if (onlyPdfClip) {
+      clearLassoSelection();
+      requestRender();
+      return;
+    }
     pushHistorySnapshot();
     page.strokes = (page.strokes || []).filter((s) => !state.selectedIds.strokes.has(s.id));
     page.shapes = (page.shapes || []).filter((sh) => !state.selectedIds.shapes.has(sh.id));
@@ -17782,12 +18092,14 @@
       state.selectedIds.strokes.size +
       state.selectedIds.shapes.size +
       state.selectedIds.texts.size +
-      (state.selectedIds.images ? state.selectedIds.images.size : 0);
+      (state.selectedIds.images ? state.selectedIds.images.size : 0) +
+      (state.lassoPdfClip ? 1 : 0);
     const hasSel = total > 0;
+    const isPdfZoneOnly = Boolean(state.lassoPdfClip) && total === 1;
     const hasStrokes = state.selectedIds.strokes.size > 0;
     const countPill = document.getElementById('gnLassoCountPill');
     if (countPill) {
-      countPill.textContent = hasSel ? `${total} sélectionné${total > 1 ? 's' : ''}` : 'Entourez des éléments';
+      countPill.textContent = hasSel ? (isPdfZoneOnly ? 'Zone PDF' : `${total} sélectionné${total > 1 ? 's' : ''}`) : 'Entourez des éléments';
       countPill.classList.toggle('has-sel', hasSel);
     }
 
@@ -17909,6 +18221,9 @@
 
     const btnQuickShot = document.getElementById('btnQuickScreenshotLasso');
     if (btnQuickShot) btnQuickShot.addEventListener('click', (e) => { e.stopPropagation(); captureLassoSelectionScreenshot(); });
+
+    const btnQuickCopy = document.getElementById('btnQuickCopyLasso');
+    if (btnQuickCopy) btnQuickCopy.addEventListener('click', (e) => { e.stopPropagation(); copyLassoSelection(); });
 
     const btnQuickStraighten = document.getElementById('btnQuickStraightenLasso');
     if (btnQuickStraighten) btnQuickStraighten.addEventListener('click', (e) => { e.stopPropagation(); straightenLassoSelection(); });
@@ -18974,6 +19289,8 @@
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) performRedo(); else performUndo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); performRedo(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && hasAnyLassoSelection()) { e.preventDefault(); copyLassoSelection(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && state.lassoClipboard) { e.preventDefault(); pasteLassoSelection(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleSb(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedShapeId) { e.preventDefault(); deleteSelectedShape(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && hasAnyLassoSelection()) { e.preventDefault(); deleteLassoSelection(); return; }
@@ -25281,6 +25598,17 @@
   }
 
   function generateElementPreviewDataUrl(el) {
+    if (
+      el &&
+      Array.isArray(el.images) &&
+      el.images.length > 0 &&
+      el.images[0] &&
+      el.images[0].src &&
+      (!el.strokes || el.strokes.length === 0) &&
+      (!el.shapes || el.shapes.length === 0)
+    ) {
+      return el.images[0].src;
+    }
     if (typeof document === 'undefined') return '';
     try {
       const c = document.createElement('canvas');
@@ -25297,6 +25625,12 @@
       pctx.save();
       pctx.translate(ox, oy);
       pctx.scale(scale, scale);
+      (el.images || []).forEach((imgItem) => {
+        const imgEl = getCachedThumbnailImage(imgItem);
+        if (imgEl && typeof pctx.drawImage === 'function') {
+          try { pctx.drawImage(imgEl, imgItem.x || 0, imgItem.y || 0, imgItem.width || 120, imgItem.height || 90); } catch (_) {}
+        }
+      });
       (el.strokes || []).forEach((s) => drawSingleStroke(pctx, s, false, false));
       (el.shapes || []).forEach((sh) => drawGeometricShape(pctx, sh, false, false));
       pctx.restore();
@@ -25313,8 +25647,25 @@
     if (!page) return null;
     const selStrokes = (page.strokes || []).filter((s) => state.selectedIds.strokes.has(s.id));
     const selShapes = (page.shapes || []).filter((sh) => state.selectedIds.shapes.has(sh.id));
-    if (selStrokes.length === 0 && selShapes.length === 0) {
-      showToast('Entourez d’abord un schéma ou des traits avec le Lasso.', 'error');
+    const selImages = (page.images || []).filter((img) => state.selectedIds.images && state.selectedIds.images.has(img.id));
+    const rawImages = selImages.map((img) => ({
+      x: img.x || 0,
+      y: img.y || 0,
+      width: img.width || 240,
+      height: img.height || 180,
+      src: img.src
+    }));
+    if (state.lassoPdfClip && state.lassoPdfClip.src) {
+      rawImages.push({
+        x: state.lassoPdfClip.x || 0,
+        y: state.lassoPdfClip.y || 0,
+        width: state.lassoPdfClip.width || 200,
+        height: state.lassoPdfClip.height || 140,
+        src: state.lassoPdfClip.src
+      });
+    }
+    if (selStrokes.length === 0 && selShapes.length === 0 && rawImages.length === 0) {
+      showToast('Entourez d’abord un schéma, une zone PDF ou des traits avec le Lasso.', 'error');
       return null;
     }
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -25332,6 +25683,12 @@
       minY = Math.min(minY, bb.minY);
       maxX = Math.max(maxX, bb.maxX);
       maxY = Math.max(maxY, bb.maxY);
+    });
+    rawImages.forEach((img) => {
+      minX = Math.min(minX, img.x);
+      minY = Math.min(minY, img.y);
+      maxX = Math.max(maxX, img.x + img.width);
+      maxY = Math.max(maxY, img.y + img.height);
     });
     if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
 
@@ -25368,20 +25725,32 @@
       }
       return clone;
     });
+    const normImages = rawImages.map((img) => ({
+      x: Math.round((img.x - minX) * 100) / 100,
+      y: Math.round((img.y - minY) * 100) / 100,
+      width: Math.max(16, Math.round(img.width)),
+      height: Math.max(16, Math.round(img.height)),
+      src: img.src
+    }));
 
     const list = getSavedElementsLibrary();
     const width = Math.max(16, Math.round(maxX - minX));
     const height = Math.max(16, Math.round(maxY - minY));
+    const defaultLabel = (state.lassoPdfClip && normStrokes.length === 0 && normShapes.length === 0)
+      ? `Extrait PDF ${list.length + 1}`
+      : `Élément ${list.length + 1}`;
     const elObj = {
       id: createUid('el'),
-      name: (customName && String(customName).trim()) || `Élément ${list.length + 1}`,
+      name: (customName && String(customName).trim()) || defaultLabel,
       width,
       height,
       strokes: normStrokes,
       shapes: normShapes,
+      images: normImages,
       createdAt: Date.now()
     };
-    elObj.preview = generateElementPreviewDataUrl(elObj);
+    const isPureSingleImage = normImages.length === 1 && normStrokes.length === 0 && normShapes.length === 0;
+    elObj.preview = isPureSingleImage ? '' : generateElementPreviewDataUrl(elObj);
     list.unshift(elObj);
     saveElementsLibraryList(list);
     renderElementsPopover();
@@ -25422,6 +25791,7 @@
     pushHistorySnapshot(page);
     if (!Array.isArray(page.strokes)) page.strokes = [];
     if (!Array.isArray(page.shapes)) page.shapes = [];
+    if (!Array.isArray(page.images)) page.images = [];
     clearLassoSelection();
 
     (elObj.strokes || []).forEach((s) => {
@@ -25451,10 +25821,23 @@
       page.shapes.push(nsh);
       state.selectedIds.shapes.add(nsh.id);
     });
+    (elObj.images || []).forEach((img) => {
+      const nimg = {
+        id: createUid('img'),
+        x: Math.round((img.x || 0) + ox),
+        y: Math.round((img.y || 0) + oy),
+        width: Math.max(20, Math.round(img.width || 240)),
+        height: Math.max(20, Math.round(img.height || 180)),
+        src: img.src
+      };
+      page.images.push(nimg);
+      if (state.selectedIds.images) state.selectedIds.images.add(nimg.id);
+    });
 
     computeSelectionBounds();
     updateLassoToolbarBadge();
     updateLassoFloatingBarPosition();
+    renderWorldTextCards();
     invalidateStaticInkCache();
     requestRender();
     scheduleSaveActivePage(page);
@@ -26425,6 +26808,9 @@
       getToolColorPresets,
       applyColorFromGnPopover,
       duplicateLassoSelection,
+      copyLassoSelection,
+      pasteLassoSelection,
+      handleLassoPointerUp,
       deleteLassoSelection,
       clearLassoSelection,
       computeSelectionBounds,
