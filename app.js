@@ -3064,6 +3064,11 @@
     colorWheelAnchorScreen: null,
     colorWheelCenterScreen: { x: 0, y: 0 },
     colorWheelHoveredColor: null,
+    lassoButtonDownTime: 0,
+    lassoButtonDownPos: null,
+    lassoButtonMaxTravel: 0,
+    lastLassoButtonClickTime: 0,
+    lastLassoButtonClickPos: null,
     lastPointerPoint: null,
     lastPointerTime: 0,
     // Multi-touch Pinch-to-Zoom & 2-Finger Pan
@@ -3990,6 +3995,11 @@
     state.currentStrokeSnappedFromAutoShape = false;
     state.holdShapeAnchorScreen = null;
     state.colorWheelAnchorScreen = null;
+    state.lassoButtonDownTime = 0;
+    state.lassoButtonDownPos = null;
+    state.lassoButtonMaxTravel = 0;
+    state.lastLassoButtonClickTime = 0;
+    state.lastLassoButtonClickPos = null;
     state.lassoPolygon = [];
     state.lassoAction = null;
     state.lassoInitialSnapshot = null;
@@ -4027,6 +4037,7 @@
       changed = true;
     }
     if (state.temporaryLassoOverride && !isPenLassoButton(e)) {
+      finalizeLassoButtonClickTracking(e, true);
       state.temporaryLassoOverride = false;
       state.tool = state.previousToolBeforeLasso || 'pen';
       changed = true;
@@ -9791,7 +9802,43 @@
     }
   }
 
-  function openRadialColorWheelAt(clientX, clientY) {
+  const RADIAL_WHEEL_DBLCLICK_MS = 450;
+  const RADIAL_WHEEL_CLICK_MAX_HOLD_MS = 380;
+  const RADIAL_WHEEL_CLICK_MAX_TRAVEL_PX = 28;
+  const RADIAL_WHEEL_DBLCLICK_MAX_DIST_PX = 64;
+
+  function getPointerEventTimestamp(e) {
+    return (e && typeof e.timeStamp === 'number' && e.timeStamp > 0) ? e.timeStamp : performance.now();
+  }
+
+  function finalizeLassoButtonClickTracking(e, allowClickCandidate = true) {
+    const nowTs = getPointerEventTimestamp(e);
+    const downPos = state.lassoButtonDownPos;
+    const endX = (e && typeof e.clientX === 'number') ? e.clientX : (downPos ? downPos.x : 0);
+    const endY = (e && typeof e.clientY === 'number') ? e.clientY : (downPos ? downPos.y : 0);
+    const endTravel = downPos ? Math.hypot(endX - downPos.x, endY - downPos.y) : 0;
+    const maxTravel = Math.max(state.lassoButtonMaxTravel || 0, endTravel);
+    const holdDuration = state.lassoButtonDownTime > 0 ? (nowTs - state.lassoButtonDownTime) : Infinity;
+
+    if (
+      allowClickCandidate &&
+      downPos &&
+      !hasAnyLassoSelection() &&
+      holdDuration <= RADIAL_WHEEL_CLICK_MAX_HOLD_MS &&
+      maxTravel <= RADIAL_WHEEL_CLICK_MAX_TRAVEL_PX
+    ) {
+      state.lastLassoButtonClickTime = nowTs;
+      state.lastLassoButtonClickPos = { x: endX, y: endY };
+    } else {
+      state.lastLassoButtonClickTime = 0;
+      state.lastLassoButtonClickPos = null;
+    }
+    state.lassoButtonDownTime = 0;
+    state.lassoButtonDownPos = null;
+    state.lassoButtonMaxTravel = 0;
+  }
+
+  function openRadialColorWheelAt(clientX, clientY, tapMode = true) {
     if (!dom.radialColorWheel || !dom.canvasViewport) return;
     const vpRect = dom.canvasViewport.getBoundingClientRect();
     const relX = clientX - vpRect.left;
@@ -9805,20 +9852,27 @@
 
     state.colorWheelOpen = true;
     if (dom.colorDotCursor) dom.colorDotCursor.style.display = 'none';
-    state.colorWheelTapMode = false;
+    state.colorWheelTapMode = Boolean(tapMode);
     state.colorWheelHoveredColor = null;
     state.colorWheelCenterScreen = { x: vpRect.left + clampedX, y: vpRect.top + clampedY };
 
     dom.radialColorWheel.style.left = `${clampedX}px`;
     dom.radialColorWheel.style.top = `${clampedY}px`;
     dom.radialColorWheel.classList.remove('hidden', 'tap-mode');
+    if (state.colorWheelTapMode) {
+      dom.radialColorWheel.classList.add('tap-mode');
+    }
     if (dom.radialCenterDot) dom.radialCenterDot.style.background = currentHex;
     if (dom.radialCenterLabel) dom.radialCenterLabel.textContent = 'Couleur';
 
     // Efface l'amorce de tracé lasso pour garder le canevas propre
     state.lassoPolygon = [];
     state.lassoAction = null;
-    if (dom.pointerTypeBadge) dom.pointerTypeBadge.textContent = 'Roue de couleurs (glisser vers une teinte)';
+    if (dom.pointerTypeBadge) {
+      dom.pointerTypeBadge.textContent = state.colorWheelTapMode
+        ? 'Touchez une couleur sur la roue'
+        : 'Roue de couleurs (glisser vers une teinte)';
+    }
     requestRender();
   }
 
@@ -9889,16 +9943,6 @@
       clearTimeout(state.colorWheelTimer);
       state.colorWheelTimer = null;
     }
-  }
-
-  function scheduleRadialColorWheelCheck(clientX, clientY) {
-    cancelColorWheelTimer();
-    state.colorWheelAnchorScreen = { x: clientX, y: clientY };
-    state.colorWheelTimer = setTimeout(() => {
-      state.colorWheelTimer = null;
-      if (!state.isDrawing || state.tool !== 'lasso' || state.lassoAction !== 'draw' || state.colorWheelOpen) return;
-      openRadialColorWheelAt(state.colorWheelAnchorScreen.x, state.colorWheelAnchorScreen.y);
-    }, 340);
   }
 
   function cancelHoldShapeTimer() {
@@ -10374,6 +10418,11 @@
       if (e.cancelable) e.preventDefault();
       if (state.colorWheelTapMode) {
         closeRadialColorWheel(true);
+        if (isPenEraserButton(e) || isPenLassoButton(e)) {
+          state.waitBarrelReleaseBeforeHoverTrigger = true;
+        }
+        state.lastLassoButtonClickTime = 0;
+        state.lastLassoButtonClickPos = null;
         requestRender();
         return;
       }
@@ -10467,7 +10516,10 @@
     if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 5 && (e.buttons & 1) === 0 && (e.buttons & 32) === 0) return;
 
     // Boutons latéraux du stylet : Gomme (bouton 5 / mask 32) vs Lasso temporaire (2e bouton / mask 2,8,16)
+    // Un double-clic sur le 2e bouton du stylet ouvre directement la roue de couleurs radiale
     if (isPenEraserButton(e)) {
+      state.lastLassoButtonClickTime = 0;
+      state.lastLassoButtonClickPos = null;
       if (!state.temporaryEraserOverride) {
         state.previousToolBeforeEraser = state.tool === 'eraser' ? 'pen' : state.tool;
       }
@@ -10475,11 +10527,32 @@
       state.tool = 'eraser';
       updateToolbarActiveState();
     } else if (isPenLassoButton(e)) {
+      const nowTs = getPointerEventTimestamp(e);
+      const prevPos = state.lastLassoButtonClickPos;
+      const isDoubleClick = Boolean(
+        state.lastLassoButtonClickTime > 0 &&
+        prevPos &&
+        (nowTs - state.lastLassoButtonClickTime) <= RADIAL_WHEEL_DBLCLICK_MS &&
+        Math.hypot(e.clientX - prevPos.x, e.clientY - prevPos.y) <= RADIAL_WHEEL_DBLCLICK_MAX_DIST_PX
+      );
+      if (isDoubleClick) {
+        state.lastLassoButtonClickTime = 0;
+        state.lastLassoButtonClickPos = null;
+        state.lassoButtonDownTime = 0;
+        state.lassoButtonDownPos = null;
+        state.lassoButtonMaxTravel = 0;
+        state.waitBarrelReleaseBeforeHoverTrigger = true;
+        openRadialColorWheelAt(e.clientX, e.clientY, true);
+        return;
+      }
       if (!state.temporaryLassoOverride) {
         state.previousToolBeforeLasso = state.tool === 'lasso' ? 'pen' : state.tool;
       }
       state.temporaryLassoOverride = true;
       state.tool = 'lasso';
+      state.lassoButtonDownTime = nowTs;
+      state.lassoButtonDownPos = { x: e.clientX, y: e.clientY };
+      state.lassoButtonMaxTravel = 0;
       updateToolbarActiveState();
     }
 
@@ -10761,9 +10834,6 @@
       requestRender();
     } else if (state.tool === 'lasso') {
       handleLassoPointerDown(worldPt);
-      if (state.lassoAction === 'draw') {
-        scheduleRadialColorWheelCheck(e.clientX, e.clientY);
-      }
       if (state.lassoAction === 'draw' && !hadLassoSelection) renderActiveCanvasOnly();
       else requestRender();
     }
@@ -11207,9 +11277,9 @@
       }
       requestRender();
     } else if (state.tool === 'lasso') {
-      if (state.lassoAction === 'draw' && state.colorWheelAnchorScreen) {
-        const travel = Math.hypot(e.clientX - state.colorWheelAnchorScreen.x, e.clientY - state.colorWheelAnchorScreen.y);
-        if (travel > 14) cancelColorWheelTimer();
+      if (state.temporaryLassoOverride && state.lassoButtonDownPos) {
+        const travel = Math.hypot(e.clientX - state.lassoButtonDownPos.x, e.clientY - state.lassoButtonDownPos.y);
+        if (travel > state.lassoButtonMaxTravel) state.lassoButtonMaxTravel = travel;
       }
       handleLassoPointerMove(clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY)));
       if (state.lassoAction === 'draw') renderActiveCanvasOnly();
@@ -11549,6 +11619,7 @@
       updateToolbarActiveState();
     }
     if (state.temporaryLassoOverride) {
+      finalizeLassoButtonClickTracking(e, true);
       state.temporaryLassoOverride = false;
       if (isPenEraserButton(e) || isPenLassoButton(e)) state.waitBarrelReleaseBeforeHoverTrigger = true;
       state.tool = state.previousToolBeforeLasso || 'pen';

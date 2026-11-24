@@ -370,7 +370,53 @@ async function runVerification() {
   if (state.tool !== 'pen' || state.temporaryLassoOverride) {
     throw new Error('Le relâchement du 2e bouton du stylet n\'est pas revenu automatiquement au stylo');
   }
-  console.log('✓ [3/4] Boutons physiques du stylet (Gomme=32 et 2e bouton Lasso=2 avec retour auto au stylo) vérifiés');
+
+  // Double-clic sur le 2e bouton du stylet -> ouverture directe de la roue de couleurs en mode toucher
+  api.handlePointerDown({
+    pointerId: 12,
+    pointerType: 'pen',
+    button: 2,
+    buttons: 2,
+    clientX: 264,
+    clientY: 262,
+    pressure: 0,
+    timeStamp: 2220,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  if (!state.colorWheelOpen || !state.colorWheelTapMode) {
+    throw new Error('Le double-clic sur le 2e bouton du stylet n\'a pas ouvert la roue de couleurs en mode toucher');
+  }
+  api.handlePointerUpOrCancel({
+    pointerId: 12,
+    pointerType: 'pen',
+    button: 2,
+    buttons: 0,
+    clientX: 264,
+    clientY: 262,
+    pressure: 0,
+    timeStamp: 2260
+  });
+  if (!state.colorWheelOpen || !state.colorWheelTapMode) {
+    throw new Error('Le relâchement du 2e clic a refermé la roue de couleurs au lieu de la laisser ouverte');
+  }
+  // Un clic hors de la roue la referme proprement
+  api.handlePointerDown({
+    pointerId: 13,
+    pointerType: 'pen',
+    button: 0,
+    buttons: 1,
+    clientX: 40,
+    clientY: 40,
+    pressure: 0.5,
+    timeStamp: 2400,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  if (state.colorWheelOpen) {
+    throw new Error('Un appui hors de la roue de couleurs ne l\'a pas refermée');
+  }
+  console.log('✓ [3/4] Boutons physiques du stylet (Gomme=32, Lasso=2 avec retour auto et double-clic roue de couleurs) vérifiés');
 
   // 3. Vérification de l'import PDF haute résolution, du stockage IndexedDB séparé et de l'export PDF via Tauri v2 IPC
   const samplePdfBytes = await api.generateSampleCoursePdfBytes();
