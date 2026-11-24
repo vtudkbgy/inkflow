@@ -2533,6 +2533,12 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
         <div class="pdf-dropzone-meta" id="importPdfPageCount">ou sélectionnez un document local</div>
         <div class="gn-pdf-dropzone-actions">
           <button class="gn-pdf-browse-btn" id="btnSelectPdfFileModal" type="button">Parcourir…</button>
+          <button class="gn-pdf-browse-btn gn-pdf-drive-btn" id="btnImportPdfFromDrive" type="button" title="Choisir un PDF dans Google Drive" data-needs-network>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+            </svg>
+            <span>Google Drive</span>
+          </button>
           <button class="gn-pdf-sample-link" id="btnGenerateSamplePdf" type="button" title="Générer un PDF d'exemple local (2 pages)">
             Essayer un exemple
           </button>
@@ -2605,7 +2611,7 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
 
       <div class="cloud-mode-seg" role="tablist" aria-label="Mode de sauvegarde Cloud">
         <button class="cloud-seg-btn active" id="btnCloudTabLocal" type="button" data-cloud-tab="local" role="tab" aria-selected="true">Dossier local</button>
-        <button class="cloud-seg-btn" id="btnCloudTabApi" type="button" data-cloud-tab="api" role="tab" aria-selected="false">Google Drive API</button>
+        <button class="cloud-seg-btn" id="btnCloudTabApi" type="button" data-cloud-tab="api" role="tab" aria-selected="false">Compte Google</button>
       </div>
 
       <!-- ONGLET 1 : DOSSIER LOCAL SYNCHRONISÉ -->
@@ -2631,17 +2637,98 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
         </div>
       </div>
 
-      <!-- ONGLET 2 : GOOGLE DRIVE API (OAUTH) -->
+      <!-- ONGLET 2 : COMPTE GOOGLE (OAUTH BUREAU + PKCE) -->
       <div class="cloud-tab-panel hidden" id="cloudTabApi" role="tabpanel">
-        <div class="cloud-input-row">
-          <input type="text" id="inputGdriveClientId" class="cloud-input" placeholder="Client ID OAuth ou jeton ya29…" aria-label="Google OAuth Client ID ou jeton d'accès" />
-          <button class="cloud-btn-secondary cloud-btn-compact" id="btnGdriveConnect" type="button">Connecter</button>
+        <div class="net-inline-banner hidden" id="gdriveOfflineBanner" role="status">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="1" y1="1" x2="23" y2="23"></line>
+            <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+            <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+            <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+            <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+            <line x1="12" y1="20" x2="12.01" y2="20"></line>
+          </svg>
+          <span>Pas de connexion Internet. Google Drive revient dès que le réseau est rétabli.</span>
         </div>
-        <div class="cloud-actions-row">
-          <button class="cloud-btn-primary" id="btnGdriveBackupNow" type="button">Sauvegarder</button>
-          <button class="cloud-btn-secondary" id="btnGdriveListBackups" type="button">Historique</button>
+
+        <!-- État 1 : aucun compte relié -->
+        <div class="gdrive-account-panel" id="gdriveStateUnlinked">
+          <p class="cloud-desc">
+            Reliez votre compte Google pour importer vos PDF, images et documents Google depuis Drive, et y sauvegarder vos cahiers.
+          </p>
+          <button class="cloud-btn-primary gdrive-link-btn" id="btnGdriveLink" type="button" data-needs-network>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+            <span>Relier un compte Google</span>
+          </button>
+          <details class="gdrive-setup" id="gdriveSetupDetails">
+            <summary>Identifiants OAuth <span class="gdrive-setup-state" id="gdriveSetupState">à renseigner une fois</span></summary>
+            <ol class="gdrive-setup-steps">
+              <li>Dans Google Cloud Console, activez l’API Google Drive.</li>
+              <li>Créez un ID client OAuth de type <strong>Application de bureau</strong>.</li>
+              <li>Ajoutez votre adresse comme utilisateur de test, puis collez l’ID et le secret ci-dessous.</li>
+            </ol>
+            <label class="gdrive-field">
+              <span>ID client</span>
+              <input type="text" id="inputGdriveClientId" class="cloud-input" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="gdrive-field">
+              <span>Secret client</span>
+              <input type="password" id="inputGdriveClientSecret" class="cloud-input" placeholder="GOCSPX-…" autocomplete="off" spellcheck="false" />
+            </label>
+            <details class="gdrive-advanced">
+              <summary>Avancé : utiliser un jeton d’accès temporaire</summary>
+              <div class="cloud-input-row">
+                <input type="password" id="inputGdriveManualToken" class="cloud-input" placeholder="ya29…" autocomplete="off" spellcheck="false" aria-label="Jeton d’accès Google temporaire" />
+                <button class="cloud-btn-secondary cloud-btn-compact" id="btnGdriveUseManualToken" type="button">Utiliser</button>
+              </div>
+            </details>
+          </details>
         </div>
-        <div class="gn-gdrive-backups-list" id="gdriveBackupsList"></div>
+
+        <!-- État 2 : liaison en cours dans le navigateur -->
+        <div class="gdrive-account-panel hidden" id="gdriveStateLinking">
+          <div class="gdrive-linking">
+            <span class="gdrive-spinner" aria-hidden="true"></span>
+            <div>
+              <div class="gdrive-linking-title">Connexion en cours…</div>
+              <div class="gdrive-linking-sub">Choisissez votre compte et autorisez InkFlow dans la fenêtre Google qui vient de s’ouvrir.</div>
+            </div>
+          </div>
+          <button class="cloud-btn-secondary" id="btnGdriveCancelLink" type="button">Annuler</button>
+        </div>
+
+        <!-- État 3 : compte relié -->
+        <div class="gdrive-account-panel hidden" id="gdriveStateLinked">
+          <div class="gdrive-account-card">
+            <span class="gdrive-avatar" id="gdriveAccountAvatar" aria-hidden="true">G</span>
+            <div class="gdrive-account-meta">
+              <div class="gdrive-account-name" id="gdriveAccountName">Compte Google</div>
+              <div class="gdrive-account-email" id="gdriveAccountEmail"></div>
+              <div class="gdrive-quota hidden" id="gdriveQuotaWrap">
+                <div class="gdrive-quota-bar"><span id="gdriveQuotaFill"></span></div>
+                <div class="gdrive-quota-text" id="gdriveQuotaText"></div>
+              </div>
+            </div>
+            <button class="gdrive-unlink-btn" id="btnGdriveUnlink" type="button" title="Délier ce compte Google">Délier</button>
+          </div>
+          <button class="cloud-btn-primary gdrive-import-btn" id="btnGdriveOpenPicker" type="button" data-needs-network>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="8 17 12 21 16 17"></polyline>
+              <line x1="12" y1="12" x2="12" y2="21"></line>
+              <path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"></path>
+            </svg>
+            <span>Importer depuis Drive</span>
+          </button>
+          <div class="cloud-actions-row">
+            <button class="cloud-btn-secondary" id="btnGdriveBackupNow" type="button" data-needs-network>Sauvegarder</button>
+            <button class="cloud-btn-secondary" id="btnGdriveListBackups" type="button" data-needs-network>Historique</button>
+          </div>
+          <div class="gn-gdrive-backups-list" id="gdriveBackupsList"></div>
+        </div>
       </div>
 
       <label class="cloud-auto-row">
@@ -2654,6 +2741,94 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
           <span class="gn-ios-slider"></span>
         </span>
       </label>
+    </div>
+  </div>
+
+  <!-- MODAL : SÉLECTEUR DE FICHIERS GOOGLE DRIVE -->
+  <div class="modal-backdrop hidden" id="modalDrivePicker" role="dialog" aria-modal="true" aria-labelledby="drivePickerTitle">
+    <div class="modal-card drive-picker-card">
+      <header class="drive-picker-head">
+        <div class="drive-picker-title-wrap">
+          <h3 id="drivePickerTitle">Importer depuis Google Drive</h3>
+          <span class="drive-picker-account" id="drivePickerAccount"></span>
+        </div>
+        <button class="cloud-close-btn" id="btnCloseDrivePicker" type="button" title="Fermer" aria-label="Fermer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </header>
+
+      <div class="drive-picker-body">
+        <nav class="drive-picker-nav" aria-label="Emplacements Drive">
+          <button class="drive-nav-btn active" type="button" data-drive-view="root">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <span>Mon Drive</span>
+          </button>
+          <button class="drive-nav-btn" type="button" data-drive-view="recent">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span>Récents</span>
+          </button>
+          <button class="drive-nav-btn" type="button" data-drive-view="starred">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+            <span>Suivis</span>
+          </button>
+          <button class="drive-nav-btn" type="button" data-drive-view="shared">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            <span>Partagés avec moi</span>
+          </button>
+        </nav>
+
+        <section class="drive-picker-main">
+          <div class="drive-picker-toolbar">
+            <div class="drive-search">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="search" id="drivePickerSearch" placeholder="Rechercher dans Drive" aria-label="Rechercher dans Google Drive" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="drive-filter-chips" role="radiogroup" aria-label="Type de fichier">
+              <button class="drive-chip active" type="button" data-drive-filter="all" role="radio" aria-checked="true">Tout</button>
+              <button class="drive-chip" type="button" data-drive-filter="pdf" role="radio" aria-checked="false">PDF</button>
+              <button class="drive-chip" type="button" data-drive-filter="image" role="radio" aria-checked="false">Images</button>
+              <button class="drive-chip" type="button" data-drive-filter="gdoc" role="radio" aria-checked="false">Docs Google</button>
+              <button class="drive-chip" type="button" data-drive-filter="backup" role="radio" aria-checked="false">Sauvegardes</button>
+            </div>
+          </div>
+          <div class="drive-breadcrumb" id="drivePickerBreadcrumb" aria-label="Chemin"></div>
+          <div class="net-inline-banner hidden" id="drivePickerOfflineBanner" role="status">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="1" y1="1" x2="23" y2="23"></line>
+              <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+              <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+              <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+              <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+              <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+              <line x1="12" y1="20" x2="12.01" y2="20"></line>
+            </svg>
+            <span>Hors connexion : la liste se rechargera automatiquement au retour du réseau.</span>
+          </div>
+          <div class="drive-picker-scroll" id="drivePickerScroll">
+            <div class="drive-grid" id="drivePickerGrid" role="listbox" aria-multiselectable="true" aria-label="Fichiers Google Drive"></div>
+            <div class="drive-picker-empty hidden" id="drivePickerEmpty"></div>
+            <button class="cloud-btn-secondary drive-load-more hidden" id="btnDrivePickerMore" type="button">Afficher plus</button>
+          </div>
+        </section>
+      </div>
+
+      <footer class="drive-picker-foot">
+        <div class="drive-picker-selection" id="drivePickerSelection">Sélectionnez un ou plusieurs fichiers</div>
+        <label class="drive-pdf-target hidden" id="drivePdfTargetWrap">
+          <span>PDF vers</span>
+          <select id="drivePdfTarget">
+            <option value="new-notebook">un nouveau cahier</option>
+            <option value="current-notebook">le cahier actif</option>
+          </select>
+        </label>
+        <div class="drive-picker-actions">
+          <button class="cloud-btn-secondary" id="btnCancelDrivePicker" type="button">Annuler</button>
+          <button class="cloud-btn-primary" id="btnDrivePickerImport" type="button" disabled data-needs-network>Importer</button>
+        </div>
+      </footer>
     </div>
   </div>
 
@@ -3215,6 +3390,29 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
   </div>
 
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Indicateur réseau : visible seulement hors connexion ou quand une action est refusée faute de réseau -->
+  <div class="net-status-pill hidden" id="netStatusPill" role="status" aria-live="polite">
+    <svg class="net-status-icon net-icon-off" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="1" y1="1" x2="23" y2="23"></line>
+      <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+      <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+      <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+      <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+      <line x1="12" y1="20" x2="12.01" y2="20"></line>
+    </svg>
+    <svg class="net-status-icon net-icon-on" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+      <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+      <line x1="12" y1="20" x2="12.01" y2="20"></line>
+    </svg>
+    <span class="net-status-text">
+      <span class="net-status-title" id="netStatusTitle">Hors connexion</span>
+      <span class="net-status-detail" id="netStatusDetail"></span>
+    </span>
+  </div>
 
   <script src="./vendor/pdf.min.js"></script>
   <script src="./vendor/pdf.worker.min.js"></script>

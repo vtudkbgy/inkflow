@@ -31,7 +31,7 @@
 - La clé privée reste hors dépôt (`Documents\InkFlow-banquier\cle-privee-bons.pem`) : ne jamais la lire dans une réponse, la copier ou la commiter.
 
 ## Vérifications obligatoires après chaque modification
-- `npm test` (10/10 tests unitaires + benchmarks 60/120 FPS)
+- `npm test` (11/11 tests unitaires + benchmarks 60/120 FPS + Google Drive / hors connexion)
 - `npm run verify:webview2` (4/4 vérifications PDF.js local, stylet, Tauri v2 IPC)
 - `npm run tauri:build` (génération du `.exe` natif Windows)
 - Zéro dépendance CDN externe ; utiliser `() => ...` dans `.replace()` lors du bundling HTML autonome.
