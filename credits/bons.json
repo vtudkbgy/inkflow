@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "info": "Bons du banquier InkFlow (jetons fictifs). Fichier écrit par scripts/bons-banquier.js : chaque bon est signé, une modification à la main le rend invalide.",
+  "bons": []
+}

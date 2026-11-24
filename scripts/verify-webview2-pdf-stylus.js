@@ -370,7 +370,53 @@ async function runVerification() {
   if (state.tool !== 'pen' || state.temporaryLassoOverride) {
     throw new Error('Le relâchement du 2e bouton du stylet n\'est pas revenu automatiquement au stylo');
   }
-  console.log('✓ [3/4] Boutons physiques du stylet (Gomme=32 et 2e bouton Lasso=2 avec retour auto au stylo) vérifiés');
+
+  // Double-clic sur le 2e bouton du stylet -> ouverture directe de la roue de couleurs en mode toucher
+  api.handlePointerDown({
+    pointerId: 12,
+    pointerType: 'pen',
+    button: 2,
+    buttons: 2,
+    clientX: 264,
+    clientY: 262,
+    pressure: 0,
+    timeStamp: 2220,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  if (!state.colorWheelOpen || !state.colorWheelTapMode) {
+    throw new Error('Le double-clic sur le 2e bouton du stylet n\'a pas ouvert la roue de couleurs en mode toucher');
+  }
+  api.handlePointerUpOrCancel({
+    pointerId: 12,
+    pointerType: 'pen',
+    button: 2,
+    buttons: 0,
+    clientX: 264,
+    clientY: 262,
+    pressure: 0,
+    timeStamp: 2260
+  });
+  if (!state.colorWheelOpen || !state.colorWheelTapMode) {
+    throw new Error('Le relâchement du 2e clic a refermé la roue de couleurs au lieu de la laisser ouverte');
+  }
+  // Un clic hors de la roue la referme proprement
+  api.handlePointerDown({
+    pointerId: 13,
+    pointerType: 'pen',
+    button: 0,
+    buttons: 1,
+    clientX: 40,
+    clientY: 40,
+    pressure: 0.5,
+    timeStamp: 2400,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  if (state.colorWheelOpen) {
+    throw new Error('Un appui hors de la roue de couleurs ne l\'a pas refermée');
+  }
+  console.log('✓ [3/4] Boutons physiques du stylet (Gomme=32, Lasso=2 avec retour auto et double-clic roue de couleurs) vérifiés');
 
   // 3. Vérification de l'import PDF haute résolution, du stockage IndexedDB séparé et de l'export PDF via Tauri v2 IPC
   const samplePdfBytes = await api.generateSampleCoursePdfBytes();
@@ -400,6 +446,82 @@ async function runVerification() {
   if (!exportedBytes || exportedBytes.byteLength < 1000 || savedTauriFiles.length === 0) {
     throw new Error('L\'exportation PDF via pdf-lib + Tauri v2 save_binary_file a échoué');
   }
+
+  // Vérification du Lasso sur zone PDF : sélection, déplacement, copie/collage et enregistrement dans Éléments
+  const pdfImgBefore = (pdfPages[0].images || []).length;
+  state.tool = 'lasso';
+  state.lassoAction = 'draw';
+  state.lassoPolygon = [
+    { x: 420, y: 340 },
+    { x: 560, y: 340 },
+    { x: 560, y: 440 },
+    { x: 420, y: 440 }
+  ];
+  api.handleLassoPointerUp();
+  if (!state.lassoPdfClip || !state.selectionBounds || state.lassoPdfClip.width < 100) {
+    throw new Error('La sélection d\'une zone PDF au Lasso n\'a pas généré de lassoPdfClip');
+  }
+  const savedPdfEl = api.saveLassoSelectionAsElement('Extrait PDF Vérif');
+  if (!savedPdfEl || !Array.isArray(savedPdfEl.images) || savedPdfEl.images.length !== 1) {
+    throw new Error('L\'enregistrement d\'une zone PDF sélectionnée dans les Éléments a échoué');
+  }
+  const copiedPdfOk = api.copyLassoSelection();
+  if (!copiedPdfOk || !state.lassoClipboard || !state.lassoClipboard.images || state.lassoClipboard.images.length !== 1) {
+    throw new Error('La copie (Ctrl+C) d\'une zone PDF sélectionnée au Lasso a échoué');
+  }
+  // Déplacement direct de la zone PDF sélectionnée : doit matérialiser l'image et la déplacer
+  const pdfBoxCenterX = (state.selectionBounds.minX + state.selectionBounds.maxX) * 0.5;
+  const pdfBoxCenterY = (state.selectionBounds.minY + state.selectionBounds.maxY) * 0.5;
+  api.handlePointerDown({
+    pointerId: 88,
+    pointerType: 'mouse',
+    button: 0,
+    buttons: 1,
+    clientX: pdfBoxCenterX * state.zoom + state.panX,
+    clientY: pdfBoxCenterY * state.zoom + state.panY,
+    pressure: 0.5,
+    timeStamp: 5100,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  api.handlePointerMove({
+    pointerId: 88,
+    pointerType: 'mouse',
+    button: 0,
+    buttons: 1,
+    clientX: (pdfBoxCenterX + 45) * state.zoom + state.panX,
+    clientY: (pdfBoxCenterY + 30) * state.zoom + state.panY,
+    pressure: 0.5,
+    timeStamp: 5120,
+    cancelable: true,
+    preventDefault: () => {}
+  });
+  api.handlePointerUpOrCancel({
+    pointerId: 88,
+    pointerType: 'mouse',
+    button: 0,
+    buttons: 0,
+    clientX: (pdfBoxCenterX + 45) * state.zoom + state.panX,
+    clientY: (pdfBoxCenterY + 30) * state.zoom + state.panY,
+    pressure: 0,
+    timeStamp: 5140
+  });
+  if ((pdfPages[0].images || []).length !== pdfImgBefore + 1 || state.lassoPdfClip !== null) {
+    throw new Error('Le déplacement d\'une zone PDF au Lasso n\'a pas matérialisé l\'image sur la page');
+  }
+  const pastedPdfOk = api.pasteLassoSelection();
+  if (!pastedPdfOk || (pdfPages[0].images || []).length !== pdfImgBefore + 2) {
+    throw new Error('Le collage (Ctrl+V) d\'une zone PDF copiée a échoué');
+  }
+  const insertedPdfElOk = api.insertElementIntoActivePage(savedPdfEl);
+  if (!insertedPdfElOk || (pdfPages[0].images || []).length !== pdfImgBefore + 3) {
+    throw new Error('La réinsertion d\'un élément PDF depuis la bibliothèque Éléments a échoué');
+  }
+  pdfPages[0].images.splice(pdfImgBefore);
+  state.selectedIds.images.clear();
+  state.lassoPdfClip = null;
+  state.selectionBounds = null;
+  state.tool = 'pen';
 
   // Vérification du mode plein écran natif Tauri v2 (masquage de la barre de titre Windows)
   const fsOn = await api.toggleFullscreenMode();
@@ -742,7 +864,59 @@ async function runVerification() {
     throw new Error('La suppression d\'une sélection Lasso ne doit plus afficher la notification "Sélection supprimée"');
   }
 
-  console.log(`✓ [4/4] Import PDF + Export annoté + Plein écran + Pile A4 + Couleurs + Lasso enrichi + Split View + Ruban + Pack #1/#3/#4/#6/#9 + UX Désélection vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
+  // Vérification : Sélecteur de feuille dans "Nouveau Cahier" -> ouvre la Bibliothèque de modèles (Papier) et applique au cahier créé
+  const btnChooseNbPaper = sandbox.document.getElementById('btnChooseNewNotebookPaper');
+  if (!btnChooseNbPaper) {
+    throw new Error('Le bouton #btnChooseNewNotebookPaper est introuvable dans #modalNewNotebook');
+  }
+  const activePageBeforeNewNbPicker = api.getActivePage();
+  const prevActivePagePaperType = activePageBeforeNewNbPicker.paperType;
+  state.newNotebookTemplate = {
+    paperType: 'seyes',
+    paperTone: 'ivory',
+    gridSize: 32,
+    language: 'fr',
+    sizeId: 'a4',
+    orientation: 'portrait',
+    customTemplateDataUrl: null,
+    coverTemplateId: null,
+    coverCustomDataUrl: null
+  };
+  btnChooseNbPaper.dispatchEvent({ type: 'click', stopPropagation: () => {}, preventDefault: () => {} });
+  const tplStateDuringPick = api.getGnTemplateLibraryState();
+  if (!tplStateDuringPick.open || tplStateDuringPick.mode !== 'new-notebook' || tplStateDuringPick.activeTab !== 'paper') {
+    throw new Error('Le clic sur #btnChooseNewNotebookPaper doit ouvrir la bibliothèque de modèles en mode new-notebook sur l\'onglet Papier');
+  }
+  const btnLand = sandbox.document.getElementById('gnTplOrientLandscape');
+  if (btnLand) btnLand.dispatchEvent({ type: 'click', stopPropagation: () => {}, preventDefault: () => {} });
+  const applyTplBtn = sandbox.document.getElementById('gnTplBtnApply');
+  if (!applyTplBtn || applyTplBtn.textContent !== 'Sélectionner') {
+    throw new Error('En mode nouveau cahier, le bouton de validation de la bibliothèque doit afficher "Sélectionner"');
+  }
+  applyTplBtn.dispatchEvent({ type: 'click', stopPropagation: () => {}, preventDefault: () => {} });
+  if (api.getGnTemplateLibraryState().open) {
+    throw new Error('La bibliothèque de modèles doit se fermer après sélection pour un nouveau cahier');
+  }
+  if (activePageBeforeNewNbPicker.paperType !== prevActivePagePaperType) {
+    throw new Error('Choisir un modèle pour un nouveau cahier ne doit pas modifier la page actuellement ouverte');
+  }
+  if (state.newNotebookTemplate.paperType !== 'seyes' || state.newNotebookTemplate.sizeId !== 'a4' || state.newNotebookTemplate.paperTone !== 'ivory' || state.newNotebookTemplate.orientation !== 'landscape') {
+    throw new Error('Le modèle choisi dans la bibliothèque n\'a pas été mémorisé dans state.newNotebookTemplate');
+  }
+  const selectDefaultPaperEl = sandbox.document.getElementById('selectDefaultPaper');
+  if (!selectDefaultPaperEl || selectDefaultPaperEl.value !== 'seyes') {
+    throw new Error('#selectDefaultPaper doit refléter le modèle choisi (seyes)');
+  }
+  const nbPaperTitleEl = sandbox.document.getElementById('newNotebookPaperTitle');
+  if (!nbPaperTitleEl || !/Seyès/i.test(nbPaperTitleEl.textContent)) {
+    throw new Error('L\'aperçu du modèle dans la modale Nouveau Cahier n\'affiche pas le nom du papier choisi');
+  }
+  const nbPaperMetaEl = sandbox.document.getElementById('newNotebookPaperMeta');
+  if (!nbPaperMetaEl || !/A4/.test(nbPaperMetaEl.textContent) || !/Paysage/.test(nbPaperMetaEl.textContent)) {
+    throw new Error('Le résumé du modèle dans la modale Nouveau Cahier doit refléter le format et l\'orientation choisis');
+  }
+
+  console.log(`✓ [4/4] Import PDF + Export annoté + Plein écran + Pile A4 + Couleurs + Lasso enrichi + Split View + Ruban + Pack #1/#3/#4/#6/#9 + UX Désélection + Sélecteur Feuille Nouveau Cahier vérifiés : ${savedTauriFiles[0].path} (${savedTauriFiles[0].byteLength} octets)`);
 }
 
 runVerification().catch((err) => {

@@ -1690,10 +1690,66 @@ async function runTests() {
     return 'Enregistré en http(s) uniquement (ignoré sous Tauri, Electron, sans support ou hors contexte sûr) ; réseau d’abord, cache rafraîchi, secours hors-ligne (y compris avec paramètres d’URL) vérifiés.';
   });
 
+  await runStep('Test 10 : Bons du banquier signés (ECDSA P-256) : signature vérifiée, falsification refusée, récupération unique', async () => {
+    const nodeCrypto = require('node:crypto');
+    const bons = require('./bons-banquier.js');
+    const { privateKey, publicKey } = nodeCrypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+    const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+    const jwk = publicKey.export({ format: 'jwk' });
+    const testKey = { kty: 'EC', crv: 'P-256', x: jwk.x, y: jwk.y };
+    const other = nodeCrypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ type: 'pkcs8', format: 'pem' });
+    const now = new Date('2026-11-24T12:00:00');
+
+    const gift = bons.signBon(bons.buildBon({ montant: 500, message: 'Bravo pour ta semaine ! « é » ✓', jours: 30, now, id: '20261124-cadeau01' }), privatePem);
+    const loan = bons.signBon(bons.buildBon({ montant: 2000, type: 'pret', jours: 0, now, id: '20261124-pret0001' }), privatePem);
+    const tampered = { ...bons.signBon(bons.buildBon({ montant: 10, jours: 30, now, id: '20261124-falsifie' }), privatePem), montant: 10000 };
+    const foreign = bons.signBon(bons.buildBon({ montant: 777, jours: 30, now, id: '20261124-etranger' }), other);
+    const expired = bons.signBon(bons.buildBon({ montant: 50, jours: 1, now: new Date('2026-10-01T12:00:00'), id: '20261001-expire01' }), privatePem);
+    const doc = { version: 1, bons: [gift, loan, tampered, foreign, expired, { id: 'x', montant: 'beaucoup' }, gift] };
+    assert.equal(bons.verifyBon(gift, publicKey), true, 'Le script doit vérifier ses propres signatures');
+    assert.equal(bons.verifyBon(tampered, publicKey), false, 'Le script doit refuser un montant modifié');
+
+    const savedCrypto = sandbox.crypto;
+    const savedStorage = { getItem: sandbox.localStorage.getItem, setItem: sandbox.localStorage.setItem };
+    const store = new Map();
+    sandbox.crypto = globalThis.crypto;
+    sandbox.localStorage.getItem = (k) => (store.has(k) ? store.get(k) : null);
+    sandbox.localStorage.setItem = (k, v) => { store.set(k, String(v)); };
+    try {
+      const valid = await api.verifyDetenteBons(doc, { publicKey: testKey, now: now.getTime() });
+      assert.deepEqual([...valid].map((b) => b.id), ['20261124-cadeau01', '20261124-pret0001'],
+        'Seuls les bons signés par la bonne clé, intacts et non expirés sont retenus (doublon ignoré)');
+      assert.equal(valid[0].message, 'Bravo pour ta semaine ! « é » ✓', 'Le message (UTF-8) fait partie de la signature');
+      assert.deepEqual(await api.verifyDetenteBons(doc, { publicKey: testKey, now: new Date('2027-01-30T12:00:00').getTime() }).then((l) => [...l].map((b) => b.id)),
+        ['20261124-pret0001'], 'Après sa date, un bon expiré disparaît (le prêt sans expiration reste)');
+      assert.deepEqual([...(await api.verifyDetenteBons({ bons: 'rien' }, { publicKey: testKey }))], [], 'Un document mal formé ne doit rien donner');
+
+      const pending = await api.refreshDetenteBons({ document: doc, publicKey: testKey, now: now.getTime() });
+      assert.equal(pending.length, 2, 'Deux boutons attendus');
+      const before = api.getDetenteWallet();
+      assert.equal(api.claimDetenteBon('20261124-cadeau01'), true, 'Le premier clic crédite le bon');
+      assert.equal(api.claimDetenteBon('20261124-cadeau01'), false, 'Un second clic ne doit rien créditer');
+      assert.equal(api.getDetenteWallet().balance, before.balance + 500);
+      assert.equal(api.claimDetenteBon('20261124-pret0001'), true);
+      const after = api.getDetenteWallet();
+      assert.equal(after.balance, before.balance + 2500);
+      assert.equal(after.debt, before.debt + 2000, 'Un prêt ajoute la même somme à la dette');
+      assert.equal(api.claimDetenteBon('20261124-falsifie'), false, 'Un bon falsifié ne peut pas être récupéré');
+      const again = await api.refreshDetenteBons({ document: doc, publicKey: testKey, now: now.getTime() });
+      assert.equal(again.length, 0, 'Une fois récupérés, les bons ne réapparaissent plus (mémorisés sur l’appareil)');
+      assert.ok(JSON.parse(store.get('inkflow.detente.bonsRecus.v1')).includes('20261124-cadeau01'));
+    } finally {
+      sandbox.crypto = savedCrypto;
+      sandbox.localStorage.getItem = savedStorage.getItem;
+      sandbox.localStorage.setItem = savedStorage.setItem;
+    }
+    return 'Bons valides acceptés ; montant modifié, autre clé, bon expiré et document mal formé refusés ; crédit unique (cadeau et prêt avec dette).';
+  });
+
   // ------------------------------------------------------------------------
-  // TEST 10 : Google Drive (liaison, jetons, sélecteur) et indicateur hors connexion
+  // TEST 11 : Google Drive (liaison, jetons, sélecteur) et indicateur hors connexion
   // ------------------------------------------------------------------------
-  await runStep('Test 10 : Google Drive (PKCE, requêtes du sélecteur, renouvellement du jeton) et refus hors connexion', async () => {
+  await runStep('Test 11 : Google Drive (PKCE, requêtes du sélecteur, renouvellement du jeton) et refus hors connexion', async () => {
     sandbox.crypto = globalThis.crypto;
     sandbox.URLSearchParams = globalThis.URLSearchParams;
 

@@ -2958,7 +2958,10 @@
       panY: 24,
       isPanning: false,
       panStartScreen: { x: 0, y: 0 },
-      panStartOffset: { x: 0, y: 0 }
+      panStartOffset: { x: 0, y: 0 },
+      pickerOpen: false,
+      sortMode: 'folders',
+      searchQuery: ''
     },
     shapeType: 'auto',
     shapeFilled: false,
@@ -3069,6 +3072,11 @@
     colorWheelAnchorScreen: null,
     colorWheelCenterScreen: { x: 0, y: 0 },
     colorWheelHoveredColor: null,
+    lassoButtonDownTime: 0,
+    lassoButtonDownPos: null,
+    lassoButtonMaxTravel: 0,
+    lastLassoButtonClickTime: 0,
+    lastLassoButtonClickPos: null,
     lastPointerPoint: null,
     lastPointerTime: 0,
     // Multi-touch Pinch-to-Zoom & 2-Finger Pan
@@ -3079,6 +3087,8 @@
     // Lasso
     lassoPolygon: [],
     selectedIds: { strokes: new Set(), shapes: new Set(), texts: new Set(), images: new Set() },
+    lassoPdfClip: null,
+    lassoClipboard: null,
     selectionBounds: null,
     lassoAction: null,
     lassoDragStartWorld: null,
@@ -3086,6 +3096,17 @@
     lassoInitialBounds: null,
     historyByPage: new Map(),
     newNotebookCover: '#0072ce',
+    newNotebookTemplate: {
+      paperType: 'grid',
+      paperTone: 'white',
+      gridSize: 28,
+      language: 'fr',
+      sizeId: 'goodnotes_standard',
+      orientation: 'portrait',
+      customTemplateDataUrl: null,
+      coverTemplateId: null,
+      coverCustomDataUrl: null
+    },
     editingLatexCardId: null,
     pendingLatexWorldPos: null,
     lastRecognizedStrokes: [],
@@ -3995,6 +4016,11 @@
     state.currentStrokeSnappedFromAutoShape = false;
     state.holdShapeAnchorScreen = null;
     state.colorWheelAnchorScreen = null;
+    state.lassoButtonDownTime = 0;
+    state.lassoButtonDownPos = null;
+    state.lassoButtonMaxTravel = 0;
+    state.lastLassoButtonClickTime = 0;
+    state.lastLassoButtonClickPos = null;
     state.lassoPolygon = [];
     state.lassoAction = null;
     state.lassoInitialSnapshot = null;
@@ -4032,6 +4058,7 @@
       changed = true;
     }
     if (state.temporaryLassoOverride && !isPenLassoButton(e)) {
+      finalizeLassoButtonClickTracking(e, true);
       state.temporaryLassoOverride = false;
       state.tool = state.previousToolBeforeLasso || 'pen';
       changed = true;
@@ -9471,6 +9498,10 @@
     if (state.selectionBounds && hasAnyLassoSelection()) {
       const b = state.selectionBounds;
       targetCtx.save();
+      if (state.lassoPdfClip) {
+        targetCtx.fillStyle = 'rgba(37, 99, 235, 0.06)';
+        targetCtx.fillRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY);
+      }
       targetCtx.strokeStyle = '#1d4ed8';
       targetCtx.lineWidth = 1.8 / state.zoom;
       targetCtx.setLineDash([6 / state.zoom, 4 / state.zoom]);
@@ -9796,7 +9827,43 @@
     }
   }
 
-  function openRadialColorWheelAt(clientX, clientY) {
+  const RADIAL_WHEEL_DBLCLICK_MS = 450;
+  const RADIAL_WHEEL_CLICK_MAX_HOLD_MS = 380;
+  const RADIAL_WHEEL_CLICK_MAX_TRAVEL_PX = 28;
+  const RADIAL_WHEEL_DBLCLICK_MAX_DIST_PX = 64;
+
+  function getPointerEventTimestamp(e) {
+    return (e && typeof e.timeStamp === 'number' && e.timeStamp > 0) ? e.timeStamp : performance.now();
+  }
+
+  function finalizeLassoButtonClickTracking(e, allowClickCandidate = true) {
+    const nowTs = getPointerEventTimestamp(e);
+    const downPos = state.lassoButtonDownPos;
+    const endX = (e && typeof e.clientX === 'number') ? e.clientX : (downPos ? downPos.x : 0);
+    const endY = (e && typeof e.clientY === 'number') ? e.clientY : (downPos ? downPos.y : 0);
+    const endTravel = downPos ? Math.hypot(endX - downPos.x, endY - downPos.y) : 0;
+    const maxTravel = Math.max(state.lassoButtonMaxTravel || 0, endTravel);
+    const holdDuration = state.lassoButtonDownTime > 0 ? (nowTs - state.lassoButtonDownTime) : Infinity;
+
+    if (
+      allowClickCandidate &&
+      downPos &&
+      !hasAnyLassoSelection() &&
+      holdDuration <= RADIAL_WHEEL_CLICK_MAX_HOLD_MS &&
+      maxTravel <= RADIAL_WHEEL_CLICK_MAX_TRAVEL_PX
+    ) {
+      state.lastLassoButtonClickTime = nowTs;
+      state.lastLassoButtonClickPos = { x: endX, y: endY };
+    } else {
+      state.lastLassoButtonClickTime = 0;
+      state.lastLassoButtonClickPos = null;
+    }
+    state.lassoButtonDownTime = 0;
+    state.lassoButtonDownPos = null;
+    state.lassoButtonMaxTravel = 0;
+  }
+
+  function openRadialColorWheelAt(clientX, clientY, tapMode = true) {
     if (!dom.radialColorWheel || !dom.canvasViewport) return;
     const vpRect = dom.canvasViewport.getBoundingClientRect();
     const relX = clientX - vpRect.left;
@@ -9810,20 +9877,27 @@
 
     state.colorWheelOpen = true;
     if (dom.colorDotCursor) dom.colorDotCursor.style.display = 'none';
-    state.colorWheelTapMode = false;
+    state.colorWheelTapMode = Boolean(tapMode);
     state.colorWheelHoveredColor = null;
     state.colorWheelCenterScreen = { x: vpRect.left + clampedX, y: vpRect.top + clampedY };
 
     dom.radialColorWheel.style.left = `${clampedX}px`;
     dom.radialColorWheel.style.top = `${clampedY}px`;
     dom.radialColorWheel.classList.remove('hidden', 'tap-mode');
+    if (state.colorWheelTapMode) {
+      dom.radialColorWheel.classList.add('tap-mode');
+    }
     if (dom.radialCenterDot) dom.radialCenterDot.style.background = currentHex;
     if (dom.radialCenterLabel) dom.radialCenterLabel.textContent = 'Couleur';
 
     // Efface l'amorce de tracé lasso pour garder le canevas propre
     state.lassoPolygon = [];
     state.lassoAction = null;
-    if (dom.pointerTypeBadge) dom.pointerTypeBadge.textContent = 'Roue de couleurs (glisser vers une teinte)';
+    if (dom.pointerTypeBadge) {
+      dom.pointerTypeBadge.textContent = state.colorWheelTapMode
+        ? 'Touchez une couleur sur la roue'
+        : 'Roue de couleurs (glisser vers une teinte)';
+    }
     requestRender();
   }
 
@@ -9894,16 +9968,6 @@
       clearTimeout(state.colorWheelTimer);
       state.colorWheelTimer = null;
     }
-  }
-
-  function scheduleRadialColorWheelCheck(clientX, clientY) {
-    cancelColorWheelTimer();
-    state.colorWheelAnchorScreen = { x: clientX, y: clientY };
-    state.colorWheelTimer = setTimeout(() => {
-      state.colorWheelTimer = null;
-      if (!state.isDrawing || state.tool !== 'lasso' || state.lassoAction !== 'draw' || state.colorWheelOpen) return;
-      openRadialColorWheelAt(state.colorWheelAnchorScreen.x, state.colorWheelAnchorScreen.y);
-    }, 340);
   }
 
   function cancelHoldShapeTimer() {
@@ -10371,6 +10435,7 @@
       e.target.closest('.gn-lasso-popover') ||
       e.target.closest('.split-secondary-pane') ||
       e.target.closest('.split-resizer') ||
+      e.target.closest('.split-nb-popover') ||
       e.target.closest('.radial-color-wheel')
     )) {
       return;
@@ -10379,6 +10444,11 @@
       if (e.cancelable) e.preventDefault();
       if (state.colorWheelTapMode) {
         closeRadialColorWheel(true);
+        if (isPenEraserButton(e) || isPenLassoButton(e)) {
+          state.waitBarrelReleaseBeforeHoverTrigger = true;
+        }
+        state.lastLassoButtonClickTime = 0;
+        state.lastLassoButtonClickPos = null;
         requestRender();
         return;
       }
@@ -10472,7 +10542,10 @@
     if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 5 && (e.buttons & 1) === 0 && (e.buttons & 32) === 0) return;
 
     // Boutons latéraux du stylet : Gomme (bouton 5 / mask 32) vs Lasso temporaire (2e bouton / mask 2,8,16)
+    // Un double-clic sur le 2e bouton du stylet ouvre directement la roue de couleurs radiale
     if (isPenEraserButton(e)) {
+      state.lastLassoButtonClickTime = 0;
+      state.lastLassoButtonClickPos = null;
       if (!state.temporaryEraserOverride) {
         state.previousToolBeforeEraser = state.tool === 'eraser' ? 'pen' : state.tool;
       }
@@ -10480,11 +10553,32 @@
       state.tool = 'eraser';
       updateToolbarActiveState();
     } else if (isPenLassoButton(e)) {
+      const nowTs = getPointerEventTimestamp(e);
+      const prevPos = state.lastLassoButtonClickPos;
+      const isDoubleClick = Boolean(
+        state.lastLassoButtonClickTime > 0 &&
+        prevPos &&
+        (nowTs - state.lastLassoButtonClickTime) <= RADIAL_WHEEL_DBLCLICK_MS &&
+        Math.hypot(e.clientX - prevPos.x, e.clientY - prevPos.y) <= RADIAL_WHEEL_DBLCLICK_MAX_DIST_PX
+      );
+      if (isDoubleClick) {
+        state.lastLassoButtonClickTime = 0;
+        state.lastLassoButtonClickPos = null;
+        state.lassoButtonDownTime = 0;
+        state.lassoButtonDownPos = null;
+        state.lassoButtonMaxTravel = 0;
+        state.waitBarrelReleaseBeforeHoverTrigger = true;
+        openRadialColorWheelAt(e.clientX, e.clientY, true);
+        return;
+      }
       if (!state.temporaryLassoOverride) {
         state.previousToolBeforeLasso = state.tool === 'lasso' ? 'pen' : state.tool;
       }
       state.temporaryLassoOverride = true;
       state.tool = 'lasso';
+      state.lassoButtonDownTime = nowTs;
+      state.lassoButtonDownPos = { x: e.clientX, y: e.clientY };
+      state.lassoButtonMaxTravel = 0;
       updateToolbarActiveState();
     }
 
@@ -10766,9 +10860,6 @@
       requestRender();
     } else if (state.tool === 'lasso') {
       handleLassoPointerDown(worldPt);
-      if (state.lassoAction === 'draw') {
-        scheduleRadialColorWheelCheck(e.clientX, e.clientY);
-      }
       if (state.lassoAction === 'draw' && !hadLassoSelection) renderActiveCanvasOnly();
       else requestRender();
     }
@@ -11212,9 +11303,9 @@
       }
       requestRender();
     } else if (state.tool === 'lasso') {
-      if (state.lassoAction === 'draw' && state.colorWheelAnchorScreen) {
-        const travel = Math.hypot(e.clientX - state.colorWheelAnchorScreen.x, e.clientY - state.colorWheelAnchorScreen.y);
-        if (travel > 14) cancelColorWheelTimer();
+      if (state.temporaryLassoOverride && state.lassoButtonDownPos) {
+        const travel = Math.hypot(e.clientX - state.lassoButtonDownPos.x, e.clientY - state.lassoButtonDownPos.y);
+        if (travel > state.lassoButtonMaxTravel) state.lassoButtonMaxTravel = travel;
       }
       handleLassoPointerMove(clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY)));
       if (state.lassoAction === 'draw') renderActiveCanvasOnly();
@@ -11554,6 +11645,7 @@
       updateToolbarActiveState();
     }
     if (state.temporaryLassoOverride) {
+      finalizeLassoButtonClickTracking(e, true);
       state.temporaryLassoOverride = false;
       if (isPenEraserButton(e) || isPenLassoButton(e)) state.waitBarrelReleaseBeforeHoverTrigger = true;
       state.tool = state.previousToolBeforeLasso || 'pen';
@@ -11813,7 +11905,8 @@
       state.selectedIds.strokes.size > 0 ||
       state.selectedIds.shapes.size > 0 ||
       state.selectedIds.texts.size > 0 ||
-      (state.selectedIds.images && state.selectedIds.images.size > 0)
+      (state.selectedIds.images && state.selectedIds.images.size > 0) ||
+      Boolean(state.lassoPdfClip)
     );
   }
   function clearLassoSelection() {
@@ -11822,12 +11915,112 @@
     state.selectedIds.shapes.clear();
     state.selectedIds.texts.clear();
     if (state.selectedIds.images) state.selectedIds.images.clear();
+    state.lassoPdfClip = null;
     state.selectionBounds = null;
     state.lassoAction = null;
     state.gnLassoAlignPopoverOpen = false;
     updateLassoToolbarBadge();
     updateLassoFloatingBarPosition();
     if (typeof syncGnLassoSubBarUi === 'function') syncGnLassoSubBarUi();
+  }
+  function extractPdfRegionFromLassoPolygon(page, polygon) {
+    if (!page || !page.pdfId || !page.pdfPageNumber || !Array.isArray(polygon) || polygon.length < 3) return null;
+    const pw = page.pdfWidth || PAGE_WIDTH;
+    const ph = page.pdfHeight || PAGE_HEIGHT;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const pt of polygon) {
+      if (pt.x < minX) minX = pt.x;
+      if (pt.y < minY) minY = pt.y;
+      if (pt.x > maxX) maxX = pt.x;
+      if (pt.y > maxY) maxY = pt.y;
+    }
+    minX = Math.max(0, Math.min(pw, minX));
+    minY = Math.max(0, Math.min(ph, minY));
+    maxX = Math.max(0, Math.min(pw, maxX));
+    maxY = Math.max(0, Math.min(ph, maxY));
+    const w = maxX - minX;
+    const h = maxY - minY;
+    if (w < 12 || h < 12) return null;
+
+    const key = `${page.pdfId}_${page.pdfPageNumber}`;
+    const cached = pdfRenderedCanvasCache.get(key);
+    const hasCachedCanvas = Boolean(cached && cached.canvas && cached.canvas.width > 0 && cached.canvas.height > 0);
+    const rawScaleX = hasCachedCanvas ? (cached.canvas.width / pw) : 2;
+    const rawScaleY = hasCachedCanvas ? (cached.canvas.height / ph) : 2;
+    const maxDim = 1200;
+    const limitScale = Math.min(1, maxDim / Math.max(1, w * rawScaleX, h * rawScaleY));
+    const outW = Math.max(16, Math.round(w * rawScaleX * limitScale));
+    const outH = Math.max(16, Math.round(h * rawScaleY * limitScale));
+
+    let src = '';
+    if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+      try {
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = outW;
+        cropCanvas.height = outH;
+        const cCtx = cropCanvas.getContext('2d');
+        if (cCtx) {
+          const sxFactor = outW / w;
+          const syFactor = outH / h;
+          cCtx.save();
+          cCtx.beginPath();
+          cCtx.moveTo((polygon[0].x - minX) * sxFactor, (polygon[0].y - minY) * syFactor);
+          for (let i = 1; i < polygon.length; i++) {
+            cCtx.lineTo((polygon[i].x - minX) * sxFactor, (polygon[i].y - minY) * syFactor);
+          }
+          cCtx.closePath();
+          if (typeof cCtx.clip === 'function') cCtx.clip();
+          cCtx.fillStyle = '#ffffff';
+          cCtx.fillRect(0, 0, outW, outH);
+          if (hasCachedCanvas && typeof cCtx.drawImage === 'function') {
+            const srcX = (minX / pw) * cached.canvas.width;
+            const srcY = (minY / ph) * cached.canvas.height;
+            const srcW = (w / pw) * cached.canvas.width;
+            const srcH = (h / ph) * cached.canvas.height;
+            cCtx.imageSmoothingEnabled = true;
+            cCtx.imageSmoothingQuality = 'high';
+            cCtx.drawImage(cached.canvas, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+          }
+          cCtx.restore();
+          if (typeof cropCanvas.toDataURL === 'function') {
+            src = cropCanvas.toDataURL('image/png');
+          }
+        }
+        releaseCanvasMemory(cropCanvas);
+      } catch (_) {}
+    }
+    if (!src) {
+      src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
+    }
+    return {
+      pageId: page.id,
+      pdfId: page.pdfId,
+      pdfPageNumber: page.pdfPageNumber,
+      x: Math.round(minX * 100) / 100,
+      y: Math.round(minY * 100) / 100,
+      width: Math.max(16, Math.round(w)),
+      height: Math.max(16, Math.round(h)),
+      src
+    };
+  }
+  function materializePdfLassoClipIfNeeded(page) {
+    if (!page || !state.lassoPdfClip) return null;
+    const clip = state.lassoPdfClip;
+    if (!Array.isArray(page.images)) page.images = [];
+    const imgItem = {
+      id: createUid('img'),
+      x: clip.x,
+      y: clip.y,
+      width: clip.width,
+      height: clip.height,
+      src: clip.src
+    };
+    page.images.push(imgItem);
+    state.lassoPdfClip = null;
+    if (state.selectedIds.images) state.selectedIds.images.add(imgItem.id);
+    invalidateStaticInkCache();
+    renderWorldTextCards();
+    return imgItem;
   }
   function pointInPolygon(x, y, poly) {
     let inside = false;
@@ -11869,6 +12062,13 @@
         maxY = Math.max(maxY, (img.y || 0) + (img.height || 180));
       }
     });
+    if (state.lassoPdfClip) {
+      const clip = state.lassoPdfClip;
+      minX = Math.min(minX, clip.x || 0);
+      minY = Math.min(minY, clip.y || 0);
+      maxX = Math.max(maxX, (clip.x || 0) + (clip.width || 120));
+      maxY = Math.max(maxY, (clip.y || 0) + (clip.height || 90));
+    }
     state.selectionBounds = minX < Infinity ? { minX: minX - 10, minY: minY - 10, maxX: maxX + 10, maxY: maxY + 10 } : null;
   }
 
@@ -11900,6 +12100,7 @@
     const invZoom = 1 / Math.max(0.25, state.zoom);
     if (Math.hypot(worldPt.x - b.maxX, worldPt.y - b.maxY) <= 18 * invZoom) {
       pushHistorySnapshot();
+      materializePdfLassoClipIfNeeded(page);
       state.lassoAction = 'scale';
       state.lassoDragStartWorld = worldPt;
       state.lassoInitialBounds = { ...b };
@@ -11914,6 +12115,7 @@
       worldPt.y <= b.maxY + pad
     ) {
       pushHistorySnapshot();
+      materializePdfLassoClipIfNeeded(page);
       state.lassoAction = 'move';
       state.lassoDragStartWorld = worldPt;
       state.lassoInitialSnapshot = clonePageContent(page);
@@ -12093,6 +12295,13 @@
             if (samples.some((pt) => pointInPolygon(pt.x, pt.y, state.lassoPolygon))) state.selectedIds.images.add(img.id);
           });
         }
+        // Sur une page PDF : si aucun élément vectoriel/image n'a été entouré, capture la zone PDF pour pouvoir la déplacer, copier ou enregistrer en Élément
+        if (!hasAnyLassoSelection() && page.pdfId && page.pdfPageNumber && filters.images !== false) {
+          const pdfClip = extractPdfRegionFromLassoPolygon(page, state.lassoPolygon);
+          if (pdfClip) {
+            state.lassoPdfClip = pdfClip;
+          }
+        }
       }
       state.lassoPolygon = [];
       invalidateStaticInkCache();
@@ -12113,17 +12322,178 @@
       state.selectedIds.strokes.size +
       state.selectedIds.shapes.size +
       state.selectedIds.texts.size +
-      (state.selectedIds.images ? state.selectedIds.images.size : 0);
+      (state.selectedIds.images ? state.selectedIds.images.size : 0) +
+      (state.lassoPdfClip ? 1 : 0);
     const has = total > 0;
-    if (dom.lassoSelectionBadge) dom.lassoSelectionBadge.textContent = has ? `${total} sélectionné${total > 1 ? 's' : ''}` : 'Entourez des traits';
+    const isPdfZoneOnly = Boolean(state.lassoPdfClip) && total === 1;
+    if (dom.lassoSelectionBadge) dom.lassoSelectionBadge.textContent = has ? (isPdfZoneOnly ? 'Zone PDF' : `${total} sélectionné${total > 1 ? 's' : ''}`) : 'Entourez des traits';
     if (dom.btnDuplicateSelection) dom.btnDuplicateSelection.disabled = !has;
     if (dom.btnScaleUpSelection) dom.btnScaleUpSelection.disabled = !has;
     if (dom.btnScaleDownSelection) dom.btnScaleDownSelection.disabled = !has;
     if (dom.btnDeleteSelection) dom.btnDeleteSelection.disabled = !has;
     if (state.tool === 'lasso' && dom.activeToolSummaryText) {
-      dom.activeToolSummaryText.textContent = has ? `${total} sél.` : 'Options';
+      dom.activeToolSummaryText.textContent = has ? (isPdfZoneOnly ? 'Zone PDF' : `${total} sél.`) : 'Options';
     }
     if (typeof syncGnLassoSubBarUi === 'function') syncGnLassoSubBarUi();
+  }
+
+  function copyLassoSelection() {
+    const page = getActivePage();
+    if (!page || !hasAnyLassoSelection()) return false;
+    const selStrokes = (page.strokes || []).filter((s) => state.selectedIds.strokes.has(s.id));
+    const selShapes = (page.shapes || []).filter((sh) => state.selectedIds.shapes.has(sh.id));
+    const selTexts = (page.texts || []).filter((tb) => state.selectedIds.texts.has(tb.id));
+    const selImages = (page.images || []).filter((img) => state.selectedIds.images && state.selectedIds.images.has(img.id));
+    const rawImages = selImages.map((img) => ({
+      x: img.x || 0,
+      y: img.y || 0,
+      width: img.width || 240,
+      height: img.height || 180,
+      src: img.src
+    }));
+    if (state.lassoPdfClip) {
+      rawImages.push({
+        x: state.lassoPdfClip.x || 0,
+        y: state.lassoPdfClip.y || 0,
+        width: state.lassoPdfClip.width || 200,
+        height: state.lassoPdfClip.height || 140,
+        src: state.lassoPdfClip.src
+      });
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    selStrokes.forEach((s) => (s.points || []).forEach((p) => {
+      if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
+    }));
+    selShapes.forEach((sh) => {
+      const bb = getShapeBoundingBox(sh);
+      minX = Math.min(minX, bb.minX); minY = Math.min(minY, bb.minY);
+      maxX = Math.max(maxX, bb.maxX); maxY = Math.max(maxY, bb.maxY);
+    });
+    selTexts.forEach((tb) => {
+      minX = Math.min(minX, tb.x || 0); minY = Math.min(minY, tb.y || 0);
+      maxX = Math.max(maxX, (tb.x || 0) + (tb.width || 240));
+      maxY = Math.max(maxY, (tb.y || 0) + 60);
+    });
+    rawImages.forEach((img) => {
+      minX = Math.min(minX, img.x); minY = Math.min(minY, img.y);
+      maxX = Math.max(maxX, img.x + img.width); maxY = Math.max(maxY, img.y + img.height);
+    });
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return false;
+
+    state.lassoClipboard = {
+      sourcePageId: page.id,
+      origX: minX,
+      origY: minY,
+      width: Math.max(16, Math.round(maxX - minX)),
+      height: Math.max(16, Math.round(maxY - minY)),
+      strokes: selStrokes.map((s) => {
+        const c = JSON.parse(JSON.stringify(s));
+        delete c.id;
+        c.points = (c.points || []).map((p) => ({ ...p, x: p.x - minX, y: p.y - minY }));
+        return c;
+      }),
+      shapes: selShapes.map((sh) => {
+        const c = JSON.parse(JSON.stringify(sh));
+        delete c.id; delete c.startConnection; delete c.endConnection;
+        c.x1 -= minX; c.y1 -= minY; c.x2 -= minX; c.y2 -= minY;
+        if (Array.isArray(c.points)) c.points = c.points.map((p) => ({ x: p.x - minX, y: p.y - minY }));
+        if (Array.isArray(c.vertices)) c.vertices = c.vertices.map((v) => ({ x: v.x - minX, y: v.y - minY }));
+        return c;
+      }),
+      texts: selTexts.map((tb) => {
+        const c = JSON.parse(JSON.stringify(tb));
+        delete c.id;
+        c.x = (c.x || 0) - minX; c.y = (c.y || 0) - minY;
+        return c;
+      }),
+      images: rawImages.map((img) => ({
+        x: img.x - minX,
+        y: img.y - minY,
+        width: img.width,
+        height: img.height,
+        src: img.src
+      }))
+    };
+    showToast(state.lassoPdfClip ? 'Zone PDF copiée (Ctrl+V pour coller)' : 'Sélection copiée (Ctrl+V pour coller)');
+    return true;
+  }
+
+  function pasteLassoSelection() {
+    const page = getActivePage();
+    const clip = state.lassoClipboard;
+    if (!page || !clip) return false;
+    let ox = clip.origX + 28;
+    let oy = clip.origY + 28;
+    if (clip.sourcePageId !== page.id) {
+      let cx = 300, cy = 260;
+      if (dom.canvasViewport && typeof dom.canvasViewport.getBoundingClientRect === 'function') {
+        const rect = dom.canvasViewport.getBoundingClientRect();
+        if (rect && rect.width > 0 && rect.height > 0) {
+          const center = screenToWorld(rect.left + rect.width * 0.5, rect.top + rect.height * 0.5);
+          cx = center.x; cy = center.y;
+        }
+      }
+      ox = cx - (clip.width || 120) * 0.5;
+      oy = cy - (clip.height || 90) * 0.5;
+    }
+    if (isBoundedPage(page)) {
+      const pb = getPageBounds(page);
+      ox = Math.max(12, Math.min(Math.max(12, pb.maxX - (clip.width || 60) - 12), ox));
+      oy = Math.max(12, Math.min(Math.max(12, pb.maxY - (clip.height || 60) - 12), oy));
+    }
+    pushHistorySnapshot(page);
+    if (!Array.isArray(page.strokes)) page.strokes = [];
+    if (!Array.isArray(page.shapes)) page.shapes = [];
+    if (!Array.isArray(page.texts)) page.texts = [];
+    if (!Array.isArray(page.images)) page.images = [];
+    clearLassoSelection();
+
+    (clip.strokes || []).forEach((s) => {
+      const ns = JSON.parse(JSON.stringify(s));
+      ns.id = createUid('st');
+      ns.points = (ns.points || []).map((p) => ({ ...p, x: p.x + ox, y: p.y + oy }));
+      invalidateStrokeCache(ns);
+      page.strokes.push(ns);
+      state.selectedIds.strokes.add(ns.id);
+    });
+    (clip.shapes || []).forEach((sh) => {
+      const nsh = JSON.parse(JSON.stringify(sh));
+      nsh.id = createUid('sh');
+      nsh.x1 += ox; nsh.y1 += oy; nsh.x2 += ox; nsh.y2 += oy;
+      if (Array.isArray(nsh.points)) nsh.points = nsh.points.map((p) => ({ x: p.x + ox, y: p.y + oy }));
+      if (Array.isArray(nsh.vertices)) nsh.vertices = nsh.vertices.map((v) => ({ x: v.x + ox, y: v.y + oy }));
+      page.shapes.push(nsh);
+      state.selectedIds.shapes.add(nsh.id);
+    });
+    (clip.texts || []).forEach((tb) => {
+      const ntb = JSON.parse(JSON.stringify(tb));
+      ntb.id = createUid('tx');
+      ntb.x = (ntb.x || 0) + ox; ntb.y = (ntb.y || 0) + oy;
+      page.texts.push(ntb);
+      state.selectedIds.texts.add(ntb.id);
+    });
+    (clip.images || []).forEach((img) => {
+      const nimg = {
+        id: createUid('img'),
+        x: Math.round((img.x || 0) + ox),
+        y: Math.round((img.y || 0) + oy),
+        width: Math.max(16, Math.round(img.width || 200)),
+        height: Math.max(16, Math.round(img.height || 140)),
+        src: img.src
+      };
+      page.images.push(nimg);
+      if (state.selectedIds.images) state.selectedIds.images.add(nimg.id);
+    });
+    invalidateStaticInkCache();
+    computeSelectionBounds();
+    updateLassoToolbarBadge();
+    updateLassoFloatingBarPosition();
+    renderWorldTextCards();
+    requestRender();
+    scheduleSaveActivePage(page);
+    showToast('Sélection collée');
+    return true;
   }
 
   function duplicateLassoSelection() {
@@ -12131,6 +12501,21 @@
     if (!page || !hasAnyLassoSelection()) return;
     pushHistorySnapshot();
     const ns = new Set(), nsh = new Set(), nt = new Set(), ni = new Set(), off = 28;
+    if (!Array.isArray(page.images)) page.images = [];
+    if (state.lassoPdfClip) {
+      const clip = state.lassoPdfClip;
+      const c = {
+        id: createUid('img'),
+        x: Math.round((clip.x || 0) + off),
+        y: Math.round((clip.y || 0) + off),
+        width: Math.max(16, Math.round(clip.width || 200)),
+        height: Math.max(16, Math.round(clip.height || 140)),
+        src: clip.src
+      };
+      page.images.push(c);
+      ni.add(c.id);
+      state.lassoPdfClip = null;
+    }
     page.strokes.forEach((s) => {
       if (state.selectedIds.strokes.has(s.id)) {
         const c = { ...cloneStrokeFast(s), id: createUid('st'), points: s.points.map((p) => ({ ...p, x: p.x + off, y: p.y + off })), _bounds: null };
@@ -12173,6 +12558,7 @@
     const page = getActivePage();
     if (!page || !hasAnyLassoSelection() || !state.selectionBounds) return;
     pushHistorySnapshot();
+    materializePdfLassoClipIfNeeded(page);
     const cx = (state.selectionBounds.minX + state.selectionBounds.maxX) / 2;
     const cy = (state.selectionBounds.minY + state.selectionBounds.maxY) / 2;
     state.lassoInitialSnapshot = clonePageContent(page);
@@ -12188,6 +12574,16 @@
   function deleteLassoSelection() {
     const page = getActivePage();
     if (!page || !hasAnyLassoSelection()) return;
+    const onlyPdfClip = Boolean(state.lassoPdfClip) &&
+      state.selectedIds.strokes.size === 0 &&
+      state.selectedIds.shapes.size === 0 &&
+      state.selectedIds.texts.size === 0 &&
+      (!state.selectedIds.images || state.selectedIds.images.size === 0);
+    if (onlyPdfClip) {
+      clearLassoSelection();
+      requestRender();
+      return;
+    }
     pushHistorySnapshot();
     page.strokes = (page.strokes || []).filter((s) => !state.selectedIds.strokes.has(s.id));
     page.shapes = (page.shapes || []).filter((sh) => !state.selectedIds.shapes.has(sh.id));
@@ -14459,6 +14855,8 @@
       folderId: state.currentFolderId || null,
       starred: false,
       coverColor: coverColor || '#1d4ed8',
+      coverTemplateId: (templatePageOrOptions && templatePageOrOptions.coverTemplateId) || undefined,
+      coverCustomDataUrl: (templatePageOrOptions && templatePageOrOptions.coverCustomDataUrl) || null,
       defaultPaperType: inherited.paperType,
       createdAt: Date.now(),
       updatedAt: Date.now()
@@ -17716,12 +18114,14 @@
       state.selectedIds.strokes.size +
       state.selectedIds.shapes.size +
       state.selectedIds.texts.size +
-      (state.selectedIds.images ? state.selectedIds.images.size : 0);
+      (state.selectedIds.images ? state.selectedIds.images.size : 0) +
+      (state.lassoPdfClip ? 1 : 0);
     const hasSel = total > 0;
+    const isPdfZoneOnly = Boolean(state.lassoPdfClip) && total === 1;
     const hasStrokes = state.selectedIds.strokes.size > 0;
     const countPill = document.getElementById('gnLassoCountPill');
     if (countPill) {
-      countPill.textContent = hasSel ? `${total} sélectionné${total > 1 ? 's' : ''}` : 'Entourez des éléments';
+      countPill.textContent = hasSel ? (isPdfZoneOnly ? 'Zone PDF' : `${total} sélectionné${total > 1 ? 's' : ''}`) : 'Entourez des éléments';
       countPill.classList.toggle('has-sel', hasSel);
     }
 
@@ -17843,6 +18243,9 @@
 
     const btnQuickShot = document.getElementById('btnQuickScreenshotLasso');
     if (btnQuickShot) btnQuickShot.addEventListener('click', (e) => { e.stopPropagation(); captureLassoSelectionScreenshot(); });
+
+    const btnQuickCopy = document.getElementById('btnQuickCopyLasso');
+    if (btnQuickCopy) btnQuickCopy.addEventListener('click', (e) => { e.stopPropagation(); copyLassoSelection(); });
 
     const btnQuickStraighten = document.getElementById('btnQuickStraightenLasso');
     if (btnQuickStraighten) btnQuickStraighten.addEventListener('click', (e) => { e.stopPropagation(); straightenLassoSelection(); });
@@ -18741,10 +19144,12 @@
       dom.btnFitPage.addEventListener('click', fitPageToViewport);
     }
 
-    dom.btnNewNotebook.addEventListener('click', () => {
-      dom.inputNotebookName.value = '';
-      dom.modalNewNotebook.classList.remove('hidden');
-    });
+    const openNewNotebookModal = () => {
+      if (dom.inputNotebookName) dom.inputNotebookName.value = '';
+      if (typeof updateNewNotebookPaperPreview === 'function') updateNewNotebookPaperPreview();
+      if (dom.modalNewNotebook) dom.modalNewNotebook.classList.remove('hidden');
+    };
+    dom.btnNewNotebook.addEventListener('click', openNewNotebookModal);
     const closeNb = () => {
       closeGnColorPopover();
       dom.modalNewNotebook.classList.add('hidden');
@@ -18753,6 +19158,10 @@
     dom.btnCancelNotebookModal.addEventListener('click', closeNb);
     dom.notebookCoverSwatches.forEach((sw) => sw.addEventListener('click', () => {
       state.newNotebookCover = sw.dataset.cover;
+      if (state.newNotebookTemplate) {
+        state.newNotebookTemplate.coverTemplateId = null;
+        state.newNotebookTemplate.coverCustomDataUrl = null;
+      }
       const nbWrap = document.getElementById('notebookCoverSwatches');
       if (nbWrap) nbWrap.querySelectorAll('[data-cover]').forEach((s) => s.classList.toggle('active', s === sw));
     }));
@@ -18769,11 +19178,62 @@
         });
       });
     }
+    const btnChooseNewNotebookPaper = document.getElementById('btnChooseNewNotebookPaper');
+    if (btnChooseNewNotebookPaper) {
+      btnChooseNewNotebookPaper.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openGnTemplateLibraryModal('paper', {
+          mode: 'new-notebook',
+          initial: state.newNotebookTemplate,
+          onApply: (picked) => {
+            if (!picked) return;
+            const prev = state.newNotebookTemplate || {};
+            state.newNotebookTemplate = {
+              paperType: picked.paperType || 'grid',
+              paperTone: picked.paperTone || 'white',
+              gridSize: Number.isFinite(picked.gridSize) ? picked.gridSize : 28,
+              language: picked.language || 'fr',
+              sizeId: picked.sizeId || 'goodnotes_standard',
+              orientation: picked.orientation || 'portrait',
+              customTemplateDataUrl: picked.customTemplateDataUrl || null,
+              coverTemplateId: picked.coverSelected ? picked.coverTemplateId : (prev.coverTemplateId || null),
+              coverCustomDataUrl: picked.coverSelected ? picked.coverCustomDataUrl : (prev.coverCustomDataUrl || null)
+            };
+            if (picked.coverSelected && picked.coverColor) {
+              state.newNotebookCover = picked.coverColor;
+              const nbWrap = document.getElementById('notebookCoverSwatches');
+              if (nbWrap) {
+                nbWrap.querySelectorAll('[data-cover]').forEach((s) => {
+                  s.classList.toggle('active', String(s.dataset.cover || '').toLowerCase() === String(picked.coverColor).toLowerCase());
+                });
+              }
+            }
+            updateNewNotebookPaperPreview();
+          }
+        });
+      });
+    }
     dom.btnCreateNotebookConfirm.addEventListener('click', async () => {
       const title = dom.inputNotebookName.value.trim() || `Cahier ${state.notebooks.length + 1}`;
-      const paperType = dom.selectDefaultPaper.value || 'grid';
+      const tpl = state.newNotebookTemplate || {};
+      const paperType = (dom.selectDefaultPaper && dom.selectDefaultPaper.value) || tpl.paperType || 'grid';
+      const dims = getPageDimensionsForSizeAndOrientation(tpl.sizeId || 'goodnotes_standard', tpl.orientation || 'portrait');
+      const templateOptions = {
+        paperType,
+        paperTone: tpl.paperTone === 'all' ? 'white' : (tpl.paperTone || 'white'),
+        gridSize: Number.isFinite(tpl.gridSize) ? tpl.gridSize : 28,
+        viewMode: dims.viewMode,
+        pageSize: tpl.sizeId || 'goodnotes_standard',
+        pageOrientation: tpl.orientation || 'portrait',
+        pageWidth: dims.width,
+        pageHeight: dims.height,
+        templateLanguage: tpl.language || 'fr',
+        customTemplateDataUrl: tpl.customTemplateDataUrl || null,
+        coverTemplateId: tpl.coverTemplateId || undefined,
+        coverCustomDataUrl: tpl.coverCustomDataUrl || null
+      };
       closeNb();
-      const created = await paidCreateNotebook(title, paperType, state.newNotebookCover);
+      const created = await paidCreateNotebook(title, paperType, state.newNotebookCover, templateOptions);
       if (created && state.filesPageOpen && typeof closeFilesPage === 'function') {
         closeFilesPage();
       }
@@ -18908,6 +19368,8 @@
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) performRedo(); else performUndo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); performRedo(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && hasAnyLassoSelection()) { e.preventDefault(); copyLassoSelection(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && state.lassoClipboard) { e.preventDefault(); pasteLassoSelection(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleSb(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedShapeId) { e.preventDefault(); deleteSelectedShape(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && hasAnyLassoSelection()) { e.preventDefault(); deleteLassoSelection(); return; }
@@ -21686,6 +22148,285 @@
     }
   }
 
+  // ---------- Bons du banquier publiés sur GitHub (credits/bons.json, branche main) ----------
+  // Chaque bon est signé en ECDSA P-256 / SHA-256 par scripts/bons-banquier.js avec une clé
+  // privée qui reste sur le PC du banquier. L'app n'embarque que la clé publique : elle vérifie
+  // les bons mais ne peut pas en fabriquer. Un bon modifié, inventé ou mal signé est ignoré.
+  // Récupération mémorisée localement (pas de serveur) : un bon ne sert qu'une fois par appareil.
+  // <bons-cle-publique> écrite par scripts/bons-banquier.js init : clé publique seule, la clé privée reste chez le banquier
+  const DETENTE_BONS_PUBLIC_KEY = { kty: 'EC', crv: 'P-256', x: '1cFoTBrSWy0O7CjE_ml6ywJOJNXQgdV_olQlhT4Foas', y: 'lH908q2W0y4pooY9U-G1k1BOgmftzWQbhd8dVUwDhNQ' };
+  // </bons-cle-publique>
+  const DETENTE_BONS_SOURCES = [
+    { url: 'https://api.github.com/repos/vtudkbgy/inkflow/contents/credits/bons.json?ref=main', api: true },
+    { url: 'https://raw.githubusercontent.com/vtudkbgy/inkflow/main/credits/bons.json', api: false }
+  ];
+  const DETENTE_BONS_CLAIMED_KEY = 'inkflow.detente.bonsRecus.v1';
+  const DETENTE_BONS_POLL_MS = 10 * 60 * 1000;
+  const DETENTE_BONS_MIN_REFRESH_MS = 30 * 1000;
+  const DETENTE_BONS_MAX_AMOUNT = 10000000;
+  const DETENTE_BONS_MAX_MESSAGE = 140;
+  const detenteBons = { list: [], fetching: null, lastFetch: 0, started: false, claiming: new Set(), notified: new Set() };
+  let detenteBonsKeyPromise = null;
+
+  // Texte signé : doit rester identique à bonPayload() dans scripts/bons-banquier.js
+  function detenteBonPayload(bon) {
+    return ['inkflow-bon-v1', bon.id, bon.type, String(bon.montant), bon.expire || '', bon.message || ''].join('\n');
+  }
+
+  function detenteBase64UrlToBytes(s) {
+    const b64 = String(s).replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64 + '==='.slice((b64.length + 3) % 4));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function isDetenteBonShapeValid(bon) {
+    return Boolean(bon && typeof bon === 'object'
+      && typeof bon.id === 'string' && /^[a-z0-9-]{6,40}$/.test(bon.id)
+      && (bon.type === 'cadeau' || bon.type === 'pret')
+      && Number.isInteger(bon.montant) && bon.montant >= 1 && bon.montant <= DETENTE_BONS_MAX_AMOUNT
+      && (bon.expire === undefined || (typeof bon.expire === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(bon.expire)))
+      && (bon.message === undefined || (typeof bon.message === 'string' && bon.message.length <= DETENTE_BONS_MAX_MESSAGE))
+      && typeof bon.sig === 'string' && bon.sig.length >= 80 && bon.sig.length <= 100);
+  }
+
+  function isDetenteBonExpired(bon, now) {
+    if (!bon.expire) return false;
+    const end = new Date(`${bon.expire}T23:59:59`).getTime();
+    return Number.isFinite(end) && end < now;
+  }
+
+  function getDetenteBonsKey(jwk) {
+    const subtle = crypto.subtle;
+    const algo = { name: 'ECDSA', namedCurve: 'P-256' };
+    if (jwk && jwk !== DETENTE_BONS_PUBLIC_KEY) return subtle.importKey('jwk', jwk, algo, false, ['verify']);
+    if (!detenteBonsKeyPromise) {
+      detenteBonsKeyPromise = subtle.importKey('jwk', DETENTE_BONS_PUBLIC_KEY, algo, false, ['verify'])
+        .catch((err) => { detenteBonsKeyPromise = null; throw err; });
+    }
+    return detenteBonsKeyPromise;
+  }
+
+  // Retourne les bons à la forme correcte, non expirés et dont la signature est valide
+  async function verifyDetenteBons(doc, options = {}) {
+    const jwk = options.publicKey || DETENTE_BONS_PUBLIC_KEY;
+    if (!jwk.x || !jwk.y) return [];
+    if (!doc || typeof doc !== 'object' || !Array.isArray(doc.bons)) return [];
+    if (typeof crypto === 'undefined' || !crypto.subtle) return [];
+    const key = await getDetenteBonsKey(options.publicKey);
+    const now = Number.isFinite(options.now) ? options.now : Date.now();
+    const seen = new Set();
+    const valid = [];
+    for (const bon of doc.bons.slice(0, 200)) {
+      if (!isDetenteBonShapeValid(bon) || seen.has(bon.id) || isDetenteBonExpired(bon, now)) continue;
+      let ok = false;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key,
+          detenteBase64UrlToBytes(bon.sig), new TextEncoder().encode(detenteBonPayload(bon)));
+      } catch (_) { ok = false; }
+      if (!ok) continue;
+      seen.add(bon.id);
+      valid.push({ id: bon.id, type: bon.type, montant: bon.montant, expire: bon.expire || '', message: bon.message || '' });
+    }
+    return valid;
+  }
+
+  function loadDetenteClaimedBons() {
+    try {
+      const raw = localStorage.getItem(DETENTE_BONS_CLAIMED_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(arr) ? arr.filter((id) => typeof id === 'string') : []);
+    } catch (_) {
+      return new Set();
+    }
+  }
+
+  function saveDetenteClaimedBons(set) {
+    try { localStorage.setItem(DETENTE_BONS_CLAIMED_KEY, JSON.stringify(Array.from(set).slice(-500))); } catch (_) {}
+  }
+
+  function getDetentePendingBons() {
+    const claimed = loadDetenteClaimedBons();
+    return detenteBons.list.filter((b) => !claimed.has(b.id) && !detenteBons.claiming.has(b.id));
+  }
+
+  // null : aucune source joignable (hors-ligne) ; on garde alors la dernière liste connue
+  async function fetchDetenteBonsDocument() {
+    if (typeof fetch !== 'function') return null;
+    for (const src of DETENTE_BONS_SOURCES) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const res = await fetch(src.api ? src.url : `${src.url}?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: src.api ? { Accept: 'application/vnd.github.raw+json' } : {}
+        });
+        if (res.status === 404) return { bons: [] };
+        if (!res.ok) continue;
+        // eslint-disable-next-line no-await-in-loop
+        return await res.json();
+      } catch (_) { /* hors-ligne, quota de l'API ou réponse illisible : source suivante */ }
+    }
+    return null;
+  }
+
+  // options.document : document déjà lu (tests) ; options.publicKey / options.now : injectés par les tests
+  function refreshDetenteBons(options = {}) {
+    if (detenteBons.fetching) return detenteBons.fetching;
+    detenteBons.lastFetch = Date.now();
+    detenteBons.fetching = (async () => {
+      try {
+        const doc = options.document !== undefined ? options.document : await fetchDetenteBonsDocument();
+        if (doc) {
+          detenteBons.list = await verifyDetenteBons(doc, options);
+          renderDetenteBons();
+        }
+      } catch (_) { /* vérification impossible : la liste précédente reste affichée */ }
+      return getDetentePendingBons();
+    })().finally(() => { detenteBons.fetching = null; });
+    return detenteBons.fetching;
+  }
+
+  function startDetenteBonsPolling() {
+    if (detenteBons.started) return;
+    if (typeof fetch !== 'function' || typeof crypto === 'undefined' || !crypto.subtle) return;
+    if (!DETENTE_BONS_PUBLIC_KEY.x) return;
+    detenteBons.started = true;
+    const tick = () => {
+      setTimeout(tick, DETENTE_BONS_POLL_MS);
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      refreshDetenteBons();
+    };
+    setTimeout(tick, 4000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && Date.now() - detenteBons.lastFetch > DETENTE_BONS_POLL_MS) refreshDetenteBons();
+    });
+  }
+
+  function describeDetenteBon(bon) {
+    const plural = bon.montant > 1 ? 's' : '';
+    return bon.type === 'pret'
+      ? `Prêt de ${formatJetons(bon.montant)} jeton${plural}`
+      : `${formatJetons(bon.montant)} jeton${plural} offert${plural}`;
+  }
+
+  function renderDetenteBons() {
+    const pending = getDetentePendingBons();
+    const total = pending.reduce((sum, b) => sum + b.montant, 0);
+    const sideBtn = document.getElementById('btnOpenDetente');
+    if (sideBtn) {
+      sideBtn.classList.toggle('has-bon', pending.length > 0);
+      sideBtn.title = pending.length > 0
+        ? `Détente : le banquier t’a envoyé ${formatJetons(total)} jetons à récupérer (Maj+J)`
+        : 'Détente : jeux, boutique et banque, jetons fictifs (Maj+J)';
+    }
+    // Petite notification, une fois par bon et par session, si la page Détente est fermée
+    const fresh = pending.filter((b) => !detenteBons.notified.has(b.id));
+    fresh.forEach((b) => detenteBons.notified.add(b.id));
+    if (fresh.length && !state.detentePageOpen && typeof showToast === 'function') {
+      const sum = fresh.reduce((s, b) => s + b.montant, 0);
+      showToast(`Le banquier t’a envoyé ${formatJetons(sum)} jetons : ouvre Détente pour les récupérer.`, 'info', 'detente-bons');
+    }
+
+    const wrap = document.getElementById('detenteBons');
+    if (!wrap || typeof wrap.querySelectorAll !== 'function') return;
+    const shownIds = new Set(pending.map((b) => b.id));
+    // Retire les bons disparus du fichier (sauf celui en cours d'animation)
+    wrap.querySelectorAll('.detente-bon').forEach((el) => {
+      if (!shownIds.has(el.dataset.bonId) && !el.classList.contains('claimed')) el.remove();
+    });
+    pending.forEach((bon) => {
+      if (wrap.querySelector(`.detente-bon[data-bon-id="${bon.id}"]`)) return;
+      const item = document.createElement('div');
+      item.className = 'detente-bon';
+      item.dataset.bonId = bon.id;
+      const text = document.createElement('div');
+      text.className = 'detente-bon-text';
+      const from = document.createElement('span');
+      from.className = 'detente-label';
+      from.textContent = bon.type === 'pret' ? 'Prêt du banquier' : 'Du banquier';
+      const amount = document.createElement('strong');
+      amount.className = 'detente-bon-amount';
+      amount.textContent = describeDetenteBon(bon);
+      text.appendChild(from);
+      text.appendChild(amount);
+      if (bon.message) {
+        const msg = document.createElement('span');
+        msg.className = 'detente-bon-msg';
+        msg.textContent = bon.message;
+        text.appendChild(msg);
+      }
+      if (bon.type === 'pret') {
+        const note = document.createElement('span');
+        note.className = 'detente-bon-msg';
+        note.textContent = 'La même somme s’ajoute à ta dette.';
+        text.appendChild(note);
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'detente-spin-btn detente-bon-btn';
+      btn.dataset.bonClaim = bon.id;
+      btn.textContent = `Récupérer ${formatJetons(bon.montant)} jeton${bon.montant > 1 ? 's' : ''}`;
+      item.appendChild(text);
+      item.appendChild(btn);
+      wrap.appendChild(item);
+    });
+    wrap.classList.toggle('hidden', !wrap.querySelector('.detente-bon'));
+  }
+
+  // Crédite le bon une seule fois : l'identifiant est mémorisé avant le crédit
+  function claimDetenteBon(id) {
+    if (detenteBons.claiming.has(id)) return false;
+    const bon = getDetentePendingBons().find((b) => b.id === id);
+    if (!bon) return false;
+    loadDetenteState();
+    detenteBons.claiming.add(id);
+    const claimed = loadDetenteClaimedBons();
+    claimed.add(id);
+    saveDetenteClaimedBons(claimed);
+    const start = detenteState.balance;
+    if (bon.type === 'pret') {
+      detenteState.debt += bon.montant;
+      detenteState.borrowed += bon.montant;
+    }
+    detenteAddBalance(bon.montant);
+    if (state.detentePageOpen) {
+      animateDetenteBalance(start, detenteState.balance);
+      playDetenteChime(bon.montant >= 1000);
+    }
+    animateDetenteBonOut(id, bon);
+    return true;
+  }
+
+  function animateDetenteBonOut(id, bon) {
+    const wrap = document.getElementById('detenteBons');
+    const item = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector(`.detente-bon[data-bon-id="${id}"]`) : null;
+    const finish = () => {
+      if (item && item.parentNode) item.remove();
+      detenteBons.claiming.delete(id);
+      renderDetenteBons();
+    };
+    if (!item || isDetenteReducedMotion()) { finish(); return; }
+    const btn = item.querySelector('.detente-bon-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = `+${formatJetons(bon.montant)}`;
+    }
+    const burst = document.createElement('span');
+    burst.className = 'detente-bon-float';
+    burst.setAttribute('aria-hidden', 'true');
+    burst.textContent = `+${formatJetons(bon.montant)}`;
+    item.appendChild(burst);
+    item.style.height = `${item.offsetHeight}px`;
+    item.classList.add('claimed');
+    setTimeout(() => {
+      item.classList.add('collapsing');
+      item.style.height = '0px';
+    }, 520);
+    setTimeout(finish, 1000);
+  }
+
   function repayDetenteDebt(all) {
     if (detenteState.debt <= 0) return;
     let amount = detenteState.debt;
@@ -23153,6 +23894,13 @@
     });
     renderDetenteOdds();
 
+    // Bons du banquier (GitHub)
+    document.getElementById('detenteBons')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-bon-claim]');
+      if (btn && !btn.disabled) claimDetenteBon(btn.dataset.bonClaim);
+    });
+    startDetenteBonsPolling();
+
     window.addEventListener('resize', () => { if (state.detentePageOpen && detenteState.tab === 'slot' && !detenteState.spinning) renderDetenteReels(); });
     // La page capte tous ses gestes : rien ne doit atteindre la toile en dessous
     ['wheel', 'contextmenu'].forEach((type) => pageEl.addEventListener(type, (e) => {
@@ -23217,6 +23965,8 @@
     pageEl.classList.remove('hidden');
     document.getElementById('btnOpenDetente')?.classList.add('active');
     setDetenteTab(detenteState.tab);
+    renderDetenteBons();
+    if (detenteBons.started && Date.now() - detenteBons.lastFetch > DETENTE_BONS_MIN_REFRESH_MS) refreshDetenteBons();
     // Retire le focus de la toile ou de la barre d'outils : Espace et Entrée lancent la machine
     if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
     return true;
@@ -23383,6 +24133,7 @@
         closeGnFilesMenus();
         if (act === 'notebook') {
           if (dom.inputNotebookName) dom.inputNotebookName.value = '';
+          if (typeof updateNewNotebookPaperPreview === 'function') updateNewNotebookPaperPreview();
           if (dom.modalNewNotebook) dom.modalNewNotebook.classList.remove('hidden');
         } else if (act === 'folder') {
           openFolderCustomizeModal(null);
@@ -24192,6 +24943,9 @@
 
   const gnTemplateModalState = {
     open: false,
+    mode: 'page', // 'page' | 'new-notebook'
+    onApplyNewNotebook: null,
+    coverTouchedInPicker: false,
     activeTab: 'paper', // 'paper' | 'cover'
     editMode: false,
     sizeId: 'goodnotes_standard',
@@ -24521,15 +25275,20 @@
     const colorLbl = document.getElementById('gnTplColorLabel');
     const langLbl = document.getElementById('gnTplLangLabel');
     const scopeLbl = document.getElementById('gnTplScopeLabel');
+    const scopeWrap = document.querySelector('.gn-tpl-scope-wrap');
+    const applyBtn = document.getElementById('gnTplBtnApply');
     const colorWrap = document.getElementById('gnTplColorFilterWrap');
     const spacingCtrl = document.getElementById('gnTplSpacingControl');
     const spacingSlider = document.getElementById('gnTplGridSpacingSlider');
     const spacingVal = document.getElementById('gnTplGridSpacingVal');
 
+    const isNewNbPicker = st.mode === 'new-notebook';
     if (sizeLbl) sizeLbl.textContent = curSize.label;
     if (colorLbl) colorLbl.textContent = curTone.label;
     if (langLbl) langLbl.textContent = curLang.label;
     if (scopeLbl) scopeLbl.textContent = st.scope === 'all' ? 'Toutes les pages' : 'Page actuelle';
+    if (scopeWrap) scopeWrap.classList.toggle('hidden', isNewNbPicker);
+    if (applyBtn) applyBtn.textContent = isNewNbPicker ? 'Sélectionner' : 'Appliquer';
     if (colorWrap) colorWrap.classList.toggle('hidden', !isPaper);
     if (spacingCtrl) spacingCtrl.classList.toggle('hidden', !isPaper);
     if (spacingSlider) spacingSlider.value = String(st.gridSize || 28);
@@ -24672,6 +25431,7 @@
             st.selectedCustomDataUrl = item.dataUrl || null;
           } else {
             st.selectedCoverId = item.id;
+            st.coverTouchedInPicker = true;
           }
           renderGnTemplateLibraryModal();
         });
@@ -24683,6 +25443,7 @@
             st.selectedCustomDataUrl = item.dataUrl || null;
           } else {
             st.selectedCoverId = item.id;
+            st.coverTouchedInPicker = true;
           }
           applyGnTemplateLibrarySelection();
         });
@@ -24713,36 +25474,105 @@
     }
   }
 
-  function openGnTemplateLibraryModal(initialTab = 'paper') {
+  function updateNewNotebookPaperPreview() {
+    loadGnCustomTemplatesStore();
+    const tpl = state.newNotebookTemplate || {
+      paperType: 'grid',
+      paperTone: 'white',
+      gridSize: 28,
+      language: 'fr',
+      sizeId: 'goodnotes_standard',
+      orientation: 'portrait',
+      customTemplateDataUrl: null
+    };
+    const paperId = tpl.paperType || 'grid';
+    if (dom.selectDefaultPaper) dom.selectDefaultPaper.value = paperId;
+
+    const flatPapers = [
+      ...GN_PAPER_TEMPLATE_GROUPS.flatMap((g) => g.items),
+      ...(gnTemplateModalState.customStore.templates || []).filter((t) => (t.type || 'paper') === 'paper')
+    ];
+    const item = flatPapers.find((p) => p.id === paperId) || {
+      id: paperId,
+      label: paperId,
+      dataUrl: tpl.customTemplateDataUrl || null
+    };
+    const sizePreset = GN_PAGE_SIZE_PRESETS.find((s) => s.id === tpl.sizeId) || GN_PAGE_SIZE_PRESETS[0];
+    const tonePreset = GN_PAPER_TONE_OPTIONS.find((t) => t.id === (tpl.paperTone || 'white')) || GN_PAPER_TONE_OPTIONS[0];
+    const isInfinite = Boolean(sizePreset && sizePreset.isInfinite);
+    const isLand = tpl.orientation === 'landscape';
+
+    const titleEl = document.getElementById('newNotebookPaperTitle');
+    const metaEl = document.getElementById('newNotebookPaperMeta');
+    const previewWrap = document.getElementById('newNotebookPaperPreviewWrap');
+    const previewCanvas = document.getElementById('newNotebookPaperPreviewCanvas');
+
+    if (titleEl) titleEl.textContent = item.label || 'Papier quadrillé';
+    if (metaEl) {
+      const parts = [sizePreset.label, tonePreset.label];
+      if (!isInfinite) parts.push(isLand ? 'Paysage' : 'Portrait');
+      parts.push(`${Number.isFinite(tpl.gridSize) ? tpl.gridSize : 28}px`);
+      metaEl.textContent = parts.join(' · ');
+    }
+    if (previewWrap) previewWrap.classList.toggle('landscape', !isInfinite && isLand);
+    if (previewCanvas) {
+      renderGnPaperThumbnail(
+        previewCanvas,
+        { ...item, dataUrl: tpl.customTemplateDataUrl || item.dataUrl || null },
+        tpl.paperTone || 'white',
+        isInfinite ? 'portrait' : (tpl.orientation || 'portrait'),
+        tpl.language || 'fr',
+        Number.isFinite(tpl.gridSize) ? tpl.gridSize : 28
+      );
+    }
+  }
+
+  function openGnTemplateLibraryModal(initialTab = 'paper', options = null) {
     const modal = document.getElementById('gnTemplateLibraryModal');
     if (!modal) return;
     loadGnCustomTemplatesStore();
 
-    const page = getActivePage();
-    const nb = getActiveNotebook();
     const st = gnTemplateModalState;
+    const isNewNbPicker = Boolean(options && options.mode === 'new-notebook');
 
     st.open = true;
+    st.mode = isNewNbPicker ? 'new-notebook' : 'page';
+    st.onApplyNewNotebook = (isNewNbPicker && typeof options.onApply === 'function') ? options.onApply : null;
+    st.coverTouchedInPicker = false;
     st.activeTab = initialTab === 'cover' ? 'cover' : 'paper';
     st.editMode = false;
     st.selectedForDeletion.clear();
     closeAllGnTplDropdowns();
 
-    if (page) {
-      st.selectedPaperId = page.paperType || 'grid';
-      st.selectedCustomDataUrl = page.customTemplateDataUrl || null;
-      st.toneId = page.paperTone || 'white';
-      st.gridSize = Number.isFinite(page.gridSize) ? page.gridSize : 28;
-      st.language = page.templateLanguage || 'fr';
-      st.orientation = page.pageOrientation || ((page.pageWidth && page.pageHeight && page.pageWidth > page.pageHeight) ? 'landscape' : 'portrait');
-      if ((page.viewMode || 'infinite') === 'infinite' && !page.pdfId) {
-        st.sizeId = 'infinite';
-      } else {
-        st.sizeId = page.pageSize || 'goodnotes_standard';
+    if (isNewNbPicker) {
+      const init = (options && options.initial) || state.newNotebookTemplate || {};
+      st.selectedPaperId = init.paperType || 'grid';
+      st.selectedCustomDataUrl = init.customTemplateDataUrl || null;
+      st.toneId = init.paperTone || 'white';
+      st.gridSize = Number.isFinite(init.gridSize) ? init.gridSize : 28;
+      st.language = init.language || 'fr';
+      st.orientation = init.orientation || 'portrait';
+      st.sizeId = init.sizeId || 'goodnotes_standard';
+      st.selectedCoverId = init.coverTemplateId || 'simple-blue';
+    } else {
+      const page = getActivePage();
+      const nb = getActiveNotebook();
+      if (page) {
+        st.selectedPaperId = page.paperType || 'grid';
+        st.selectedCustomDataUrl = page.customTemplateDataUrl || null;
+        st.toneId = page.paperTone || 'white';
+        st.gridSize = Number.isFinite(page.gridSize) ? page.gridSize : 28;
+        st.language = page.templateLanguage || 'fr';
+        st.orientation = page.pageOrientation || ((page.pageWidth && page.pageHeight && page.pageWidth > page.pageHeight) ? 'landscape' : 'portrait');
+        if ((page.viewMode || 'infinite') === 'infinite' && !page.pdfId) {
+          st.sizeId = 'infinite';
+        } else {
+          st.sizeId = page.pageSize || 'goodnotes_standard';
+        }
       }
-    }
-    if (nb) {
-      st.selectedCoverId = nb.coverTemplateId || 'simple-blue';
+      if (nb) {
+        st.selectedCoverId = nb.coverTemplateId || 'simple-blue';
+      }
     }
 
     modal.classList.remove('hidden');
@@ -24753,6 +25583,9 @@
     const modal = document.getElementById('gnTemplateLibraryModal');
     if (modal) modal.classList.add('hidden');
     gnTemplateModalState.open = false;
+    gnTemplateModalState.mode = 'page';
+    gnTemplateModalState.onApplyNewNotebook = null;
+    gnTemplateModalState.coverTouchedInPicker = false;
     gnTemplateModalState.editMode = false;
     gnTemplateModalState.selectedForDeletion.clear();
     closeAllGnTplDropdowns();
@@ -24760,6 +25593,33 @@
 
   function applyGnTemplateLibrarySelection() {
     const st = gnTemplateModalState;
+
+    if (st.mode === 'new-notebook') {
+      const flatCovers = [
+        ...GN_COVER_TEMPLATE_GROUPS.flatMap((g) => g.items),
+        ...(st.customStore.templates || []).filter((t) => t.type === 'cover')
+      ];
+      const coverSelected = Boolean(st.activeTab === 'cover' || st.coverTouchedInPicker);
+      const chosenCover = coverSelected ? flatCovers.find((c) => c.id === st.selectedCoverId) : null;
+      const picked = {
+        paperType: st.selectedPaperId || 'grid',
+        paperTone: st.toneId === 'all' ? 'white' : (st.toneId || 'white'),
+        gridSize: Number.isFinite(st.gridSize) ? st.gridSize : 28,
+        language: st.language || 'fr',
+        sizeId: st.sizeId || 'goodnotes_standard',
+        orientation: st.orientation || 'portrait',
+        customTemplateDataUrl: st.selectedCustomDataUrl || null,
+        coverSelected: Boolean(chosenCover),
+        coverTemplateId: chosenCover ? chosenCover.id : null,
+        coverColor: chosenCover ? (chosenCover.coverColor || null) : null,
+        coverCustomDataUrl: chosenCover ? (chosenCover.dataUrl || null) : null
+      };
+      const cb = st.onApplyNewNotebook;
+      closeGnTemplateLibraryModal();
+      if (typeof cb === 'function') cb(picked);
+      return;
+    }
+
     const page = getActivePage();
     const nb = getActiveNotebook();
     if (!page || !nb) {
@@ -25274,24 +26134,31 @@
     }
     if (resizer) resizer.classList.toggle('hidden', !sv.open);
     if (pane) pane.classList.toggle('hidden', !sv.open);
-    if (!sv.open) return;
+    if (!sv.open) {
+      closeSplitNotebookPopover();
+      return;
+    }
 
-    const sel = document.getElementById('splitNotebookSelect');
     const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
-    if (sel) {
-      if (!activeNbs.some((n) => n.id === sv.notebookId)) {
-        const other = activeNbs.find((n) => n.id !== state.activeNotebookId) || activeNbs[0];
-        sv.notebookId = other ? other.id : null;
-        sv.pageId = null;
-      }
-      sel.innerHTML = '';
-      activeNbs.forEach((nb) => {
-        const opt = document.createElement('option');
-        opt.value = nb.id;
-        opt.textContent = nb.id === state.activeNotebookId ? `${nb.title || 'Cahier'} (actif)` : (nb.title || 'Sans titre');
-        if (nb.id === sv.notebookId) opt.selected = true;
-        sel.appendChild(opt);
-      });
+    if (!activeNbs.some((n) => n.id === sv.notebookId)) {
+      const other = activeNbs.find((n) => n.id !== state.activeNotebookId) || activeNbs[0];
+      sv.notebookId = other ? other.id : null;
+      sv.pageId = null;
+    }
+    const curNb = activeNbs.find((n) => n.id === sv.notebookId) || null;
+    const triggerBtn = document.getElementById('btnSplitNotebookPicker');
+    const triggerDot = document.getElementById('splitNbTriggerDot');
+    const triggerLabel = document.getElementById('splitNbTriggerLabel');
+    const triggerBadge = document.getElementById('splitNbTriggerBadge');
+    if (triggerDot) triggerDot.style.background = (curNb && curNb.color) || '#0072ce';
+    if (triggerLabel) triggerLabel.textContent = (curNb && curNb.title) || 'Choisir un fichier';
+    if (triggerBadge) triggerBadge.classList.toggle('hidden', !curNb || curNb.id !== state.activeNotebookId);
+    if (triggerBtn) {
+      triggerBtn.classList.toggle('open', Boolean(sv.pickerOpen));
+      triggerBtn.setAttribute('aria-expanded', String(Boolean(sv.pickerOpen)));
+    }
+    if (sv.pickerOpen) {
+      renderSplitNotebookPickerList();
     }
 
     const pages = getSplitPanePages();
@@ -25465,7 +26332,267 @@
     return true;
   }
 
+  const splitNaturalCollator = (typeof Intl !== 'undefined' && typeof Intl.Collator === 'function')
+    ? new Intl.Collator('fr', { numeric: true, sensitivity: 'base' })
+    : null;
+
+  function compareSplitTitles(a, b) {
+    const sa = String(a || '').trim();
+    const sb = String(b || '').trim();
+    if (splitNaturalCollator) return splitNaturalCollator.compare(sa, sb);
+    return sa.localeCompare(sb, undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  function getNotebookFolderPathLabel(nb) {
+    if (!nb || !nb.folderId) return '';
+    if (typeof getFolderPath === 'function') {
+      const chain = getFolderPath(nb.folderId) || [];
+      if (chain.length > 0) return chain.map((f) => f.name || 'Dossier').join(' / ');
+    }
+    const f = (state.folders || []).find((x) => x.id === nb.folderId && !x.trashedAt);
+    return f ? (f.name || 'Dossier') : '';
+  }
+
+  function getNotebookLastActivityTs(nb) {
+    if (!nb) return 0;
+    const pages = (state.pagesByNotebook.get(nb.id) || []).filter((p) => !p.trashedAt);
+    let latest = Number(nb.updatedAt || nb.createdAt || 0);
+    for (const p of pages) {
+      const ts = Number(p.updatedAt || p.createdAt || 0);
+      if (ts > latest) latest = ts;
+    }
+    return latest;
+  }
+
+  function positionSplitNotebookPopover() {
+    const pop = document.getElementById('splitNotebookPopover');
+    const caret = document.getElementById('splitNotebookPopoverCaret');
+    const anchor = document.getElementById('btnSplitNotebookPicker');
+    if (!pop || !anchor || typeof anchor.getBoundingClientRect !== 'function') return;
+    const aR = anchor.getBoundingClientRect();
+    const pR = pop.getBoundingClientRect();
+    const popW = pR.width > 0 ? pR.width : 300;
+    const popH = pR.height > 0 ? pR.height : 340;
+    const vw = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1200;
+    const vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
+
+    let left = Math.round(aR.left);
+    left = Math.max(12, Math.min(vw - popW - 12, left));
+    let top = Math.round(aR.bottom + 8);
+    if (top + popH > vh - 12 && aR.top - popH - 8 >= 12) {
+      top = Math.round(aR.top - popH - 8);
+    } else if (top + popH > vh - 12) {
+      top = Math.max(12, vh - popH - 12);
+    }
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+    if (caret) {
+      const anchorCenterX = aR.left + Math.min(aR.width * 0.5, 80);
+      const relX = Math.max(20, Math.min(popW - 20, anchorCenterX - left));
+      caret.style.left = `${Math.round(relX)}px`;
+    }
+  }
+
+  function closeSplitNotebookPopover() {
+    if (!state.splitView) return;
+    state.splitView.pickerOpen = false;
+    const pop = document.getElementById('splitNotebookPopover');
+    if (pop) pop.classList.add('hidden');
+    const triggerBtn = document.getElementById('btnSplitNotebookPicker');
+    if (triggerBtn) {
+      triggerBtn.classList.remove('open');
+      triggerBtn.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  function selectSplitNotebook(nbId) {
+    if (!nbId) return;
+    state.splitView.notebookId = nbId;
+    const pages = getSplitPanePages();
+    if (nbId === state.activeNotebookId && pages.length > 1) {
+      const curIdx = pages.findIndex((p) => p.id === state.activePageId);
+      state.splitView.pageId = pages[(curIdx + 1) % pages.length].id;
+    } else {
+      state.splitView.pageId = pages[0] ? pages[0].id : null;
+    }
+    closeSplitNotebookPopover();
+    syncSplitViewUi();
+    fitSplitPaneToWidth();
+  }
+
+  function renderSplitNotebookPickerList() {
+    const listEl = document.getElementById('splitNbList');
+    if (!listEl) return;
+    const sv = state.splitView;
+    const sortMode = sv.sortMode || 'folders';
+    const q = String(sv.searchQuery || '').trim().toLowerCase();
+
+    document.querySelectorAll('#splitNbSortPills .split-nb-sort-pill').forEach((pill) => {
+      const isAct = pill.dataset.splitSort === sortMode;
+      pill.classList.toggle('active', isAct);
+      pill.setAttribute('aria-selected', String(isAct));
+    });
+
+    const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
+    const enriched = activeNbs.map((nb) => {
+      const pages = (state.pagesByNotebook.get(nb.id) || []).filter((p) => !p.trashedAt);
+      const folderPath = getNotebookFolderPathLabel(nb);
+      const isPdf = pages.some((p) => Boolean(p.pdfId));
+      return {
+        nb,
+        title: nb.title || 'Sans titre',
+        folderPath,
+        pageCount: pages.length,
+        isPdf,
+        isActivePrimary: nb.id === state.activeNotebookId,
+        isSelectedSplit: nb.id === sv.notebookId,
+        lastTs: getNotebookLastActivityTs(nb)
+      };
+    }).filter((entry) => {
+      if (!q) return true;
+      return entry.title.toLowerCase().includes(q) || entry.folderPath.toLowerCase().includes(q);
+    });
+
+    listEl.innerHTML = '';
+    if (enriched.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'split-nb-empty';
+      empty.textContent = q ? 'Aucun fichier ne correspond à votre recherche.' : 'Aucun cahier disponible.';
+      listEl.appendChild(empty);
+      return;
+    }
+
+    const appendRow = (entry, showFolderSub) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `split-nb-item${entry.isSelectedSplit ? ' selected' : ''}`;
+      btn.setAttribute('role', 'option');
+      btn.setAttribute('aria-selected', String(entry.isSelectedSplit));
+      btn.dataset.splitNbId = entry.nb.id;
+
+      const dot = document.createElement('span');
+      dot.className = 'split-nb-item-dot';
+      dot.style.background = entry.nb.color || '#0072ce';
+      btn.appendChild(dot);
+
+      const main = document.createElement('span');
+      main.className = 'split-nb-item-main';
+      const titleEl = document.createElement('span');
+      titleEl.className = 'split-nb-item-title';
+      titleEl.textContent = entry.title;
+      main.appendChild(titleEl);
+      if (showFolderSub && entry.folderPath) {
+        const subEl = document.createElement('span');
+        subEl.className = 'split-nb-item-sub';
+        subEl.textContent = entry.folderPath;
+        main.appendChild(subEl);
+      }
+      btn.appendChild(main);
+
+      const right = document.createElement('span');
+      right.className = 'split-nb-item-right';
+      if (entry.isPdf) {
+        const pdfTag = document.createElement('span');
+        pdfTag.className = 'split-nb-item-tag pdf-doc';
+        pdfTag.textContent = 'PDF';
+        right.appendChild(pdfTag);
+      }
+      if (entry.isActivePrimary) {
+        const actTag = document.createElement('span');
+        actTag.className = 'split-nb-item-tag active-doc';
+        actTag.textContent = 'Actif';
+        right.appendChild(actTag);
+      }
+      const pagesEl = document.createElement('span');
+      pagesEl.className = 'split-nb-item-pages';
+      pagesEl.textContent = `${entry.pageCount} p.`;
+      right.appendChild(pagesEl);
+
+      if (entry.isSelectedSplit) {
+        const chk = document.createElement('span');
+        chk.className = 'split-nb-item-check';
+        chk.innerHTML = '<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10.5 8.2 14.8 16.5 6.2"></polyline></svg>';
+        right.appendChild(chk);
+      }
+      btn.appendChild(right);
+
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        selectSplitNotebook(entry.nb.id);
+      });
+      listEl.appendChild(btn);
+    };
+
+    if (sortMode === 'recent') {
+      enriched.sort((a, b) => (b.lastTs - a.lastTs) || compareSplitTitles(a.title, b.title));
+      enriched.forEach((entry) => appendRow(entry, true));
+    } else if (sortMode === 'alpha') {
+      enriched.sort((a, b) => compareSplitTitles(a.title, b.title));
+      enriched.forEach((entry) => appendRow(entry, true));
+    } else {
+      // Mode "Dossiers" : regroupe par dossier trié A–Z, puis fichiers triés naturellement (TD 3, TD 4, TD 5, TD 7…)
+      const hasAnyFolder = enriched.some((e) => Boolean(e.folderPath));
+      if (!hasAnyFolder) {
+        enriched.sort((a, b) => compareSplitTitles(a.title, b.title));
+        enriched.forEach((entry) => appendRow(entry, false));
+      } else {
+        const groups = new Map();
+        enriched.forEach((entry) => {
+          const key = entry.folderPath || '__root__';
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(entry);
+        });
+        const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
+          if (a === '__root__') return 1;
+          if (b === '__root__') return -1;
+          return compareSplitTitles(a, b);
+        });
+        sortedKeys.forEach((key) => {
+          const header = document.createElement('div');
+          header.className = 'split-nb-group-label';
+          header.innerHTML = key === '__root__'
+            ? '<span>Sans dossier</span>'
+            : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg><span></span>`;
+          if (key !== '__root__') {
+            const span = header.querySelector('span');
+            if (span) span.textContent = key;
+          }
+          listEl.appendChild(header);
+          const items = groups.get(key);
+          items.sort((a, b) => compareSplitTitles(a.title, b.title));
+          items.forEach((entry) => appendRow(entry, false));
+        });
+      }
+    }
+  }
+
+  function openSplitNotebookPopover() {
+    const pop = document.getElementById('splitNotebookPopover');
+    if (!pop) return;
+    state.splitView.pickerOpen = true;
+    state.splitView.searchQuery = '';
+    const searchInput = document.getElementById('splitNbSearchInput');
+    if (searchInput) searchInput.value = '';
+    pop.classList.remove('hidden');
+    syncSplitViewUi();
+    renderSplitNotebookPickerList();
+    positionSplitNotebookPopover();
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => positionSplitNotebookPopover());
+    }
+    if (searchInput) {
+      setTimeout(() => { try { searchInput.focus(); } catch (_) {} }, 20);
+    }
+  }
+
   function bindSplitViewEvents() {
+    try {
+      const savedSort = localStorage.getItem('inkflow_split_sort_v1');
+      if (savedSort === 'folders' || savedSort === 'alpha' || savedSort === 'recent') {
+        state.splitView.sortMode = savedSort;
+      }
+    } catch (_) {}
+
     const btnToggle = document.getElementById('btnToggleSplitView');
     if (btnToggle) {
       btnToggle.addEventListener('click', (e) => {
@@ -25479,16 +26606,58 @@
     const btnSwap = document.getElementById('btnSplitSwapPanes');
     if (btnSwap) btnSwap.addEventListener('click', () => swapSplitViewPanes());
 
-    const sel = document.getElementById('splitNotebookSelect');
-    if (sel) {
-      sel.addEventListener('change', () => {
-        state.splitView.notebookId = sel.value || state.activeNotebookId;
-        const pages = getSplitPanePages();
-        state.splitView.pageId = pages[0] ? pages[0].id : null;
-        syncSplitViewUi();
-        fitSplitPaneToWidth();
+    const btnPicker = document.getElementById('btnSplitNotebookPicker');
+    if (btnPicker) {
+      btnPicker.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (state.splitView.pickerOpen) closeSplitNotebookPopover();
+        else openSplitNotebookPopover();
       });
     }
+
+    const searchInput = document.getElementById('splitNbSearchInput');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        state.splitView.searchQuery = searchInput.value || '';
+        renderSplitNotebookPickerList();
+      });
+      searchInput.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeSplitNotebookPopover();
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          const firstItem = document.querySelector('#splitNbList .split-nb-item');
+          if (firstItem && firstItem.dataset.splitNbId) {
+            selectSplitNotebook(firstItem.dataset.splitNbId);
+          }
+        }
+      });
+    }
+
+    document.querySelectorAll('#splitNbSortPills .split-nb-sort-pill').forEach((pill) => {
+      pill.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const mode = pill.dataset.splitSort;
+        if (mode === 'folders' || mode === 'alpha' || mode === 'recent') {
+          state.splitView.sortMode = mode;
+          try { localStorage.setItem('inkflow_split_sort_v1', mode); } catch (_) {}
+          renderSplitNotebookPickerList();
+        }
+      });
+    });
+
+    document.addEventListener('pointerdown', (e) => {
+      if (!state.splitView || !state.splitView.pickerOpen) return;
+      if (e.target && typeof e.target.closest === 'function' && (
+        e.target.closest('#splitNotebookPopover') ||
+        e.target.closest('#btnSplitNotebookPicker')
+      )) {
+        return;
+      }
+      closeSplitNotebookPopover();
+    });
 
     const btnPrev = document.getElementById('btnSplitPrevPage');
     const btnNext = document.getElementById('btnSplitNextPage');
@@ -25588,6 +26757,7 @@
         invalidateStaticInkCache();
         requestRender();
         scheduleSplitPaneRender();
+        if (state.splitView.pickerOpen) positionSplitNotebookPopover();
       });
       const stopDrag = (e) => {
         if (!dragging) return;
@@ -25623,6 +26793,7 @@
       window.addEventListener('resize', () => {
         if (state.splitView && state.splitView.open) {
           scheduleSplitPaneRender();
+          if (state.splitView.pickerOpen) positionSplitNotebookPopover();
         }
       });
     }
@@ -26502,6 +27673,17 @@
   }
 
   function generateElementPreviewDataUrl(el) {
+    if (
+      el &&
+      Array.isArray(el.images) &&
+      el.images.length > 0 &&
+      el.images[0] &&
+      el.images[0].src &&
+      (!el.strokes || el.strokes.length === 0) &&
+      (!el.shapes || el.shapes.length === 0)
+    ) {
+      return el.images[0].src;
+    }
     if (typeof document === 'undefined') return '';
     try {
       const c = document.createElement('canvas');
@@ -26518,6 +27700,12 @@
       pctx.save();
       pctx.translate(ox, oy);
       pctx.scale(scale, scale);
+      (el.images || []).forEach((imgItem) => {
+        const imgEl = getCachedThumbnailImage(imgItem);
+        if (imgEl && typeof pctx.drawImage === 'function') {
+          try { pctx.drawImage(imgEl, imgItem.x || 0, imgItem.y || 0, imgItem.width || 120, imgItem.height || 90); } catch (_) {}
+        }
+      });
       (el.strokes || []).forEach((s) => drawSingleStroke(pctx, s, false, false));
       (el.shapes || []).forEach((sh) => drawGeometricShape(pctx, sh, false, false));
       pctx.restore();
@@ -26534,8 +27722,25 @@
     if (!page) return null;
     const selStrokes = (page.strokes || []).filter((s) => state.selectedIds.strokes.has(s.id));
     const selShapes = (page.shapes || []).filter((sh) => state.selectedIds.shapes.has(sh.id));
-    if (selStrokes.length === 0 && selShapes.length === 0) {
-      showToast('Entourez d’abord un schéma ou des traits avec le Lasso.', 'error');
+    const selImages = (page.images || []).filter((img) => state.selectedIds.images && state.selectedIds.images.has(img.id));
+    const rawImages = selImages.map((img) => ({
+      x: img.x || 0,
+      y: img.y || 0,
+      width: img.width || 240,
+      height: img.height || 180,
+      src: img.src
+    }));
+    if (state.lassoPdfClip && state.lassoPdfClip.src) {
+      rawImages.push({
+        x: state.lassoPdfClip.x || 0,
+        y: state.lassoPdfClip.y || 0,
+        width: state.lassoPdfClip.width || 200,
+        height: state.lassoPdfClip.height || 140,
+        src: state.lassoPdfClip.src
+      });
+    }
+    if (selStrokes.length === 0 && selShapes.length === 0 && rawImages.length === 0) {
+      showToast('Entourez d’abord un schéma, une zone PDF ou des traits avec le Lasso.', 'error');
       return null;
     }
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -26553,6 +27758,12 @@
       minY = Math.min(minY, bb.minY);
       maxX = Math.max(maxX, bb.maxX);
       maxY = Math.max(maxY, bb.maxY);
+    });
+    rawImages.forEach((img) => {
+      minX = Math.min(minX, img.x);
+      minY = Math.min(minY, img.y);
+      maxX = Math.max(maxX, img.x + img.width);
+      maxY = Math.max(maxY, img.y + img.height);
     });
     if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
 
@@ -26589,20 +27800,32 @@
       }
       return clone;
     });
+    const normImages = rawImages.map((img) => ({
+      x: Math.round((img.x - minX) * 100) / 100,
+      y: Math.round((img.y - minY) * 100) / 100,
+      width: Math.max(16, Math.round(img.width)),
+      height: Math.max(16, Math.round(img.height)),
+      src: img.src
+    }));
 
     const list = getSavedElementsLibrary();
     const width = Math.max(16, Math.round(maxX - minX));
     const height = Math.max(16, Math.round(maxY - minY));
+    const defaultLabel = (state.lassoPdfClip && normStrokes.length === 0 && normShapes.length === 0)
+      ? `Extrait PDF ${list.length + 1}`
+      : `Élément ${list.length + 1}`;
     const elObj = {
       id: createUid('el'),
-      name: (customName && String(customName).trim()) || `Élément ${list.length + 1}`,
+      name: (customName && String(customName).trim()) || defaultLabel,
       width,
       height,
       strokes: normStrokes,
       shapes: normShapes,
+      images: normImages,
       createdAt: Date.now()
     };
-    elObj.preview = generateElementPreviewDataUrl(elObj);
+    const isPureSingleImage = normImages.length === 1 && normStrokes.length === 0 && normShapes.length === 0;
+    elObj.preview = isPureSingleImage ? '' : generateElementPreviewDataUrl(elObj);
     list.unshift(elObj);
     saveElementsLibraryList(list);
     renderElementsPopover();
@@ -26643,6 +27866,7 @@
     pushHistorySnapshot(page);
     if (!Array.isArray(page.strokes)) page.strokes = [];
     if (!Array.isArray(page.shapes)) page.shapes = [];
+    if (!Array.isArray(page.images)) page.images = [];
     clearLassoSelection();
 
     (elObj.strokes || []).forEach((s) => {
@@ -26672,10 +27896,23 @@
       page.shapes.push(nsh);
       state.selectedIds.shapes.add(nsh.id);
     });
+    (elObj.images || []).forEach((img) => {
+      const nimg = {
+        id: createUid('img'),
+        x: Math.round((img.x || 0) + ox),
+        y: Math.round((img.y || 0) + oy),
+        width: Math.max(20, Math.round(img.width || 240)),
+        height: Math.max(20, Math.round(img.height || 180)),
+        src: img.src
+      };
+      page.images.push(nimg);
+      if (state.selectedIds.images) state.selectedIds.images.add(nimg.id);
+    });
 
     computeSelectionBounds();
     updateLassoToolbarBadge();
     updateLassoFloatingBarPosition();
+    renderWorldTextCards();
     invalidateStaticInkCache();
     requestRender();
     scheduleSaveActivePage(page);
@@ -27638,6 +28875,11 @@
       openDetentePage,
       closeDetentePage,
       evaluateDetenteLine,
+      verifyDetenteBons,
+      refreshDetenteBons,
+      claimDetenteBon,
+      getDetentePendingBons,
+      getDetenteWallet: () => ({ balance: detenteState.balance, debt: detenteState.debt, borrowed: detenteState.borrowed }),
       openRadialWheelEditor,
       RADIAL_WHEEL_COLORS,
       duplicateNotebookById,
@@ -27652,7 +28894,9 @@
       getGnColorPopoverState,
       openGnTemplateLibraryModal,
       closeGnTemplateLibraryModal,
+      applyGnTemplateLibrarySelection,
       getGnTemplateLibraryState,
+      updateNewNotebookPaperPreview,
       GN_PAGE_SIZE_PRESETS,
       GN_PAPER_TEMPLATE_GROUPS,
       GN_COVER_TEMPLATE_GROUPS,
@@ -27661,6 +28905,9 @@
       getToolColorPresets,
       applyColorFromGnPopover,
       duplicateLassoSelection,
+      copyLassoSelection,
+      pasteLassoSelection,
+      handleLassoPointerUp,
       deleteLassoSelection,
       clearLassoSelection,
       computeSelectionBounds,
@@ -27721,6 +28968,7 @@
   bindEvents();
   initGoodnotesExtensions();
   initGnTemplateLibraryModal();
+  updateNewNotebookPaperPreview();
   initNewFeaturesPack();
   updateToolbarActiveState();
   renderWorldTextCards();

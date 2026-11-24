@@ -32,7 +32,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' blob: data: asset: http://asset.localhost http://tauri.localhost https://tauri.localhost; script-src 'self' 'unsafe-inline' blob: data: http://tauri.localhost https://tauri.localhost; worker-src 'self' blob: http://tauri.localhost https://tauri.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost https://*.googleusercontent.com https://docs.google.com https://drive.google.com; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost blob: data: asset: http://asset.localhost http://tauri.localhost https://tauri.localhost https://www.googleapis.com https://oauth2.googleapis.com",
+      "csp": "default-src 'self' blob: data: asset: http://asset.localhost http://tauri.localhost https://tauri.localhost; script-src 'self' 'unsafe-inline' blob: data: http://tauri.localhost https://tauri.localhost; worker-src 'self' blob: http://tauri.localhost https://tauri.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost https://*.googleusercontent.com https://docs.google.com https://drive.google.com; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost blob: data: asset: http://asset.localhost http://tauri.localhost https://tauri.localhost https://api.github.com https://raw.githubusercontent.com https://www.googleapis.com https://oauth2.googleapis.com",
       "assetProtocol": {
         "enable": true,
         "scope": [
