@@ -26,8 +26,12 @@
 - Sauvegarde IndexedDB différée (`SAVE_DEBOUNCE_DELAY_MS = 500 ms`), annulée pendant l'écriture et purgée (`flushPendingPageSaves()`) avant tout changement de page/cahier.
 - Nettoyage RAM strict : `releaseCanvasMemory`, `destroyPdfDocumentResources`, `cleanupAppResources`.
 
+## Bons du banquier (Détente)
+- Envoyer des jetons : `node scripts/bons-banquier.js emettre <montant> [--pret] [--message "…"]`, publié directement sur `main` via `gh api`. Détails et sécurité : `docs/BONS-BANQUIER.md`.
+- La clé privée reste hors dépôt (`Documents\InkFlow-banquier\cle-privee-bons.pem`) : ne jamais la lire dans une réponse, la copier ou la commiter.
+
 ## Vérifications obligatoires après chaque modification
-- `npm test` (9/9 tests unitaires + benchmarks 60/120 FPS)
+- `npm test` (10/10 tests unitaires + benchmarks 60/120 FPS)
 - `npm run verify:webview2` (4/4 vérifications PDF.js local, stylet, Tauri v2 IPC)
 - `npm run tauri:build` (génération du `.exe` natif Windows)
 - Zéro dépendance CDN externe ; utiliser `() => ...` dans `.replace()` lors du bundling HTML autonome.

@@ -2748,6 +2748,9 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
       <button type="button" role="tab" class="detente-tab" data-detente-tab="odds" aria-selected="false" tabindex="-1">Probabilités</button>
     </nav>
 
+    <!-- Bons du banquier publiés sur GitHub : un bouton par bon à récupérer -->
+    <section class="detente-bons hidden" id="detenteBons" aria-label="Envois du banquier" aria-live="polite"></section>
+
     <main class="detente-body">
       <!-- Machine à sous -->
       <div class="detente-panel detente-split" data-detente-panel="slot" role="tabpanel">
@@ -2882,6 +2885,7 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
             </div>
             <div class="detente-result detente-panel-msg" id="detenteCodeMsg" aria-live="polite"></div>
             <p class="detente-note">Chaque code ne sert qu’une fois sur cet appareil : sans serveur, l’usage est mémorisé localement.</p>
+            <p class="detente-note">Le banquier peut aussi t’envoyer des jetons : un bouton « Récupérer » apparaît alors en haut de cette page (connexion Internet nécessaire pour le recevoir).</p>
           </section>
           <section class="detente-card" aria-labelledby="detenteLoanTitle">
             <h3 class="detente-card-title" id="detenteLoanTitle">Prêt</h3>

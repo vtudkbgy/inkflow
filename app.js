@@ -20807,6 +20807,285 @@
     }
   }
 
+  // ---------- Bons du banquier publiés sur GitHub (credits/bons.json, branche main) ----------
+  // Chaque bon est signé en ECDSA P-256 / SHA-256 par scripts/bons-banquier.js avec une clé
+  // privée qui reste sur le PC du banquier. L'app n'embarque que la clé publique : elle vérifie
+  // les bons mais ne peut pas en fabriquer. Un bon modifié, inventé ou mal signé est ignoré.
+  // Récupération mémorisée localement (pas de serveur) : un bon ne sert qu'une fois par appareil.
+  // <bons-cle-publique> écrite par scripts/bons-banquier.js init : clé publique seule, la clé privée reste chez le banquier
+  const DETENTE_BONS_PUBLIC_KEY = { kty: 'EC', crv: 'P-256', x: '1cFoTBrSWy0O7CjE_ml6ywJOJNXQgdV_olQlhT4Foas', y: 'lH908q2W0y4pooY9U-G1k1BOgmftzWQbhd8dVUwDhNQ' };
+  // </bons-cle-publique>
+  const DETENTE_BONS_SOURCES = [
+    { url: 'https://api.github.com/repos/vtudkbgy/inkflow/contents/credits/bons.json?ref=main', api: true },
+    { url: 'https://raw.githubusercontent.com/vtudkbgy/inkflow/main/credits/bons.json', api: false }
+  ];
+  const DETENTE_BONS_CLAIMED_KEY = 'inkflow.detente.bonsRecus.v1';
+  const DETENTE_BONS_POLL_MS = 10 * 60 * 1000;
+  const DETENTE_BONS_MIN_REFRESH_MS = 30 * 1000;
+  const DETENTE_BONS_MAX_AMOUNT = 10000000;
+  const DETENTE_BONS_MAX_MESSAGE = 140;
+  const detenteBons = { list: [], fetching: null, lastFetch: 0, started: false, claiming: new Set(), notified: new Set() };
+  let detenteBonsKeyPromise = null;
+
+  // Texte signé : doit rester identique à bonPayload() dans scripts/bons-banquier.js
+  function detenteBonPayload(bon) {
+    return ['inkflow-bon-v1', bon.id, bon.type, String(bon.montant), bon.expire || '', bon.message || ''].join('\n');
+  }
+
+  function detenteBase64UrlToBytes(s) {
+    const b64 = String(s).replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64 + '==='.slice((b64.length + 3) % 4));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function isDetenteBonShapeValid(bon) {
+    return Boolean(bon && typeof bon === 'object'
+      && typeof bon.id === 'string' && /^[a-z0-9-]{6,40}$/.test(bon.id)
+      && (bon.type === 'cadeau' || bon.type === 'pret')
+      && Number.isInteger(bon.montant) && bon.montant >= 1 && bon.montant <= DETENTE_BONS_MAX_AMOUNT
+      && (bon.expire === undefined || (typeof bon.expire === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(bon.expire)))
+      && (bon.message === undefined || (typeof bon.message === 'string' && bon.message.length <= DETENTE_BONS_MAX_MESSAGE))
+      && typeof bon.sig === 'string' && bon.sig.length >= 80 && bon.sig.length <= 100);
+  }
+
+  function isDetenteBonExpired(bon, now) {
+    if (!bon.expire) return false;
+    const end = new Date(`${bon.expire}T23:59:59`).getTime();
+    return Number.isFinite(end) && end < now;
+  }
+
+  function getDetenteBonsKey(jwk) {
+    const subtle = crypto.subtle;
+    const algo = { name: 'ECDSA', namedCurve: 'P-256' };
+    if (jwk && jwk !== DETENTE_BONS_PUBLIC_KEY) return subtle.importKey('jwk', jwk, algo, false, ['verify']);
+    if (!detenteBonsKeyPromise) {
+      detenteBonsKeyPromise = subtle.importKey('jwk', DETENTE_BONS_PUBLIC_KEY, algo, false, ['verify'])
+        .catch((err) => { detenteBonsKeyPromise = null; throw err; });
+    }
+    return detenteBonsKeyPromise;
+  }
+
+  // Retourne les bons à la forme correcte, non expirés et dont la signature est valide
+  async function verifyDetenteBons(doc, options = {}) {
+    const jwk = options.publicKey || DETENTE_BONS_PUBLIC_KEY;
+    if (!jwk.x || !jwk.y) return [];
+    if (!doc || typeof doc !== 'object' || !Array.isArray(doc.bons)) return [];
+    if (typeof crypto === 'undefined' || !crypto.subtle) return [];
+    const key = await getDetenteBonsKey(options.publicKey);
+    const now = Number.isFinite(options.now) ? options.now : Date.now();
+    const seen = new Set();
+    const valid = [];
+    for (const bon of doc.bons.slice(0, 200)) {
+      if (!isDetenteBonShapeValid(bon) || seen.has(bon.id) || isDetenteBonExpired(bon, now)) continue;
+      let ok = false;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key,
+          detenteBase64UrlToBytes(bon.sig), new TextEncoder().encode(detenteBonPayload(bon)));
+      } catch (_) { ok = false; }
+      if (!ok) continue;
+      seen.add(bon.id);
+      valid.push({ id: bon.id, type: bon.type, montant: bon.montant, expire: bon.expire || '', message: bon.message || '' });
+    }
+    return valid;
+  }
+
+  function loadDetenteClaimedBons() {
+    try {
+      const raw = localStorage.getItem(DETENTE_BONS_CLAIMED_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(arr) ? arr.filter((id) => typeof id === 'string') : []);
+    } catch (_) {
+      return new Set();
+    }
+  }
+
+  function saveDetenteClaimedBons(set) {
+    try { localStorage.setItem(DETENTE_BONS_CLAIMED_KEY, JSON.stringify(Array.from(set).slice(-500))); } catch (_) {}
+  }
+
+  function getDetentePendingBons() {
+    const claimed = loadDetenteClaimedBons();
+    return detenteBons.list.filter((b) => !claimed.has(b.id) && !detenteBons.claiming.has(b.id));
+  }
+
+  // null : aucune source joignable (hors-ligne) ; on garde alors la dernière liste connue
+  async function fetchDetenteBonsDocument() {
+    if (typeof fetch !== 'function') return null;
+    for (const src of DETENTE_BONS_SOURCES) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const res = await fetch(src.api ? src.url : `${src.url}?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: src.api ? { Accept: 'application/vnd.github.raw+json' } : {}
+        });
+        if (res.status === 404) return { bons: [] };
+        if (!res.ok) continue;
+        // eslint-disable-next-line no-await-in-loop
+        return await res.json();
+      } catch (_) { /* hors-ligne, quota de l'API ou réponse illisible : source suivante */ }
+    }
+    return null;
+  }
+
+  // options.document : document déjà lu (tests) ; options.publicKey / options.now : injectés par les tests
+  function refreshDetenteBons(options = {}) {
+    if (detenteBons.fetching) return detenteBons.fetching;
+    detenteBons.lastFetch = Date.now();
+    detenteBons.fetching = (async () => {
+      try {
+        const doc = options.document !== undefined ? options.document : await fetchDetenteBonsDocument();
+        if (doc) {
+          detenteBons.list = await verifyDetenteBons(doc, options);
+          renderDetenteBons();
+        }
+      } catch (_) { /* vérification impossible : la liste précédente reste affichée */ }
+      return getDetentePendingBons();
+    })().finally(() => { detenteBons.fetching = null; });
+    return detenteBons.fetching;
+  }
+
+  function startDetenteBonsPolling() {
+    if (detenteBons.started) return;
+    if (typeof fetch !== 'function' || typeof crypto === 'undefined' || !crypto.subtle) return;
+    if (!DETENTE_BONS_PUBLIC_KEY.x) return;
+    detenteBons.started = true;
+    const tick = () => {
+      setTimeout(tick, DETENTE_BONS_POLL_MS);
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      refreshDetenteBons();
+    };
+    setTimeout(tick, 4000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && Date.now() - detenteBons.lastFetch > DETENTE_BONS_POLL_MS) refreshDetenteBons();
+    });
+  }
+
+  function describeDetenteBon(bon) {
+    const plural = bon.montant > 1 ? 's' : '';
+    return bon.type === 'pret'
+      ? `Prêt de ${formatJetons(bon.montant)} jeton${plural}`
+      : `${formatJetons(bon.montant)} jeton${plural} offert${plural}`;
+  }
+
+  function renderDetenteBons() {
+    const pending = getDetentePendingBons();
+    const total = pending.reduce((sum, b) => sum + b.montant, 0);
+    const sideBtn = document.getElementById('btnOpenDetente');
+    if (sideBtn) {
+      sideBtn.classList.toggle('has-bon', pending.length > 0);
+      sideBtn.title = pending.length > 0
+        ? `Détente : le banquier t’a envoyé ${formatJetons(total)} jetons à récupérer (Maj+J)`
+        : 'Détente : jeux, boutique et banque, jetons fictifs (Maj+J)';
+    }
+    // Petite notification, une fois par bon et par session, si la page Détente est fermée
+    const fresh = pending.filter((b) => !detenteBons.notified.has(b.id));
+    fresh.forEach((b) => detenteBons.notified.add(b.id));
+    if (fresh.length && !state.detentePageOpen && typeof showToast === 'function') {
+      const sum = fresh.reduce((s, b) => s + b.montant, 0);
+      showToast(`Le banquier t’a envoyé ${formatJetons(sum)} jetons : ouvre Détente pour les récupérer.`, 'info', 'detente-bons');
+    }
+
+    const wrap = document.getElementById('detenteBons');
+    if (!wrap || typeof wrap.querySelectorAll !== 'function') return;
+    const shownIds = new Set(pending.map((b) => b.id));
+    // Retire les bons disparus du fichier (sauf celui en cours d'animation)
+    wrap.querySelectorAll('.detente-bon').forEach((el) => {
+      if (!shownIds.has(el.dataset.bonId) && !el.classList.contains('claimed')) el.remove();
+    });
+    pending.forEach((bon) => {
+      if (wrap.querySelector(`.detente-bon[data-bon-id="${bon.id}"]`)) return;
+      const item = document.createElement('div');
+      item.className = 'detente-bon';
+      item.dataset.bonId = bon.id;
+      const text = document.createElement('div');
+      text.className = 'detente-bon-text';
+      const from = document.createElement('span');
+      from.className = 'detente-label';
+      from.textContent = bon.type === 'pret' ? 'Prêt du banquier' : 'Du banquier';
+      const amount = document.createElement('strong');
+      amount.className = 'detente-bon-amount';
+      amount.textContent = describeDetenteBon(bon);
+      text.appendChild(from);
+      text.appendChild(amount);
+      if (bon.message) {
+        const msg = document.createElement('span');
+        msg.className = 'detente-bon-msg';
+        msg.textContent = bon.message;
+        text.appendChild(msg);
+      }
+      if (bon.type === 'pret') {
+        const note = document.createElement('span');
+        note.className = 'detente-bon-msg';
+        note.textContent = 'La même somme s’ajoute à ta dette.';
+        text.appendChild(note);
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'detente-spin-btn detente-bon-btn';
+      btn.dataset.bonClaim = bon.id;
+      btn.textContent = `Récupérer ${formatJetons(bon.montant)} jeton${bon.montant > 1 ? 's' : ''}`;
+      item.appendChild(text);
+      item.appendChild(btn);
+      wrap.appendChild(item);
+    });
+    wrap.classList.toggle('hidden', !wrap.querySelector('.detente-bon'));
+  }
+
+  // Crédite le bon une seule fois : l'identifiant est mémorisé avant le crédit
+  function claimDetenteBon(id) {
+    if (detenteBons.claiming.has(id)) return false;
+    const bon = getDetentePendingBons().find((b) => b.id === id);
+    if (!bon) return false;
+    loadDetenteState();
+    detenteBons.claiming.add(id);
+    const claimed = loadDetenteClaimedBons();
+    claimed.add(id);
+    saveDetenteClaimedBons(claimed);
+    const start = detenteState.balance;
+    if (bon.type === 'pret') {
+      detenteState.debt += bon.montant;
+      detenteState.borrowed += bon.montant;
+    }
+    detenteAddBalance(bon.montant);
+    if (state.detentePageOpen) {
+      animateDetenteBalance(start, detenteState.balance);
+      playDetenteChime(bon.montant >= 1000);
+    }
+    animateDetenteBonOut(id, bon);
+    return true;
+  }
+
+  function animateDetenteBonOut(id, bon) {
+    const wrap = document.getElementById('detenteBons');
+    const item = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector(`.detente-bon[data-bon-id="${id}"]`) : null;
+    const finish = () => {
+      if (item && item.parentNode) item.remove();
+      detenteBons.claiming.delete(id);
+      renderDetenteBons();
+    };
+    if (!item || isDetenteReducedMotion()) { finish(); return; }
+    const btn = item.querySelector('.detente-bon-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = `+${formatJetons(bon.montant)}`;
+    }
+    const burst = document.createElement('span');
+    burst.className = 'detente-bon-float';
+    burst.setAttribute('aria-hidden', 'true');
+    burst.textContent = `+${formatJetons(bon.montant)}`;
+    item.appendChild(burst);
+    item.style.height = `${item.offsetHeight}px`;
+    item.classList.add('claimed');
+    setTimeout(() => {
+      item.classList.add('collapsing');
+      item.style.height = '0px';
+    }, 520);
+    setTimeout(finish, 1000);
+  }
+
   function repayDetenteDebt(all) {
     if (detenteState.debt <= 0) return;
     let amount = detenteState.debt;
@@ -22274,6 +22553,13 @@
     });
     renderDetenteOdds();
 
+    // Bons du banquier (GitHub)
+    document.getElementById('detenteBons')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-bon-claim]');
+      if (btn && !btn.disabled) claimDetenteBon(btn.dataset.bonClaim);
+    });
+    startDetenteBonsPolling();
+
     window.addEventListener('resize', () => { if (state.detentePageOpen && detenteState.tab === 'slot' && !detenteState.spinning) renderDetenteReels(); });
     // La page capte tous ses gestes : rien ne doit atteindre la toile en dessous
     ['wheel', 'contextmenu'].forEach((type) => pageEl.addEventListener(type, (e) => {
@@ -22338,6 +22624,8 @@
     pageEl.classList.remove('hidden');
     document.getElementById('btnOpenDetente')?.classList.add('active');
     setDetenteTab(detenteState.tab);
+    renderDetenteBons();
+    if (detenteBons.started && Date.now() - detenteBons.lastFetch > DETENTE_BONS_MIN_REFRESH_MS) refreshDetenteBons();
     // Retire le focus de la toile ou de la barre d'outils : Espace et Entrée lancent la machine
     if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
     return true;
@@ -26785,6 +27073,11 @@
       openDetentePage,
       closeDetentePage,
       evaluateDetenteLine,
+      verifyDetenteBons,
+      refreshDetenteBons,
+      claimDetenteBon,
+      getDetentePendingBons,
+      getDetenteWallet: () => ({ balance: detenteState.balance, debt: detenteState.debt, borrowed: detenteState.borrowed }),
       openRadialWheelEditor,
       RADIAL_WHEEL_COLORS,
       duplicateNotebookById,
