@@ -1,3 +1,5 @@
+mod gdrive_oauth;
+
 use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
@@ -93,7 +95,11 @@ pub fn run() {
             get_local_storage_paths,
             set_window_fullscreen,
             toggle_window_fullscreen,
-            get_window_fullscreen
+            get_window_fullscreen,
+            gdrive_oauth::gdrive_oauth_link,
+            gdrive_oauth::gdrive_oauth_refresh,
+            gdrive_oauth::gdrive_oauth_revoke,
+            gdrive_oauth::gdrive_oauth_cancel
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors de l'exécution de l'application Tauri v2 Plume Studio Pro");

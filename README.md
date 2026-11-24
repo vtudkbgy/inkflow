@@ -60,6 +60,19 @@ L'exécutable natif léger (~4 Mo) est généré dans `src-tauri/target/.../rele
 
 ---
 
+## Google Drive (facultatif)
+
+InkFlow reste 100 % hors ligne ; seul Google Drive (import, sauvegarde) demande le réseau. Hors connexion, une pastille « Hors connexion » l'indique et les actions Drive refusées l'expliquent.
+
+Relier un compte (une seule fois) :
+1. Dans Google Cloud Console, activer l'API Google Drive.
+2. Créer un ID client OAuth de type **Application de bureau** et ajouter son adresse comme utilisateur de test (écran de consentement).
+3. Dans InkFlow : **Drive** → onglet **Compte Google** → **Identifiants OAuth** : coller l'ID et le secret client, puis **Relier un compte Google**.
+
+La connexion s'ouvre dans le navigateur (code + PKCE, retour sur `127.0.0.1`). Le jeton de renouvellement est gardé localement et le compte reste relié jusqu'à **Délier**. **Importer depuis Drive** ouvre un sélecteur visuel : PDF, images, documents Google (convertis en PDF) et sauvegardes InkFlow. Dans un navigateur, la liaison ne marche que servie depuis `localhost`.
+
+---
+
 ## 🔍 Utiliser Reverse Engineer Anything (REA)
 
 Le projet intègre **REA (`morluto/rea` / `rea-agents`)** pour l'analyse de binaires, d'applications JS/Electron ou de comportements runtime :

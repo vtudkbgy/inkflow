@@ -27,7 +27,7 @@
 - Nettoyage RAM strict : `releaseCanvasMemory`, `destroyPdfDocumentResources`, `cleanupAppResources`.
 
 ## Vérifications obligatoires après chaque modification
-- `npm test` (9/9 tests unitaires + benchmarks 60/120 FPS)
+- `npm test` (10/10 tests unitaires + benchmarks 60/120 FPS + Google Drive / hors connexion)
 - `npm run verify:webview2` (4/4 vérifications PDF.js local, stylet, Tauri v2 IPC)
 - `npm run tauri:build` (génération du `.exe` natif Windows)
 - Zéro dépendance CDN externe ; utiliser `() => ...` dans `.replace()` lors du bundling HTML autonome.

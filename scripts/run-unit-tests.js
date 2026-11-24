@@ -1690,6 +1690,121 @@ async function runTests() {
     return 'Enregistré en http(s) uniquement (ignoré sous Tauri, Electron, sans support ou hors contexte sûr) ; réseau d’abord, cache rafraîchi, secours hors-ligne (y compris avec paramètres d’URL) vérifiés.';
   });
 
+  // ------------------------------------------------------------------------
+  // TEST 10 : Google Drive (liaison, jetons, sélecteur) et indicateur hors connexion
+  // ------------------------------------------------------------------------
+  await runStep('Test 10 : Google Drive (PKCE, requêtes du sélecteur, renouvellement du jeton) et refus hors connexion', async () => {
+    sandbox.crypto = globalThis.crypto;
+    sandbox.URLSearchParams = globalThis.URLSearchParams;
+
+    // PKCE S256 : vecteur de la RFC 7636 (annexe B)
+    assert.equal(
+      await api.computePkceChallenge('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'),
+      'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
+    );
+    const authUrl = new URL(api.buildGdriveAuthUrl({ clientId: 'id-test', redirectUri: 'http://127.0.0.1:5173/oauth-callback.html', codeChallenge: 'abc', stateParam: 'inkflow-s' }));
+    assert.equal(authUrl.origin + authUrl.pathname, 'https://accounts.google.com/o/oauth2/v2/auth');
+    assert.equal(authUrl.searchParams.get('response_type'), 'code');
+    assert.equal(authUrl.searchParams.get('code_challenge_method'), 'S256');
+    assert.equal(authUrl.searchParams.get('access_type'), 'offline');
+    assert.match(authUrl.searchParams.get('scope'), /drive\.readonly/);
+
+    // Types importables
+    assert.equal(api.getDriveImportKind('application/pdf', 'Cours.pdf'), 'pdf');
+    assert.equal(api.getDriveImportKind('image/jpeg', 'photo.jpg'), 'image');
+    assert.equal(api.getDriveImportKind('image/heic', 'photo.heic'), null, 'HEIC non affichable : non proposé');
+    assert.equal(api.getDriveImportKind('application/vnd.google-apps.document', 'Notes'), 'gdoc');
+    assert.equal(api.getDriveImportKind('application/json', 'inkflow-backup-2026.plume.json'), 'backup');
+    assert.equal(api.getDriveImportKind('application/json', 'config.json'), null);
+    assert.equal(api.getDriveImportKind('application/zip', 'a.zip'), null);
+
+    // Requêtes Drive : dossier, recherche échappée, vues, filtres
+    const qFolder = api.buildDriveListQuery({ view: 'root', folderId: 'root', filter: 'pdf' });
+    assert.match(qFolder, /'root' in parents/);
+    assert.match(qFolder, /mimeType = 'application\/pdf'/);
+    assert.match(qFolder, /google-apps\.folder/);
+    assert.doesNotMatch(qFolder, /image\//);
+    const qSearch = api.buildDriveListQuery({ view: 'root', folderId: 'root', filter: 'all', search: "l'été \\ 2" });
+    assert.match(qSearch, /name contains 'l\\'été \\\\ 2'/, 'Apostrophe et antislash échappés');
+    assert.doesNotMatch(qSearch, /in parents/, 'La recherche porte sur tout le Drive');
+    const qRecent = api.buildDriveListQuery({ view: 'recent', filter: 'all' });
+    assert.doesNotMatch(qRecent, /google-apps\.folder/, 'Pas de dossiers dans Récents');
+    assert.match(api.buildDriveListQuery({ view: 'shared', filter: 'all' }), /sharedWithMe = true/);
+    assert.match(api.buildDriveListQuery({ view: 'starred', filter: 'all' }), /starred = true/);
+    assert.equal(api.getDriveOrderBy({ view: 'recent' }), 'recency desc');
+    assert.equal(api.getDriveOrderBy({ view: 'root', folderId: 'root' }), 'folder,name_natural');
+
+    // Normalisation : raccourcis résolus, filtre appliqué, types inconnus écartés
+    const shortcut = api.normalizeDriveItem({ id: 's1', name: 'Raccourci', mimeType: 'application/vnd.google-apps.shortcut', shortcutDetails: { targetId: 'p9', targetMimeType: 'application/pdf' } });
+    assert.equal(shortcut.id, 'p9');
+    assert.equal(shortcut.kind, 'pdf');
+    assert.equal(api.normalizeDriveItem({ id: 'i1', name: 'a.png', mimeType: 'image/png' }, 'pdf'), null);
+    assert.equal(api.normalizeDriveItem({ id: 'z', name: 'a.zip', mimeType: 'application/zip' }), null);
+    assert.equal(api.normalizeDriveItem({ id: 'f', name: 'Cours', mimeType: 'application/vnd.google-apps.folder' }).isFolder, true);
+    assert.equal(api.formatDriveBytes(2516582), '2,4 Mo');
+
+    // Jeton expiré → renouvellement automatique puis requête Drive avec le nouveau jeton
+    const calls = [];
+    sandbox.fetch = async (url, opts = {}) => {
+      calls.push({ url: String(url), opts });
+      if (String(url).startsWith('https://oauth2.googleapis.com/token')) {
+        return { ok: true, status: 200, json: async () => ({ access_token: 'ya29.neuf', expires_in: 3599 }) };
+      }
+      const auth = opts.headers && opts.headers.Authorization;
+      if (auth !== 'Bearer ya29.neuf') return { ok: false, status: 401, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ files: [] }) };
+    };
+    api.clearGdriveSession();
+    api.storeGdriveTokens({ access_token: 'ya29.ancien', expires_in: 3600, refresh_token: '1//rafraichir' });
+    assert.equal(api.isGdriveLinked(), true);
+    const res = await api.gdriveFetch('https://www.googleapis.com/drive/v3/files', {}, 'Test');
+    assert.equal(res.ok, true);
+    const tokenCall = calls.find((c) => c.url.startsWith('https://oauth2.googleapis.com/token'));
+    assert.ok(tokenCall, 'Un 401 doit déclencher le renouvellement du jeton');
+    assert.match(String(tokenCall.opts.body), /grant_type=refresh_token/);
+    assert.match(String(tokenCall.opts.body), /refresh_token=1%2F%2Frafraichir/);
+
+    // Refresh révoqué (invalid_grant) → compte délié proprement
+    sandbox.fetch = async (url) => {
+      if (String(url).startsWith('https://oauth2.googleapis.com/token')) {
+        return { ok: false, status: 400, json: async () => ({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }) };
+      }
+      return { ok: false, status: 401, json: async () => ({}) };
+    };
+    await assert.rejects(() => api.gdriveFetch('https://www.googleapis.com/drive/v3/files', {}, 'Test'), (err) => err.code === 'GDRIVE_AUTH');
+    assert.equal(api.isGdriveLinked(), false, 'invalid_grant doit délier le compte');
+
+    // Jeton collé à la main (sans refresh) refusé par Google → compte délié, pas d'état « relié » fantôme
+    sandbox.fetch = async () => ({ ok: false, status: 401, json: async () => ({}) });
+    api.storeGdriveTokens({ access_token: 'ya29.manuel', expires_in: 3600 });
+    await assert.rejects(() => api.gdriveFetch('https://www.googleapis.com/drive/v3/files', {}, 'Test'), (err) => err.code === 'GDRIVE_AUTH');
+    assert.equal(api.isGdriveLinked(), false, 'Un jeton temporaire refusé doit délier le compte');
+
+    // Hors connexion : refus explicite sans requête réseau, puis panne réseau détectée
+    api.storeGdriveTokens({ access_token: 'ya29.x', expires_in: 3600, refresh_token: '1//r' });
+    let networkCalls = 0;
+    sandbox.fetch = async () => { networkCalls++; throw new TypeError('Failed to fetch'); };
+    api.setNetworkState({ online: false });
+    assert.equal(api.isNetworkAvailable(), false);
+    assert.equal(api.requireNetwork('Importer depuis Google Drive'), false);
+    await assert.rejects(() => api.gdriveFetch('https://www.googleapis.com/drive/v3/files', {}, 'Importer depuis Google Drive'), (err) => err.code === 'NETWORK' && err.handled === true);
+    assert.equal(networkCalls, 0, 'Aucune requête ne doit partir hors connexion');
+    const pill = sandbox.document.getElementById('netStatusPill');
+    assert.equal(pill.classList.contains('hidden'), false, 'L’indicateur doit s’afficher après un refus');
+    assert.equal(pill.classList.contains('is-alert'), true);
+
+    api.setNetworkState({ online: true, unreachable: false });
+    assert.equal(api.isNetworkAvailable(), true);
+    await assert.rejects(() => api.gdriveFetch('https://www.googleapis.com/drive/v3/files', {}, 'Test'), (err) => err.code === 'NETWORK');
+    assert.equal(api.isNetworkAvailable(), false, 'Un échec réseau réel doit marquer le réseau injoignable');
+    assert.equal(api.isNetworkFailure('Réseau indisponible : délai dépassé'), true, 'Erreurs réseau renvoyées par Rust reconnues');
+
+    api.setNetworkState({ online: true, unreachable: false });
+    api.clearGdriveSession();
+    delete sandbox.fetch;
+    return 'PKCE RFC 7636, URL OAuth, 7 types de fichiers, 6 formes de requête Drive, raccourcis, renouvellement du jeton sur 401, déliaison sur invalid_grant, refus hors connexion sans requête et détection d’une panne réseau vérifiés.';
+  });
+
   console.log('======================================================================');
   console.log(`🎉 TOUS LES TESTS UNITAIRES SONT PASSÉS AVEC SUCCÈS (${results.length}/${results.length})`);
   console.log('======================================================================');

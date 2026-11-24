@@ -3022,6 +3022,11 @@
     zoomWindowBox: { x: 80, y: 140, w: 340, h: 120 },
     gdriveAccessToken: '',
     gdriveClientId: '',
+    gdriveClientSecret: '',
+    gdriveRefreshToken: '',
+    gdriveTokenExpiresAt: 0,
+    gdriveAccount: null,
+    gdriveLinking: false,
     gdriveAutoBackup: false,
     gdriveLocalDirHandle: null,
     gdriveLastSyncAt: 0,
@@ -19210,6 +19215,611 @@
     showToast('Sauvegarde restaurée avec succès !');
   }
 
+  // --- Réseau : détection de la connexion et indicateur « hors connexion » ---
+  // InkFlow fonctionne hors ligne ; seules les fonctions Google Drive ont besoin du réseau.
+  // L'indicateur reste discret : visible hors connexion quand un compte Google est relié,
+  // et toujours quand une action est refusée faute de connexion.
+  const netState = {
+    online: !(typeof navigator !== 'undefined' && navigator && navigator.onLine === false),
+    unreachable: false,
+    alertUntil: 0,
+    alertTimer: null,
+    recoveredTimer: null,
+    probeTimer: null,
+    listeners: new Set()
+  };
+
+  function isNetworkAvailable() {
+    return netState.online && !netState.unreachable;
+  }
+
+  function isNetworkFailure(err) {
+    if (!err) return false;
+    if (err.code === 'NETWORK') return true;
+    const msg = String((err && err.message) || err);
+    if (/^Réseau indisponible/i.test(msg)) return true;
+    return err.name === 'TypeError' && /fetch|network|load failed/i.test(msg);
+  }
+
+  function createNetworkError(actionLabel) {
+    const err = new Error(`${actionLabel || 'Cette action'} nécessite une connexion Internet.`);
+    err.code = 'NETWORK';
+    err.handled = true;
+    return err;
+  }
+
+  function onNetworkChange(fn) {
+    if (typeof fn === 'function') netState.listeners.add(fn);
+  }
+
+  function shouldShowPersistentOfflinePill() {
+    return Boolean(state.gdriveRefreshToken || state.gdriveAccessToken);
+  }
+
+  function renderNetworkIndicator(mode = null, detail = '') {
+    const pill = document.getElementById('netStatusPill');
+    if (!pill) return;
+    const title = document.getElementById('netStatusTitle');
+    const det = document.getElementById('netStatusDetail');
+    const available = isNetworkAvailable();
+    const now = Date.now();
+    if (mode === 'alert') {
+      clearTimeout(netState.alertTimer);
+      netState.alertUntil = now + 5000;
+      netState.alertTimer = setTimeout(() => {
+        netState.alertUntil = 0;
+        renderNetworkIndicator();
+      }, 5000);
+    }
+    clearTimeout(netState.recoveredTimer);
+    pill.classList.remove('is-alert', 'is-recovered', 'is-offline');
+
+    if (mode === 'recovered') {
+      netState.alertUntil = 0;
+      pill.classList.remove('hidden');
+      pill.classList.add('is-recovered');
+      if (title) title.textContent = 'Connexion rétablie';
+      if (det) det.textContent = '';
+      netState.recoveredTimer = setTimeout(() => {
+        pill.classList.remove('is-recovered');
+        pill.classList.add('hidden');
+      }, 2600);
+      return;
+    }
+
+    const alerting = netState.alertUntil > now;
+    if (available && !alerting) {
+      pill.classList.add('hidden');
+      return;
+    }
+    if (!alerting && !shouldShowPersistentOfflinePill()) {
+      pill.classList.add('hidden');
+      return;
+    }
+    pill.classList.remove('hidden');
+    pill.classList.add('is-offline');
+    if (title) title.textContent = netState.online ? 'Réseau injoignable' : 'Hors connexion';
+    if (det) det.textContent = alerting ? detail || (det.textContent || '') : '';
+    if (mode === 'alert') {
+      void pill.offsetWidth; // relance l'animation d'alerte à chaque refus
+      pill.classList.add('is-alert');
+    } else if (alerting) {
+      pill.classList.add('is-alert');
+    }
+  }
+
+  function syncNetworkDependentControls() {
+    const off = !isNetworkAvailable();
+    if (typeof document.querySelectorAll === 'function') {
+      document.querySelectorAll('[data-needs-network]').forEach((el) => {
+        el.classList.toggle('needs-network-off', off);
+        if (off) el.setAttribute('aria-disabled', 'true');
+        else if (typeof el.removeAttribute === 'function') el.removeAttribute('aria-disabled');
+      });
+    }
+    ['gdriveOfflineBanner', 'drivePickerOfflineBanner'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('hidden', !off);
+    });
+  }
+
+  function scheduleNetworkProbe() {
+    clearTimeout(netState.probeTimer);
+    if (!netState.online || !netState.unreachable || typeof fetch !== 'function') return;
+    netState.probeTimer = setTimeout(async () => {
+      try {
+        // Réponse opaque : seule compte la joignabilité, pas le contenu
+        await fetch('https://www.googleapis.com/drive/v3/about', { method: 'GET', mode: 'no-cors', cache: 'no-store' });
+        setNetworkState({ unreachable: false });
+      } catch (_) {
+        scheduleNetworkProbe();
+      }
+    }, 15000);
+  }
+
+  function setNetworkState(next = {}) {
+    const wasAvailable = isNetworkAvailable();
+    if (typeof next.online === 'boolean') netState.online = next.online;
+    if (typeof next.unreachable === 'boolean') netState.unreachable = next.unreachable;
+    if (!netState.online) netState.unreachable = false;
+    const available = isNetworkAvailable();
+    if (wasAvailable !== available) {
+      renderNetworkIndicator(available ? 'recovered' : null);
+      netState.listeners.forEach((fn) => {
+        try { fn(available); } catch (_) {}
+      });
+    }
+    syncNetworkDependentControls();
+    scheduleNetworkProbe();
+    return available;
+  }
+
+  function notifyNetworkRequired(actionLabel) {
+    const label = actionLabel || 'Cette action';
+    renderNetworkIndicator('alert', `${label} impossible`);
+    showToast(`${label} : connexion Internet requise.`, 'error', 'network-required');
+  }
+
+  function requireNetwork(actionLabel) {
+    if (isNetworkAvailable()) return true;
+    notifyNetworkRequired(actionLabel);
+    return false;
+  }
+
+  function reportNetworkFailure(actionLabel) {
+    if (netState.online) setNetworkState({ unreachable: true });
+    notifyNetworkRequired(actionLabel);
+  }
+
+  function initNetworkIndicator() {
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('online', () => setNetworkState({ online: true, unreachable: false }));
+      window.addEventListener('offline', () => setNetworkState({ online: false }));
+    }
+    renderNetworkIndicator();
+    syncNetworkDependentControls();
+  }
+
+  // --- Compte Google : liaison OAuth « application de bureau » (code + PKCE) ---
+  // Sous Tauri, la redirection loopback et l'échange du code passent par Rust
+  // (`gdrive_oauth_*`). Dans un navigateur servi en localhost, une fenêtre
+  // surgissante revient sur `oauth-callback.html` et l'échange se fait en JS.
+  const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file';
+  const GDRIVE_API = 'https://www.googleapis.com/drive/v3';
+  const GDRIVE_KEYS = {
+    clientId: 'inkflow_gdrive_client_id',
+    clientSecret: 'inkflow_gdrive_client_secret',
+    token: 'inkflow_gdrive_token',
+    tokenExp: 'inkflow_gdrive_token_exp',
+    refresh: 'inkflow_gdrive_refresh',
+    account: 'inkflow_gdrive_account',
+    auto: 'inkflow_gdrive_auto'
+  };
+  let gdriveRefreshPromise = null;
+  let gdriveBrowserLinkAbort = null;
+  // Incrémenté à chaque liaison ou déliaison : un renouvellement lancé avant est alors ignoré
+  let gdriveSessionGen = 0;
+
+  function readLocalSetting(key) {
+    try { return localStorage.getItem(key) || ''; } catch (_) { return ''; }
+  }
+
+  function writeLocalSetting(key, value) {
+    try {
+      if (value === null || value === undefined || value === '') {
+        if (typeof localStorage.removeItem === 'function') localStorage.removeItem(key);
+        else localStorage.setItem(key, '');
+      } else {
+        localStorage.setItem(key, String(value));
+      }
+    } catch (_) {}
+  }
+
+  function hasTauriInvoke() {
+    return typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function';
+  }
+
+  function loadGdriveSession() {
+    state.gdriveClientId = readLocalSetting(GDRIVE_KEYS.clientId);
+    state.gdriveClientSecret = readLocalSetting(GDRIVE_KEYS.clientSecret);
+    state.gdriveAccessToken = readLocalSetting(GDRIVE_KEYS.token);
+    state.gdriveTokenExpiresAt = Number(readLocalSetting(GDRIVE_KEYS.tokenExp)) || 0;
+    state.gdriveRefreshToken = readLocalSetting(GDRIVE_KEYS.refresh);
+    state.gdriveAutoBackup = readLocalSetting(GDRIVE_KEYS.auto) === 'true';
+    try {
+      state.gdriveAccount = JSON.parse(readLocalSetting(GDRIVE_KEYS.account) || 'null');
+    } catch (_) {
+      state.gdriveAccount = null;
+    }
+  }
+
+  function isGdriveLinked() {
+    return Boolean(state.gdriveRefreshToken || state.gdriveAccessToken);
+  }
+
+  function storeGdriveTokens(tok) {
+    if (!tok || !tok.access_token) throw new Error('Réponse Google sans jeton d’accès.');
+    const ttl = Number(tok.expires_in) > 0 ? Number(tok.expires_in) : 3600;
+    state.gdriveAccessToken = String(tok.access_token);
+    state.gdriveTokenExpiresAt = Date.now() + Math.max(60, ttl - 60) * 1000;
+    if (tok.refresh_token) state.gdriveRefreshToken = String(tok.refresh_token);
+    writeLocalSetting(GDRIVE_KEYS.token, state.gdriveAccessToken);
+    writeLocalSetting(GDRIVE_KEYS.tokenExp, state.gdriveTokenExpiresAt);
+    writeLocalSetting(GDRIVE_KEYS.refresh, state.gdriveRefreshToken);
+  }
+
+  function clearGdriveSession() {
+    gdriveSessionGen++;
+    state.gdriveAccessToken = '';
+    state.gdriveTokenExpiresAt = 0;
+    state.gdriveRefreshToken = '';
+    state.gdriveAccount = null;
+    gdriveRefreshPromise = null;
+    [GDRIVE_KEYS.token, GDRIVE_KEYS.tokenExp, GDRIVE_KEYS.refresh, GDRIVE_KEYS.account].forEach((k) => writeLocalSetting(k, ''));
+  }
+
+  function createGdriveAuthError(message) {
+    const err = new Error(message);
+    err.code = 'GDRIVE_AUTH';
+    return err;
+  }
+
+  function base64UrlEncodeBytes(bytes) {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function randomUrlSafeString(byteLength = 48) {
+    const bytes = new Uint8Array(byteLength);
+    crypto.getRandomValues(bytes);
+    return base64UrlEncodeBytes(bytes);
+  }
+
+  async function computePkceChallenge(verifier) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    return base64UrlEncodeBytes(new Uint8Array(digest));
+  }
+
+  function buildGdriveAuthUrl({ clientId, redirectUri, codeChallenge, stateParam, scope = GDRIVE_SCOPE }) {
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      state: stateParam,
+      access_type: 'offline',
+      prompt: 'consent'
+    });
+    return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  }
+
+  async function gdriveTokenRequest(params) {
+    let res;
+    try {
+      res = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(params).toString()
+      });
+    } catch (_) {
+      const err = new Error('Réseau indisponible : Google est injoignable.');
+      err.code = 'NETWORK';
+      throw err;
+    }
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      const code = data.error || res.status;
+      const desc = data.error_description ? ` : ${data.error_description}` : '';
+      throw new Error(`Google a refusé la demande (${code}${desc})`);
+    }
+    return data;
+  }
+
+  async function gdriveLinkViaBrowserPopup(clientId, clientSecret) {
+    const loc = window.location || {};
+    const host = String(loc.hostname || '').toLowerCase();
+    if (!/^https?:$/.test(loc.protocol || '') || !['localhost', '127.0.0.1', '[::1]'].includes(host)) {
+      throw new Error('Dans un navigateur, la liaison ne fonctionne que depuis http://localhost. Utilisez l’application InkFlow pour Windows.');
+    }
+    const redirectUri = new URL('oauth-callback.html', loc.href).href;
+    const verifier = randomUrlSafeString(48);
+    const codeChallenge = await computePkceChallenge(verifier);
+    const stateParam = `inkflow-${randomUrlSafeString(18)}`;
+    const authUrl = buildGdriveAuthUrl({ clientId, redirectUri, codeChallenge, stateParam });
+    const popup = window.open(authUrl, 'inkflow_gdrive_auth', 'width=520,height=680');
+    if (!popup) throw new Error('Fenêtre de connexion bloquée : autorisez les fenêtres surgissantes pour localhost.');
+
+    const code = await new Promise((resolve, reject) => {
+      const startedAt = Date.now();
+      const finish = (fn, value) => {
+        clearInterval(timer);
+        gdriveBrowserLinkAbort = null;
+        try { popup.close(); } catch (_) {}
+        fn(value);
+      };
+      const timer = setInterval(() => {
+        if (popup.closed) {
+          finish(reject, new Error('Liaison annulée.'));
+          return;
+        }
+        if (Date.now() - startedAt > 300000) {
+          finish(reject, new Error('Délai de connexion dépassé. Réessayez.'));
+          return;
+        }
+        let href = '';
+        try { href = String(popup.location.href || ''); } catch (_) { return; }
+        const cleanRedirect = redirectUri.replace(/\.html$/, '');
+        if (!href.startsWith(redirectUri) && !href.startsWith(`${cleanRedirect}?`)) return;
+        const params = new URL(href).searchParams;
+        if (params.get('state') !== stateParam) {
+          finish(reject, new Error('Réponse Google invalide (state).'));
+        } else if (params.get('error')) {
+          const e = params.get('error');
+          finish(reject, new Error(e === 'access_denied' ? 'Connexion refusée dans Google.' : `Erreur Google : ${e}`));
+        } else if (params.get('code')) {
+          finish(resolve, params.get('code'));
+        }
+      }, 300);
+      gdriveBrowserLinkAbort = () => finish(reject, new Error('Liaison annulée.'));
+    });
+
+    const body = {
+      code,
+      client_id: clientId,
+      code_verifier: verifier,
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri
+    };
+    if (clientSecret) body.client_secret = clientSecret;
+    return gdriveTokenRequest(body);
+  }
+
+  function readGdriveCredentialInputs() {
+    const idInput = document.getElementById('inputGdriveClientId');
+    const secretInput = document.getElementById('inputGdriveClientSecret');
+    const id = String((idInput && idInput.value) || '').trim();
+    const secret = String((secretInput && secretInput.value) || '').trim();
+    if (id !== state.gdriveClientId) {
+      state.gdriveClientId = id;
+      writeLocalSetting(GDRIVE_KEYS.clientId, id);
+    }
+    if (secret !== state.gdriveClientSecret) {
+      state.gdriveClientSecret = secret;
+      writeLocalSetting(GDRIVE_KEYS.clientSecret, secret);
+    }
+  }
+
+  async function gdriveLinkAccount() {
+    if (state.gdriveLinking) return;
+    if (!requireNetwork('Relier un compte Google')) return;
+    readGdriveCredentialInputs();
+    if (!state.gdriveClientId) {
+      const details = document.getElementById('gdriveSetupDetails');
+      if (details) details.open = true;
+      const input = document.getElementById('inputGdriveClientId');
+      if (input) input.focus();
+      showToast('Renseignez d’abord l’ID client OAuth (une seule fois).', 'error');
+      return;
+    }
+    state.gdriveLinking = true;
+    renderGdriveAccountUi();
+    try {
+      let tok;
+      if (hasTauriInvoke()) {
+        tok = await window.__TAURI__.core.invoke('gdrive_oauth_link', {
+          clientId: state.gdriveClientId,
+          clientSecret: state.gdriveClientSecret || null,
+          scope: GDRIVE_SCOPE
+        });
+      } else {
+        tok = await gdriveLinkViaBrowserPopup(state.gdriveClientId, state.gdriveClientSecret);
+      }
+      gdriveSessionGen++;
+      storeGdriveTokens(tok);
+      state.gdriveLinking = false;
+      renderGdriveAccountUi();
+      renderNetworkIndicator();
+      showToast('Compte Google relié.');
+      try { await refreshGdriveAccountInfo(); } catch (_) {}
+    } catch (err) {
+      const msg = String((err && err.message) || err);
+      if (isNetworkFailure(err)) reportNetworkFailure('Relier un compte Google');
+      else if (!/annulée/i.test(msg)) showToast(msg, 'error');
+    } finally {
+      state.gdriveLinking = false;
+      gdriveBrowserLinkAbort = null;
+      renderGdriveAccountUi();
+    }
+  }
+
+  async function gdriveCancelLink() {
+    if (gdriveBrowserLinkAbort) gdriveBrowserLinkAbort();
+    if (hasTauriInvoke()) {
+      try { await window.__TAURI__.core.invoke('gdrive_oauth_cancel'); } catch (_) {}
+    }
+  }
+
+  function gdriveUseManualToken() {
+    const input = document.getElementById('inputGdriveManualToken');
+    const val = String((input && input.value) || '').trim();
+    if (!/^ya29\./.test(val)) {
+      showToast('Collez un jeton d’accès Google (il commence par ya29.).', 'error');
+      return;
+    }
+    clearGdriveSession();
+    storeGdriveTokens({ access_token: val, expires_in: 3600 });
+    if (input) input.value = '';
+    renderGdriveAccountUi();
+    renderNetworkIndicator();
+    showToast('Jeton temporaire enregistré (valable environ une heure).');
+    refreshGdriveAccountInfo().catch(() => {});
+  }
+
+  async function getGdriveAccessToken(forceRefresh = false) {
+    const fresh = state.gdriveAccessToken && (!state.gdriveTokenExpiresAt || Date.now() < state.gdriveTokenExpiresAt);
+    if (!forceRefresh && fresh) return state.gdriveAccessToken;
+    if (!state.gdriveRefreshToken) {
+      // Jeton collé à la main ou ancien jeton : on laisse Google trancher (401 → déliaison)
+      if (!forceRefresh && state.gdriveAccessToken) return state.gdriveAccessToken;
+      clearGdriveSession();
+      renderGdriveAccountUi();
+      renderNetworkIndicator();
+      throw createGdriveAuthError('La session Google a expiré. Reliez à nouveau votre compte.');
+    }
+    if (!gdriveRefreshPromise) {
+      const gen = gdriveSessionGen;
+      const stale = () => gen !== gdriveSessionGen;
+      gdriveRefreshPromise = (async () => {
+        try {
+          let tok;
+          if (hasTauriInvoke()) {
+            tok = await window.__TAURI__.core.invoke('gdrive_oauth_refresh', {
+              clientId: state.gdriveClientId,
+              clientSecret: state.gdriveClientSecret || null,
+              refreshToken: state.gdriveRefreshToken
+            });
+          } else {
+            const body = { grant_type: 'refresh_token', refresh_token: state.gdriveRefreshToken, client_id: state.gdriveClientId };
+            if (state.gdriveClientSecret) body.client_secret = state.gdriveClientSecret;
+            tok = await gdriveTokenRequest(body);
+          }
+          if (stale()) throw createGdriveAuthError('Le compte Google a changé pendant l’opération.');
+          storeGdriveTokens(tok);
+          return state.gdriveAccessToken;
+        } catch (err) {
+          if (stale()) throw (err && err.code === 'GDRIVE_AUTH' ? err : createGdriveAuthError('Le compte Google a changé pendant l’opération.'));
+          if (/invalid_grant/.test(String((err && err.message) || err))) {
+            clearGdriveSession();
+            renderGdriveAccountUi();
+            throw createGdriveAuthError('Google a retiré l’accès à InkFlow. Reliez à nouveau votre compte.');
+          }
+          throw err;
+        } finally {
+          if (!stale()) gdriveRefreshPromise = null;
+        }
+      })();
+    }
+    return gdriveRefreshPromise;
+  }
+
+  async function gdriveFetch(url, options = {}, actionLabel = 'Google Drive', { quiet = false } = {}) {
+    if (!isGdriveLinked()) throw createGdriveAuthError('Aucun compte Google relié.');
+    const failNetwork = () => {
+      if (quiet) {
+        if (netState.online) setNetworkState({ unreachable: true });
+      } else {
+        reportNetworkFailure(actionLabel);
+      }
+      return createNetworkError(actionLabel);
+    };
+    if (!isNetworkAvailable()) {
+      if (!quiet) notifyNetworkRequired(actionLabel);
+      throw createNetworkError(actionLabel);
+    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let token;
+      try {
+        token = await getGdriveAccessToken(attempt > 0);
+      } catch (err) {
+        if (isNetworkFailure(err)) throw failNetwork();
+        throw err;
+      }
+      let res;
+      try {
+        res = await fetch(url, {
+          ...options,
+          headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` }
+        });
+      } catch (_) {
+        throw failNetwork();
+      }
+      if (netState.unreachable) setNetworkState({ unreachable: false });
+      if (res.status === 401 && attempt === 0) continue;
+      if (res.status === 401) {
+        clearGdriveSession();
+        renderGdriveAccountUi();
+        throw createGdriveAuthError('Session Google expirée. Reliez à nouveau votre compte.');
+      }
+      if (!res.ok) {
+        let detail = '';
+        try {
+          const j = await res.json();
+          detail = (j && j.error && j.error.message) || '';
+        } catch (_) {}
+        throw new Error(`Google Drive (${res.status})${detail ? ` : ${detail}` : ''}`);
+      }
+      return res;
+    }
+    throw createGdriveAuthError('Session Google expirée. Reliez à nouveau votre compte.');
+  }
+
+  function reportGdriveError(err, fallbackLabel = 'Google Drive') {
+    if (!err || err.handled) return;
+    showToast(`${fallbackLabel} : ${(err && err.message) || err}`, 'error');
+  }
+
+  async function refreshGdriveAccountInfo() {
+    const res = await gdriveFetch(`${GDRIVE_API}/about?fields=${encodeURIComponent('user(displayName,emailAddress,photoLink),storageQuota(limit,usage)')}`, {}, 'Compte Google');
+    const data = await res.json();
+    const user = data.user || {};
+    const quota = data.storageQuota || {};
+    state.gdriveAccount = {
+      name: user.displayName || '',
+      email: user.emailAddress || '',
+      photo: user.photoLink || '',
+      usage: Number(quota.usage) || 0,
+      limit: Number(quota.limit) || 0
+    };
+    writeLocalSetting(GDRIVE_KEYS.account, JSON.stringify(state.gdriveAccount));
+    renderGdriveAccountUi();
+    return state.gdriveAccount;
+  }
+
+  async function gdriveUnlink() {
+    const token = state.gdriveRefreshToken || state.gdriveAccessToken;
+    clearGdriveSession();
+    renderGdriveAccountUi();
+    renderNetworkIndicator();
+    showToast('Compte Google délié.');
+    if (!token || !isNetworkAvailable()) return;
+    try {
+      if (hasTauriInvoke()) {
+        await window.__TAURI__.core.invoke('gdrive_oauth_revoke', { token });
+      } else {
+        await fetch('https://oauth2.googleapis.com/revoke', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ token }).toString()
+        });
+      }
+    } catch (_) {
+      // Révocation au mieux : le jeton local est déjà oublié
+    }
+  }
+
+  function formatDriveBytes(bytes) {
+    const n = Number(bytes) || 0;
+    if (n <= 0) return '';
+    const units = ['octets', 'Ko', 'Mo', 'Go', 'To'];
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    const digits = i === 0 || v >= 100 ? 0 : 1;
+    return `${v.toLocaleString('fr-FR', { maximumFractionDigits: digits, minimumFractionDigits: 0 })} ${units[i]}`;
+  }
+
+  function formatDriveDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString('fr-FR', sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
   function updateGdriveStatusUi(text, connected = false) {
     const txt = document.getElementById('gdriveStatusText');
     const dot = document.getElementById('gdriveStatusDot');
@@ -19217,6 +19827,72 @@
     if (txt) txt.textContent = text;
     if (dot) dot.style.background = connected ? '#16a34a' : '#94a3b8';
     if (banner && banner.classList) banner.classList.toggle('is-connected', Boolean(connected));
+  }
+
+  function renderGdriveAccountUi() {
+    const linked = isGdriveLinked();
+    const linking = Boolean(state.gdriveLinking);
+    const show = (id, visible) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('hidden', !visible);
+    };
+    show('gdriveStateUnlinked', !linked && !linking);
+    show('gdriveStateLinking', linking);
+    show('gdriveStateLinked', linked && !linking);
+
+    const acc = state.gdriveAccount || {};
+    const label = acc.name || acc.email || 'Compte Google';
+    const nameEl = document.getElementById('gdriveAccountName');
+    const emailEl = document.getElementById('gdriveAccountEmail');
+    if (nameEl) nameEl.textContent = state.gdriveRefreshToken ? label : `${label} (jeton temporaire)`;
+    if (emailEl) emailEl.textContent = acc.name && acc.email ? acc.email : '';
+
+    const avatar = document.getElementById('gdriveAccountAvatar');
+    if (avatar) {
+      const initial = (label.trim()[0] || 'G').toUpperCase();
+      avatar.textContent = initial;
+      if (acc.photo && typeof document.createElement === 'function') {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.referrerPolicy = 'no-referrer';
+        img.onerror = () => { avatar.textContent = initial; };
+        img.src = acc.photo;
+        avatar.textContent = '';
+        avatar.appendChild(img);
+      }
+    }
+
+    const quotaWrap = document.getElementById('gdriveQuotaWrap');
+    if (quotaWrap) {
+      const hasQuota = acc.limit > 0;
+      quotaWrap.classList.toggle('hidden', !hasQuota);
+      if (hasQuota) {
+        const pct = Math.min(100, Math.round((acc.usage / acc.limit) * 100));
+        const fill = document.getElementById('gdriveQuotaFill');
+        if (fill) fill.style.width = `${pct}%`;
+        const qt = document.getElementById('gdriveQuotaText');
+        if (qt) qt.textContent = `${formatDriveBytes(acc.usage) || '0 Ko'} utilisés sur ${formatDriveBytes(acc.limit)}`;
+      }
+    }
+
+    const setupState = document.getElementById('gdriveSetupState');
+    if (setupState) setupState.textContent = state.gdriveClientId ? 'renseignés' : 'à renseigner une fois';
+
+    const pickerAccount = document.getElementById('drivePickerAccount');
+    if (pickerAccount) pickerAccount.textContent = acc.email || '';
+
+    if (!state.gdriveLocalDirHandle) {
+      if (linking) updateGdriveStatusUi('Connexion à Google en cours…', false);
+      else if (linked) {
+        const when = state.gdriveLastSyncAt
+          ? ` · sauvegarde à ${new Date(state.gdriveLastSyncAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+          : '';
+        updateGdriveStatusUi(`Relié à ${acc.email || 'Google Drive'}${when}`, true);
+      } else {
+        updateGdriveStatusUi('Aucun compte Google relié', false);
+      }
+    }
+    syncNetworkDependentControls();
   }
 
   async function syncToLocalDriveFolderNow() {
@@ -19239,34 +19915,37 @@
     }
   }
 
-  async function ensureGdriveBackupFolderId(token) {
-    const q = encodeURIComponent("name='Inkflow Backups' and mimeType='application/vnd.google-apps.folder' and trashed=false");
-    const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (!listRes.ok) throw new Error(`Google Drive API (${listRes.status})`);
+  async function ensureGdriveBackupFolderId(actionLabel, fetchOpts = {}) {
+    const q = encodeURIComponent("name='Inkflow Backups' and mimeType='application/vnd.google-apps.folder' and trashed=false and 'me' in owners");
+    const listRes = await gdriveFetch(`${GDRIVE_API}/files?q=${q}&fields=files(id,name)`, {}, actionLabel, fetchOpts);
     const listData = await listRes.json();
     if (listData.files && listData.files.length > 0) return listData.files[0].id;
 
-    const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    const createRes = await gdriveFetch(`${GDRIVE_API}/files?fields=id`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Inkflow Backups', mimeType: 'application/vnd.google-apps.folder' })
-    });
-    if (!createRes.ok) throw new Error(`Création dossier Drive (${createRes.status})`);
+    }, actionLabel, fetchOpts);
     const created = await createRes.json();
     return created.id;
   }
 
-  async function backupToGoogleDriveApiNow() {
-    const token = state.gdriveAccessToken;
-    if (!token) {
-      showToast('Connectez Google Drive (ou collez un Access Token / choisissez le dossier Drive local).');
-      return;
+  let gdrivePendingAutoBackup = false;
+
+  async function backupToGoogleDriveApiNow(options = {}) {
+    const auto = Boolean(options.auto);
+    const actionLabel = 'Sauvegarde Google Drive';
+    if (!isGdriveLinked()) {
+      if (!auto) showToast('Reliez d’abord un compte Google.', 'error');
+      return false;
+    }
+    if (auto && !isNetworkAvailable()) {
+      gdrivePendingAutoBackup = true;
+      return false;
     }
     try {
-      updateGdriveStatusUi('Sauvegarde sur Google Drive en cours...', true);
-      const folderId = await ensureGdriveBackupFolderId(token);
+      updateGdriveStatusUi('Sauvegarde sur Google Drive en cours…', true);
+      const folderId = await ensureGdriveBackupFolderId(actionLabel, { quiet: auto });
       const fileName = `inkflow-backup-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.plume.json`;
       const metadata = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const bodyJson = JSON.stringify(buildFullBackupPayload());
@@ -19274,73 +19953,661 @@
       const multipartBody =
         `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
         `--${boundary}\r\nContent-Type: application/json\r\n\r\n${bodyJson}\r\n--${boundary}--`;
-      const upRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime', {
+      await gdriveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': `multipart/related; boundary=${boundary}`
-        },
+        headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
         body: multipartBody
-      });
-      if (!upRes.ok) throw new Error(`Upload Drive (${upRes.status})`);
+      }, actionLabel, { quiet: auto });
       state.gdriveLastSyncAt = Date.now();
-      const timeStr = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-      updateGdriveStatusUi(`Connecté à Google Drive — Dernière sauvegarde à ${timeStr}`, true);
-      showToast(`Sauvegardé sur Google Drive (${fileName}) !`);
+      gdrivePendingAutoBackup = false;
+      renderGdriveAccountUi();
+      if (!auto) showToast(`Sauvegardé sur Google Drive (${fileName}).`);
+      return true;
     } catch (err) {
-      updateGdriveStatusUi(`Erreur Google Drive : ${err.message || err}`, false);
-      showToast(`Erreur Google Drive : ${err.message || err}`);
+      renderGdriveAccountUi();
+      if (err && err.code === 'NETWORK') {
+        gdrivePendingAutoBackup = true;
+        return false;
+      }
+      if (!auto) reportGdriveError(err, 'Sauvegarde Google Drive');
+      return false;
     }
   }
 
   async function listGoogleDriveBackups() {
     const listEl = document.getElementById('gdriveBackupsList');
-    const token = state.gdriveAccessToken;
-    if (!token) {
-      showToast('Connectez Google Drive d’abord.');
+    if (!isGdriveLinked()) {
+      showToast('Reliez d’abord un compte Google.', 'error');
       return;
     }
-    if (listEl) listEl.innerHTML = '<div style="font-size:11px;color:var(--text-secondary);">Chargement...</div>';
+    if (!requireNetwork('Historique Google Drive')) return;
+    const setNote = (text, isError = false) => {
+      if (!listEl) return;
+      listEl.innerHTML = '';
+      const note = document.createElement('div');
+      note.className = `gdrive-backups-note${isError ? ' is-error' : ''}`;
+      note.textContent = text;
+      listEl.appendChild(note);
+    };
+    setNote('Chargement…');
     try {
-      const folderId = await ensureGdriveBackupFolderId(token);
+      const folderId = await ensureGdriveBackupFolderId('Historique Google Drive');
       const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=12&fields=files(id,name,modifiedTime,size)`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error(`Liste Drive (${res.status})`);
+      const res = await gdriveFetch(`${GDRIVE_API}/files?q=${q}&orderBy=modifiedTime desc&pageSize=12&fields=files(id,name,modifiedTime,size)`, {}, 'Historique Google Drive');
       const data = await res.json();
       const files = data.files || [];
       if (!listEl) return;
       if (files.length === 0) {
-        listEl.innerHTML = '<div style="font-size:11px;color:var(--text-secondary);">Aucune sauvegarde dans Inkflow Backups.</div>';
+        setNote('Aucune sauvegarde dans Inkflow Backups.');
         return;
       }
       listEl.innerHTML = '';
       files.forEach((f) => {
         const row = document.createElement('div');
         row.className = 'gn-gdrive-backup-row';
-        const kb = f.size ? `${Math.round(Number(f.size) / 1024)} Ko` : '';
-        row.innerHTML = `<span>${escapeHtml(f.name)} ${kb ? `(${kb})` : ''}</span><button class="btn-small-action" type="button">Restaurer</button>`;
-        row.querySelector('button').addEventListener('click', async () => {
+        const label = document.createElement('span');
+        const meta = [formatDriveDate(f.modifiedTime), formatDriveBytes(f.size)].filter(Boolean).join(' · ');
+        label.textContent = meta ? `${f.name} (${meta})` : f.name;
+        const btn = document.createElement('button');
+        btn.className = 'btn-small-action';
+        btn.type = 'button';
+        btn.textContent = 'Restaurer';
+        btn.addEventListener('click', async () => {
           try {
-            const dl = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(f.id)}?alt=media`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
-            if (!dl.ok) throw new Error(`Téléchargement (${dl.status})`);
+            const dl = await gdriveFetch(`${GDRIVE_API}/files/${encodeURIComponent(f.id)}?alt=media`, {}, 'Restauration Google Drive');
             const json = await dl.json();
             await restoreFullBackupPayload(json);
             const modal = document.getElementById('modalGoogleDrive');
             if (modal) modal.classList.add('hidden');
           } catch (e2) {
-            showToast(`Erreur restauration : ${e2.message || e2}`);
+            reportGdriveError(e2, 'Restauration');
           }
         });
+        row.appendChild(label);
+        row.appendChild(btn);
         listEl.appendChild(row);
       });
     } catch (err) {
-      if (listEl) listEl.innerHTML = `<div style="font-size:11px;color:#dc2626;">${escapeHtml(err.message || String(err))}</div>`;
+      if (err && err.code === 'NETWORK') setNote('Hors connexion : historique indisponible.', true);
+      else setNote(String((err && err.message) || err), true);
     }
   }
+
+  // --- Sélecteur visuel de fichiers Google Drive ---
+  const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
+  const DRIVE_SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
+  const DRIVE_EXPORTABLE_LABELS = {
+    'application/vnd.google-apps.document': 'Doc Google',
+    'application/vnd.google-apps.presentation': 'Slides Google',
+    'application/vnd.google-apps.spreadsheet': 'Sheets Google',
+    'application/vnd.google-apps.drawing': 'Dessin Google'
+  };
+  const DRIVE_VIEW_LABELS = { root: 'Mon Drive', recent: 'Récents', starred: 'Suivis', shared: 'Partagés avec moi' };
+  const DRIVE_KIND_LABELS = { pdf: 'PDF', image: 'Image', gdoc: 'Doc Google', backup: 'Sauvegarde InkFlow' };
+  const DRIVE_KIND_GLYPHS = {
+    pdf: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line>',
+    image: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>',
+    gdoc: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline>',
+    backup: '<polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line>',
+    folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>',
+    check: '<polyline points="20 6 9 17 4 12"></polyline>'
+  };
+
+  const drivePicker = {
+    view: 'root',
+    stack: [],
+    filter: 'all',
+    search: '',
+    items: [],
+    nextPageToken: null,
+    selected: new Map(),
+    loadSeq: 0,
+    loading: false,
+    importing: false,
+    error: '',
+    needsReload: false,
+    searchTimer: null
+  };
+
+  function getDriveImportKind(mime, name = '') {
+    const m = String(mime || '').toLowerCase();
+    const n = String(name || '');
+    if (m === 'application/pdf') return 'pdf';
+    if (/^image\/(png|jpe?g|gif|webp|bmp|svg\+xml)$/.test(m)) return 'image';
+    if (DRIVE_EXPORTABLE_LABELS[m]) return 'gdoc';
+    if (/\.plume\.json$/i.test(n)) return 'backup';
+    if (m === 'application/json' && /^inkflow-backup/i.test(n)) return 'backup';
+    if ((m === 'application/octet-stream' || !m) && /\.pdf$/i.test(n)) return 'pdf';
+    return null;
+  }
+
+  function escapeDriveQueryValue(value) {
+    return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  }
+
+  function getDriveCurrentFolderId() {
+    const top = drivePicker.stack[drivePicker.stack.length - 1];
+    return top ? top.id : null;
+  }
+
+  function buildDriveListQuery({ view = 'root', folderId = null, filter = 'all', search = '' } = {}) {
+    const clauses = ['trashed = false'];
+    const text = String(search || '').trim();
+    if (text) {
+      clauses.push(`name contains '${escapeDriveQueryValue(text)}'`);
+    } else if (folderId) {
+      clauses.push(`'${escapeDriveQueryValue(folderId)}' in parents`);
+    } else if (view === 'starred') {
+      clauses.push('starred = true');
+    } else if (view === 'shared') {
+      clauses.push('sharedWithMe = true');
+    }
+    const allowFolders = Boolean(text || folderId || view !== 'recent');
+    const types = [];
+    if (filter === 'all' || filter === 'pdf') types.push("mimeType = 'application/pdf'");
+    if (filter === 'all' || filter === 'image') types.push("mimeType contains 'image/'");
+    if (filter === 'all' || filter === 'gdoc') Object.keys(DRIVE_EXPORTABLE_LABELS).forEach((m) => types.push(`mimeType = '${m}'`));
+    if (filter === 'all' || filter === 'backup') types.push("mimeType = 'application/json'");
+    types.push(`mimeType = '${DRIVE_SHORTCUT_MIME}'`);
+    if (allowFolders) types.push(`mimeType = '${DRIVE_FOLDER_MIME}'`);
+    clauses.push(`(${types.join(' or ')})`);
+    return clauses.join(' and ');
+  }
+
+  function getDriveOrderBy({ view = 'root', folderId = null, search = '' } = {}) {
+    if (String(search || '').trim()) return 'folder,modifiedTime desc';
+    if (!folderId && view === 'recent') return 'recency desc';
+    if (!folderId && view === 'shared') return 'sharedWithMeTime desc';
+    return 'folder,name_natural';
+  }
+
+  function normalizeDriveItem(raw, filter = 'all') {
+    if (!raw || !raw.id) return null;
+    let mime = raw.mimeType;
+    let id = raw.id;
+    const isShortcut = mime === DRIVE_SHORTCUT_MIME;
+    if (isShortcut) {
+      if (!raw.shortcutDetails || !raw.shortcutDetails.targetId) return null;
+      mime = raw.shortcutDetails.targetMimeType;
+      id = raw.shortcutDetails.targetId;
+    }
+    const name = String(raw.name || 'Sans titre');
+    if (mime === DRIVE_FOLDER_MIME) return { id, name, isFolder: true, isShortcut };
+    const kind = getDriveImportKind(mime, name);
+    if (!kind) return null;
+    if (filter !== 'all' && filter !== kind) return null;
+    return {
+      id,
+      name,
+      mime,
+      kind,
+      isFolder: false,
+      isShortcut,
+      size: Number(raw.size) || 0,
+      modifiedTime: raw.modifiedTime || '',
+      thumbnailLink: isShortcut ? '' : (raw.thumbnailLink || '')
+    };
+  }
+
+  function makeDriveGlyph(kind, size = 28) {
+    const span = document.createElement('span');
+    span.className = 'drive-glyph';
+    span.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${DRIVE_KIND_GLYPHS[kind] || DRIVE_KIND_GLYPHS.pdf}</svg>`;
+    return span;
+  }
+
+  function openDrivePicker(options = {}) {
+    const modal = document.getElementById('modalDrivePicker');
+    if (!modal) return;
+    if (!isGdriveLinked()) {
+      openCloudBackupModal('api');
+      showToast('Reliez d’abord un compte Google pour parcourir Drive.', 'error');
+      return;
+    }
+    drivePicker.view = 'root';
+    drivePicker.stack = [{ id: 'root', name: DRIVE_VIEW_LABELS.root }];
+    drivePicker.filter = options.filter || 'all';
+    drivePicker.search = '';
+    drivePicker.items = [];
+    drivePicker.nextPageToken = null;
+    drivePicker.selected.clear();
+    drivePicker.error = '';
+    drivePicker.openedFrom = options.from || null;
+    const search = document.getElementById('drivePickerSearch');
+    if (search) search.value = '';
+    syncDrivePickerChrome();
+    modal.classList.remove('hidden');
+    renderGdriveAccountUi();
+    if (!isNetworkAvailable()) {
+      drivePicker.needsReload = true;
+      notifyNetworkRequired('Parcourir Google Drive');
+      renderDrivePickerGrid();
+      renderDrivePickerFooter();
+      return;
+    }
+    loadDrivePickerItems();
+  }
+
+  function closeDrivePicker() {
+    if (drivePicker.importing) {
+      showToast('Import en cours depuis Google Drive…', 'info', 'drive-importing');
+      return;
+    }
+    const modal = document.getElementById('modalDrivePicker');
+    if (modal) modal.classList.add('hidden');
+    drivePicker.loadSeq++;
+    drivePicker.loading = false;
+    clearTimeout(drivePicker.searchTimer);
+  }
+
+  function isDrivePickerOpen() {
+    const modal = document.getElementById('modalDrivePicker');
+    return Boolean(modal && !modal.classList.contains('hidden'));
+  }
+
+  function syncDrivePickerChrome() {
+    if (typeof document.querySelectorAll === 'function') {
+      document.querySelectorAll('#modalDrivePicker [data-drive-view]').forEach((btn) => {
+        const active = btn.dataset.driveView === drivePicker.view;
+        btn.classList.toggle('active', active);
+        if (active) btn.setAttribute('aria-current', 'true');
+        else if (typeof btn.removeAttribute === 'function') btn.removeAttribute('aria-current');
+      });
+      document.querySelectorAll('#modalDrivePicker [data-drive-filter]').forEach((chip) => {
+        const active = chip.dataset.driveFilter === drivePicker.filter;
+        chip.classList.toggle('active', active);
+        chip.setAttribute('aria-checked', active ? 'true' : 'false');
+      });
+    }
+    renderDriveBreadcrumb();
+  }
+
+  function renderDriveBreadcrumb() {
+    const el = document.getElementById('drivePickerBreadcrumb');
+    if (!el) return;
+    el.innerHTML = '';
+    const text = drivePicker.search.trim();
+    if (text) {
+      const span = document.createElement('span');
+      span.className = 'drive-crumb is-current';
+      span.textContent = `Résultats pour « ${text} »`;
+      el.appendChild(span);
+      return;
+    }
+    const crumbs = [];
+    if (drivePicker.view !== 'root') crumbs.push({ label: DRIVE_VIEW_LABELS[drivePicker.view], depth: 0 });
+    drivePicker.stack.forEach((f, i) => crumbs.push({ label: f.name, depth: drivePicker.view === 'root' ? i + 1 : i + 1 }));
+    crumbs.forEach((c, i) => {
+      const last = i === crumbs.length - 1;
+      if (i > 0) {
+        const sep = document.createElement('span');
+        sep.className = 'drive-crumb-sep';
+        sep.setAttribute('aria-hidden', 'true');
+        sep.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+        el.appendChild(sep);
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `drive-crumb${last ? ' is-current' : ''}`;
+      btn.textContent = c.label;
+      if (last) btn.disabled = true;
+      else {
+        btn.addEventListener('click', () => {
+          drivePicker.stack = drivePicker.stack.slice(0, c.depth);
+          if (drivePicker.view === 'root' && drivePicker.stack.length === 0) drivePicker.stack = [{ id: 'root', name: DRIVE_VIEW_LABELS.root }];
+          reloadDrivePicker();
+        });
+      }
+      el.appendChild(btn);
+    });
+  }
+
+  function reloadDrivePicker() {
+    drivePicker.items = [];
+    drivePicker.nextPageToken = null;
+    drivePicker.error = '';
+    syncDrivePickerChrome();
+    const scroll = document.getElementById('drivePickerScroll');
+    if (scroll) scroll.scrollTop = 0;
+    loadDrivePickerItems();
+  }
+
+  async function loadDrivePickerItems({ append = false } = {}) {
+    if (!isNetworkAvailable()) {
+      drivePicker.needsReload = true;
+      renderDrivePickerGrid();
+      return;
+    }
+    const seq = ++drivePicker.loadSeq;
+    drivePicker.loading = true;
+    drivePicker.error = '';
+    drivePicker.needsReload = false;
+    if (!append) drivePicker.items = [];
+    renderDrivePickerGrid();
+    const folderId = getDriveCurrentFolderId();
+    const ctx = { view: drivePicker.view, folderId, filter: drivePicker.filter, search: drivePicker.search };
+    const params = new URLSearchParams({
+      q: buildDriveListQuery(ctx),
+      orderBy: getDriveOrderBy(ctx),
+      pageSize: '60',
+      spaces: 'drive',
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
+      fields: 'nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink,shortcutDetails(targetId,targetMimeType))'
+    });
+    if (append && drivePicker.nextPageToken) params.set('pageToken', drivePicker.nextPageToken);
+    try {
+      const res = await gdriveFetch(`${GDRIVE_API}/files?${params.toString()}`, {}, 'Parcourir Google Drive');
+      const data = await res.json();
+      if (seq !== drivePicker.loadSeq) return;
+      const fresh = (data.files || []).map((f) => normalizeDriveItem(f, drivePicker.filter)).filter(Boolean);
+      const known = new Set(drivePicker.items.map((it) => it.id));
+      drivePicker.items = drivePicker.items.concat(fresh.filter((it) => !known.has(it.id)));
+      drivePicker.nextPageToken = data.nextPageToken || null;
+    } catch (err) {
+      if (seq !== drivePicker.loadSeq) return;
+      if (err && err.code === 'NETWORK') drivePicker.needsReload = true;
+      else drivePicker.error = String((err && err.message) || err);
+      if (err && err.code === 'GDRIVE_AUTH') {
+        showToast(err.message, 'error');
+        closeDrivePicker();
+        openCloudBackupModal('api');
+      }
+    } finally {
+      if (seq === drivePicker.loadSeq) {
+        drivePicker.loading = false;
+        renderDrivePickerGrid();
+      }
+    }
+  }
+
+  function renderDrivePickerGrid() {
+    const grid = document.getElementById('drivePickerGrid');
+    const empty = document.getElementById('drivePickerEmpty');
+    const more = document.getElementById('btnDrivePickerMore');
+    if (!grid) return;
+    grid.innerHTML = '';
+    const items = drivePicker.items;
+    const folders = items.filter((it) => it.isFolder);
+    const files = items.filter((it) => !it.isFolder);
+
+    if (folders.length) {
+      const head = document.createElement('div');
+      head.className = 'drive-section-label';
+      head.textContent = 'Dossiers';
+      grid.appendChild(head);
+      folders.forEach((folder) => grid.appendChild(createDriveFolderTile(folder)));
+    }
+    if (files.length) {
+      const head = document.createElement('div');
+      head.className = 'drive-section-label';
+      head.textContent = 'Fichiers';
+      grid.appendChild(head);
+      files.forEach((file) => grid.appendChild(createDriveFileCard(file)));
+    }
+    if (drivePicker.loading) {
+      const count = items.length ? 4 : 8;
+      for (let i = 0; i < count; i++) {
+        const sk = document.createElement('div');
+        sk.className = 'drive-card is-skeleton';
+        sk.setAttribute('aria-hidden', 'true');
+        grid.appendChild(sk);
+      }
+    }
+
+    if (empty) {
+      let title = '';
+      let sub = '';
+      let retry = false;
+      if (!drivePicker.loading && !items.length) {
+        if (!isNetworkAvailable() || drivePicker.needsReload) {
+          title = 'Hors connexion';
+          sub = 'La liste de vos fichiers s’affichera dès le retour du réseau.';
+        } else if (drivePicker.error) {
+          title = 'Impossible de charger Google Drive';
+          sub = drivePicker.error;
+          retry = true;
+        } else {
+          title = drivePicker.search.trim() ? 'Aucun résultat' : 'Rien à importer ici';
+          sub = 'InkFlow importe les PDF, les images, les documents Google (convertis en PDF) et les sauvegardes InkFlow.';
+        }
+      }
+      empty.classList.toggle('hidden', !title);
+      empty.innerHTML = '';
+      if (title) {
+        const t = document.createElement('div');
+        t.className = 'drive-empty-title';
+        t.textContent = title;
+        const s = document.createElement('div');
+        s.className = 'drive-empty-sub';
+        s.textContent = sub;
+        empty.appendChild(t);
+        empty.appendChild(s);
+        if (retry) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'cloud-btn-secondary';
+          b.textContent = 'Réessayer';
+          b.addEventListener('click', () => reloadDrivePicker());
+          empty.appendChild(b);
+        }
+      }
+    }
+    if (more) more.classList.toggle('hidden', !drivePicker.nextPageToken || drivePicker.loading);
+    renderDrivePickerFooter();
+  }
+
+  function createDriveFolderTile(folder) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'drive-folder-tile';
+    btn.title = folder.name;
+    btn.appendChild(makeDriveGlyph('folder', 18));
+    const name = document.createElement('span');
+    name.className = 'drive-folder-name';
+    name.textContent = folder.name;
+    btn.appendChild(name);
+    btn.addEventListener('click', () => {
+      if (drivePicker.search.trim()) {
+        drivePicker.search = '';
+        const input = document.getElementById('drivePickerSearch');
+        if (input) input.value = '';
+        drivePicker.view = 'root';
+        drivePicker.stack = [{ id: 'root', name: DRIVE_VIEW_LABELS.root }];
+      }
+      drivePicker.stack = drivePicker.stack.concat([{ id: folder.id, name: folder.name }]);
+      reloadDrivePicker();
+    });
+    return btn;
+  }
+
+  function createDriveFileCard(file) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'drive-card';
+    card.setAttribute('role', 'option');
+    const selected = drivePicker.selected.has(file.id);
+    card.classList.toggle('is-selected', selected);
+    card.setAttribute('aria-selected', selected ? 'true' : 'false');
+    card.title = `${file.name}\nDouble-clic pour importer directement`;
+
+    const thumb = document.createElement('span');
+    thumb.className = `drive-thumb kind-${file.kind}`;
+    const glyph = makeDriveGlyph(file.kind === 'gdoc' ? 'gdoc' : file.kind, 30);
+    thumb.appendChild(glyph);
+    if (file.thumbnailLink) {
+      const img = document.createElement('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.referrerPolicy = 'no-referrer';
+      img.onload = () => thumb.classList.add('has-image');
+      img.onerror = () => img.remove();
+      img.src = file.thumbnailLink;
+      thumb.appendChild(img);
+    }
+    const badge = document.createElement('span');
+    badge.className = 'drive-kind-badge';
+    badge.textContent = file.kind === 'gdoc' ? (DRIVE_EXPORTABLE_LABELS[file.mime] || 'Doc Google') : DRIVE_KIND_LABELS[file.kind];
+    thumb.appendChild(badge);
+    const check = document.createElement('span');
+    check.className = 'drive-check';
+    check.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${DRIVE_KIND_GLYPHS.check}</svg>`;
+    thumb.appendChild(check);
+    card.appendChild(thumb);
+
+    const meta = document.createElement('span');
+    meta.className = 'drive-card-meta';
+    const name = document.createElement('span');
+    name.className = 'drive-card-name';
+    name.textContent = file.name;
+    const sub = document.createElement('span');
+    sub.className = 'drive-card-sub';
+    sub.textContent = [formatDriveDate(file.modifiedTime), formatDriveBytes(file.size)].filter(Boolean).join(' · ');
+    meta.appendChild(name);
+    meta.appendChild(sub);
+    card.appendChild(meta);
+
+    card.addEventListener('click', () => {
+      if (drivePicker.importing) return;
+      if (drivePicker.selected.has(file.id)) drivePicker.selected.delete(file.id);
+      else drivePicker.selected.set(file.id, file);
+      const isSel = drivePicker.selected.has(file.id);
+      card.classList.toggle('is-selected', isSel);
+      card.setAttribute('aria-selected', isSel ? 'true' : 'false');
+      renderDrivePickerFooter();
+    });
+    card.addEventListener('dblclick', () => {
+      if (drivePicker.importing || file.kind === 'backup') return;
+      drivePicker.selected.clear();
+      drivePicker.selected.set(file.id, file);
+      importSelectedDriveFiles();
+    });
+    return card;
+  }
+
+  function renderDrivePickerFooter(progressText = '') {
+    const sel = Array.from(drivePicker.selected.values());
+    const label = document.getElementById('drivePickerSelection');
+    const btn = document.getElementById('btnDrivePickerImport');
+    const targetWrap = document.getElementById('drivePdfTargetWrap');
+    if (label) {
+      if (progressText) label.textContent = progressText;
+      else if (!sel.length) label.textContent = 'Sélectionnez un ou plusieurs fichiers';
+      else {
+        const total = sel.reduce((acc, f) => acc + (f.size || 0), 0);
+        const sizeTxt = formatDriveBytes(total);
+        label.textContent = `${sel.length} fichier${sel.length > 1 ? 's' : ''} sélectionné${sel.length > 1 ? 's' : ''}${sizeTxt ? ` · ${sizeTxt}` : ''}`;
+      }
+    }
+    if (btn) {
+      btn.disabled = !sel.length || drivePicker.importing;
+      btn.textContent = drivePicker.importing ? 'Import…' : (sel.length > 1 ? `Importer (${sel.length})` : 'Importer');
+    }
+    if (targetWrap) targetWrap.classList.toggle('hidden', !sel.some((f) => f.kind === 'pdf' || f.kind === 'gdoc'));
+    syncNetworkDependentControls();
+  }
+
+  async function confirmDriveBackupRestore(name) {
+    const msg = `Restaurer la sauvegarde « ${name} » ? Les cahiers et pages de même identifiant seront remplacés.`;
+    try {
+      if (window.__TAURI__ && window.__TAURI__.dialog && typeof window.__TAURI__.dialog.confirm === 'function') {
+        return Boolean(await window.__TAURI__.dialog.confirm(msg, { title: 'InkFlow', kind: 'warning' }));
+      }
+      return typeof window.confirm === 'function' ? Boolean(window.confirm(msg)) : false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function importOneDriveFile(file, pdfMode) {
+    const label = 'Importer depuis Google Drive';
+    if (file.kind === 'gdoc') {
+      const res = await gdriveFetch(`${GDRIVE_API}/files/${encodeURIComponent(file.id)}/export?mimeType=${encodeURIComponent('application/pdf')}`, {}, label);
+      const buf = await res.arrayBuffer();
+      const ok = await paidImportPdf(buf, `${file.name}.pdf`, pdfMode);
+      return ok ? 'done' : 'stopped';
+    }
+    const res = await gdriveFetch(`${GDRIVE_API}/files/${encodeURIComponent(file.id)}?alt=media&supportsAllDrives=true`, {}, label);
+    if (file.kind === 'pdf') {
+      const buf = await res.arrayBuffer();
+      const name = /\.pdf$/i.test(file.name) ? file.name : `${file.name}.pdf`;
+      const ok = await paidImportPdf(buf, name, pdfMode);
+      return ok ? 'done' : 'stopped';
+    }
+    if (file.kind === 'image') {
+      const blob = await res.blob();
+      const imageFile = new File([blob], file.name, { type: file.mime || blob.type || 'image/png' });
+      readFileAsImageAndInsert(imageFile);
+      return 'done';
+    }
+    if (file.kind === 'backup') {
+      if (!(await confirmDriveBackupRestore(file.name))) return 'skipped';
+      const json = await res.json();
+      await restoreFullBackupPayload(json);
+      return 'done';
+    }
+    return 'skipped';
+  }
+
+  async function importSelectedDriveFiles() {
+    if (drivePicker.importing) return;
+    const files = Array.from(drivePicker.selected.values());
+    if (!files.length) return;
+    if (!requireNetwork('Importer depuis Google Drive')) return;
+    const targetSelect = document.getElementById('drivePdfTarget');
+    const pdfMode = targetSelect && targetSelect.value === 'current-notebook' ? 'current-notebook' : 'new-notebook';
+    drivePicker.importing = true;
+    let done = 0;
+    let stopped = false;
+    let stoppedAt = -1;
+    const failures = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      renderDrivePickerFooter(`Import ${i + 1}/${files.length} : ${file.name}`);
+      try {
+        const result = await importOneDriveFile(file, pdfMode);
+        if (result === 'done') done++;
+        if (result === 'stopped') { stopped = true; stoppedAt = i; break; }
+      } catch (err) {
+        if (err && err.code === 'NETWORK') { stopped = true; break; }
+        if (err && err.code === 'GDRIVE_AUTH') { failures.push(err.message); stopped = true; break; }
+        failures.push(`${file.name} : ${(err && err.message) || err}`);
+      }
+    }
+    drivePicker.importing = false;
+    drivePicker.selected.clear();
+    if (done > 0 || stopped) {
+      closeDrivePicker();
+      if (done > 0) {
+        const pdfModal = document.getElementById('modalImportPdf');
+        if (pdfModal && !pdfModal.classList.contains('hidden')) closeImportPdfModal();
+        const cloudModal = document.getElementById('modalGoogleDrive');
+        if (cloudModal) cloudModal.classList.add('hidden');
+        showToast(`${done} fichier${done > 1 ? 's' : ''} importé${done > 1 ? 's' : ''} depuis Google Drive.`);
+      }
+      const left = stoppedAt >= 0 ? files.length - stoppedAt : 0;
+      if (left > 0) showToast(`${left} fichier${left > 1 ? 's' : ''} non importé${left > 1 ? 's' : ''} (jetons insuffisants).`, 'error', 'drive-import-left');
+    } else {
+      renderDrivePickerGrid();
+    }
+    if (failures.length) {
+      const extra = failures.length > 1 ? ` (+${failures.length - 1} autre${failures.length > 2 ? 's' : ''})` : '';
+      showToast(`Import impossible — ${failures[0]}${extra}`, 'error');
+    }
+  }
+
+  function openCloudBackupModal(tab = null) {
+    const modal = document.getElementById('modalGoogleDrive');
+    if (!modal) return;
+    if (tab && typeof setCloudBackupTabRef === 'function') setCloudBackupTabRef(tab);
+    renderGdriveAccountUi();
+    modal.classList.remove('hidden');
+    if (isGdriveLinked() && !(state.gdriveAccount && state.gdriveAccount.email) && isNetworkAvailable()) {
+      refreshGdriveAccountInfo().catch(() => {});
+    }
+  }
+  let setCloudBackupTabRef = null;
 
   function openFolderCustomizeModal(existingFolder = null) {
     const modal = document.getElementById('modalFolderCustomize');
@@ -22016,10 +23283,7 @@
 
     document.getElementById('btnCloseFilesPage')?.addEventListener('click', closeFilesPage);
     document.getElementById('btnFilesReturnToCanvas')?.addEventListener('click', closeFilesPage);
-    document.getElementById('btnFilesCloudBackup')?.addEventListener('click', () => {
-      const modal = document.getElementById('modalGoogleDrive');
-      if (modal) modal.classList.remove('hidden');
-    });
+    document.getElementById('btnFilesCloudBackup')?.addEventListener('click', () => openCloudBackupModal());
 
     // Navigation latérale GoodNotes + Drop targets (Documents = racine, Corbeille = supprimer)
     document.querySelectorAll('#gnFilesSidebarNav [data-files-tab]').forEach((btn) => {
@@ -22568,9 +23832,8 @@
       }
     });
 
-    // 4. Sauvegarde Cloud (Dossier local synchronisé + Google Drive API v3)
+    // 4. Sauvegarde Cloud (dossier local synchronisé + compte Google relié) et sélecteur Drive
     const gdModal = document.getElementById('modalGoogleDrive');
-    const inputClient = document.getElementById('inputGdriveClientId');
     const setCloudBackupTab = (tab) => {
       const isApi = tab === 'api';
       const localPanel = document.getElementById('cloudTabLocal');
@@ -22588,25 +23851,26 @@
         btnApi.setAttribute('aria-selected', isApi ? 'true' : 'false');
       }
     };
+    setCloudBackupTabRef = setCloudBackupTab;
     document.querySelectorAll('#modalGoogleDrive [data-cloud-tab]').forEach((btn) => {
       btn.addEventListener('click', () => setCloudBackupTab(btn.dataset.cloudTab));
     });
-    try {
-      state.gdriveClientId = localStorage.getItem('inkflow_gdrive_client_id') || '';
-      state.gdriveAccessToken = localStorage.getItem('inkflow_gdrive_token') || '';
-      state.gdriveAutoBackup = localStorage.getItem('inkflow_gdrive_auto') === 'true';
-      if (inputClient && state.gdriveClientId) inputClient.value = state.gdriveClientId;
-      const chk = document.getElementById('chkGdriveAutoBackup');
-      if (chk) chk.checked = state.gdriveAutoBackup;
-      if (state.gdriveAccessToken) {
-        updateGdriveStatusUi('Google Drive connecté', true);
-        setCloudBackupTab('api');
-      }
-    } catch (_) {}
 
-    document.getElementById('btnOpenGoogleDrive')?.addEventListener('click', () => {
-      if (gdModal) gdModal.classList.remove('hidden');
+    loadGdriveSession();
+    const inputClient = document.getElementById('inputGdriveClientId');
+    const inputSecret = document.getElementById('inputGdriveClientSecret');
+    if (inputClient && state.gdriveClientId) inputClient.value = state.gdriveClientId;
+    if (inputSecret && state.gdriveClientSecret) inputSecret.value = state.gdriveClientSecret;
+    [inputClient, inputSecret].forEach((input) => {
+      if (input) input.addEventListener('change', () => { readGdriveCredentialInputs(); renderGdriveAccountUi(); });
     });
+    const chkAutoInit = document.getElementById('chkGdriveAutoBackup');
+    if (chkAutoInit) chkAutoInit.checked = state.gdriveAutoBackup;
+    if (isGdriveLinked()) setCloudBackupTab('api');
+    initNetworkIndicator();
+    renderGdriveAccountUi();
+
+    document.getElementById('btnOpenGoogleDrive')?.addEventListener('click', () => openCloudBackupModal());
     document.getElementById('btnCloseGoogleDriveModal')?.addEventListener('click', () => {
       if (gdModal) gdModal.classList.add('hidden');
     });
@@ -22635,67 +23899,95 @@
     });
     document.getElementById('btnSyncLocalDriveNow')?.addEventListener('click', () => syncToLocalDriveFolderNow());
 
-    document.getElementById('btnGdriveConnect')?.addEventListener('click', () => {
-      const val = (inputClient && inputClient.value || '').trim();
-      if (!val) {
-        showToast('Saisissez votre Google OAuth Client ID ou collez un Access Token (ya29...).');
-        return;
-      }
-      if (val.startsWith('ya29.')) {
-        state.gdriveAccessToken = val;
-        try { localStorage.setItem('inkflow_gdrive_token', val); } catch (_) {}
-        updateGdriveStatusUi('Connecté à Google Drive via Access Token.', true);
-        showToast('Connecté à Google Drive !');
-        return;
-      }
-      state.gdriveClientId = val;
-      try { localStorage.setItem('inkflow_gdrive_client_id', val); } catch (_) {}
-      const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
-      const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file');
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(val)}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}&include_granted_scopes=true`;
-      const popup = window.open(authUrl, 'inkflow_gdrive_auth', 'width=520,height=640');
-      if (!popup) {
-        showToast('Popup bloquée — autorisez les popups ou collez un Access Token.');
-        return;
-      }
-      const poll = setInterval(() => {
-        try {
-          if (!popup || popup.closed) { clearInterval(poll); return; }
-          const hash = popup.location && popup.location.hash;
-          if (hash && hash.includes('access_token=')) {
-            const params = new URLSearchParams(hash.slice(1));
-            const tok = params.get('access_token');
-            if (tok) {
-              state.gdriveAccessToken = tok;
-              try { localStorage.setItem('inkflow_gdrive_token', tok); } catch (_) {}
-              updateGdriveStatusUi('Connecté à Google Drive (OAuth) !', true);
-              showToast('Connecté à Google Drive !');
-              popup.close();
-              clearInterval(poll);
-            }
-          }
-        } catch (_) {}
-      }, 450);
+    // Compte Google
+    document.getElementById('btnGdriveLink')?.addEventListener('click', () => gdriveLinkAccount());
+    document.getElementById('btnGdriveCancelLink')?.addEventListener('click', () => gdriveCancelLink());
+    document.getElementById('btnGdriveUnlink')?.addEventListener('click', () => gdriveUnlink());
+    document.getElementById('btnGdriveUseManualToken')?.addEventListener('click', () => gdriveUseManualToken());
+    document.getElementById('btnGdriveBackupNow')?.addEventListener('click', () => {
+      if (!requireNetwork('Sauvegarde Google Drive')) return;
+      backupToGoogleDriveApiNow();
+    });
+    document.getElementById('btnGdriveListBackups')?.addEventListener('click', () => listGoogleDriveBackups());
+    document.getElementById('btnGdriveOpenPicker')?.addEventListener('click', () => {
+      if (!requireNetwork('Importer depuis Google Drive')) return;
+      openDrivePicker({ from: 'cloud' });
+    });
+    document.getElementById('btnImportPdfFromDrive')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!requireNetwork('Importer un PDF depuis Google Drive')) return;
+      openDrivePicker({ filter: 'pdf', from: 'pdf' });
     });
 
-    document.getElementById('btnGdriveBackupNow')?.addEventListener('click', () => backupToGoogleDriveApiNow());
-    document.getElementById('btnGdriveListBackups')?.addEventListener('click', () => listGoogleDriveBackups());
+    // Sélecteur Drive
+    const pickerModal = document.getElementById('modalDrivePicker');
+    document.getElementById('btnCloseDrivePicker')?.addEventListener('click', closeDrivePicker);
+    document.getElementById('btnCancelDrivePicker')?.addEventListener('click', closeDrivePicker);
+    if (pickerModal) {
+      pickerModal.addEventListener('click', (ev) => {
+        if (ev.target === pickerModal && !drivePicker.importing) closeDrivePicker();
+      });
+    }
+    document.querySelectorAll('#modalDrivePicker [data-drive-view]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const view = btn.dataset.driveView;
+        drivePicker.view = view;
+        drivePicker.stack = view === 'root' ? [{ id: 'root', name: DRIVE_VIEW_LABELS.root }] : [];
+        drivePicker.search = '';
+        const input = document.getElementById('drivePickerSearch');
+        if (input) input.value = '';
+        reloadDrivePicker();
+      });
+    });
+    document.querySelectorAll('#modalDrivePicker [data-drive-filter]').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        if (drivePicker.filter === chip.dataset.driveFilter) return;
+        drivePicker.filter = chip.dataset.driveFilter;
+        reloadDrivePicker();
+      });
+    });
+    const pickerSearch = document.getElementById('drivePickerSearch');
+    if (pickerSearch) {
+      pickerSearch.addEventListener('input', () => {
+        clearTimeout(drivePicker.searchTimer);
+        drivePicker.searchTimer = setTimeout(() => {
+          const next = pickerSearch.value.trim();
+          if (next === drivePicker.search.trim()) return;
+          drivePicker.search = next;
+          reloadDrivePicker();
+        }, 350);
+      });
+    }
+    document.getElementById('btnDrivePickerMore')?.addEventListener('click', () => loadDrivePickerItems({ append: true }));
+    document.getElementById('btnDrivePickerImport')?.addEventListener('click', () => importSelectedDriveFiles());
 
+    // Sauvegarde automatique : différée hors connexion, relancée au retour du réseau
+    const runGdriveAutoBackupTick = () => {
+      if (state.gdriveLocalDirHandle) syncToLocalDriveFolderNow();
+      else if (isGdriveLinked()) backupToGoogleDriveApiNow({ auto: true });
+    };
+    const applyGdriveAutoBackup = (announce) => {
+      if (gdriveAutoBackupInterval) clearInterval(gdriveAutoBackupInterval);
+      gdriveAutoBackupInterval = null;
+      if (!state.gdriveAutoBackup) return;
+      gdriveAutoBackupInterval = setInterval(runGdriveAutoBackupTick, 5 * 60 * 1000);
+      if (announce) showToast('Sauvegarde automatique activée (toutes les 5 min).');
+    };
     const chkAuto = document.getElementById('chkGdriveAutoBackup');
     if (chkAuto) {
       chkAuto.addEventListener('change', () => {
         state.gdriveAutoBackup = chkAuto.checked;
-        try { localStorage.setItem('inkflow_gdrive_auto', String(state.gdriveAutoBackup)); } catch (_) {}
-        if (gdriveAutoBackupInterval) clearInterval(gdriveAutoBackupInterval);
-        if (state.gdriveAutoBackup) {
-          gdriveAutoBackupInterval = setInterval(() => {
-            if (state.gdriveLocalDirHandle) syncToLocalDriveFolderNow();
-            else if (state.gdriveAccessToken) backupToGoogleDriveApiNow();
-          }, 5 * 60 * 1000);
-          showToast('Sauvegarde automatique Google Drive activée (toutes les 5 min).');
-        }
+        writeLocalSetting(GDRIVE_KEYS.auto, String(state.gdriveAutoBackup));
+        applyGdriveAutoBackup(state.gdriveAutoBackup);
       });
     }
+    applyGdriveAutoBackup(false);
+
+    onNetworkChange((available) => {
+      if (!available) return;
+      if (gdrivePendingAutoBackup && state.gdriveAutoBackup && isGdriveLinked()) backupToGoogleDriveApiNow({ auto: true });
+      if (isDrivePickerOpen() && (drivePicker.needsReload || (!drivePicker.items.length && !drivePicker.loading))) reloadDrivePicker();
+    });
 
     // 5. Raccourcis clavier Goodnotes (Maj+R = Ruban, K = Laser ; R seul = Règle)
     window.addEventListener('keydown', (e) => {
@@ -26267,6 +27559,21 @@
   if (typeof window !== 'undefined') {
     window.__plumeStudioApi = {
       registerOfflineServiceWorker,
+      isNetworkAvailable,
+      isNetworkFailure,
+      setNetworkState,
+      requireNetwork,
+      buildGdriveAuthUrl,
+      computePkceChallenge,
+      storeGdriveTokens,
+      clearGdriveSession,
+      isGdriveLinked,
+      gdriveFetch,
+      getDriveImportKind,
+      buildDriveListQuery,
+      getDriveOrderBy,
+      normalizeDriveItem,
+      formatDriveBytes,
       importPdfFromBuffer,
       stagePdfBufferForImport,
       validateAndOpenPdfDocument,
