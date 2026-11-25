@@ -2961,7 +2961,8 @@
       panStartOffset: { x: 0, y: 0 },
       pickerOpen: false,
       sortMode: 'folders',
-      searchQuery: ''
+      searchQuery: '',
+      browseFolderId: null
     },
     shapeType: 'auto',
     shapeFilled: false,
@@ -26470,12 +26471,27 @@
     fitSplitPaneToWidth();
   }
 
+  function doesFolderContainNotebook(folderId, targetNbId) {
+    if (!folderId || !targetNbId) return false;
+    const targetNb = (state.notebooks || []).find((n) => n.id === targetNbId && !n.trashedAt);
+    if (!targetNb || !targetNb.folderId) return false;
+    if (targetNb.folderId === folderId) return true;
+    const chain = typeof getFolderPath === 'function' ? (getFolderPath(targetNb.folderId) || []) : [];
+    return chain.some((f) => f && f.id === folderId);
+  }
+
   function renderSplitNotebookPickerList() {
     const listEl = document.getElementById('splitNbList');
+    const bcEl = document.getElementById('splitNbBreadcrumb');
     if (!listEl) return;
     const sv = state.splitView;
     const sortMode = sv.sortMode || 'folders';
     const q = String(sv.searchQuery || '').trim().toLowerCase();
+
+    const activeFolders = (state.folders || []).filter((f) => !f.trashedAt);
+    if (sv.browseFolderId && !activeFolders.some((f) => f.id === sv.browseFolderId)) {
+      sv.browseFolderId = null;
+    }
 
     document.querySelectorAll('#splitNbSortPills .split-nb-sort-pill').forEach((pill) => {
       const isAct = pill.dataset.splitSort === sortMode;
@@ -26483,8 +26499,64 @@
       pill.setAttribute('aria-selected', String(isAct));
     });
 
+    // Fil d'Ariane cliquable quand on a ouvert un dossier (en mode Dossiers hors recherche)
+    if (bcEl) {
+      const showBc = sortMode === 'folders' && !q && Boolean(sv.browseFolderId);
+      bcEl.classList.toggle('hidden', !showBc);
+      bcEl.innerHTML = '';
+      if (showBc) {
+        const chain = typeof getFolderPath === 'function' ? (getFolderPath(sv.browseFolderId) || []) : [];
+        const parentId = chain.length >= 2 ? chain[chain.length - 2].id : null;
+
+        const backBtn = document.createElement('button');
+        backBtn.type = 'button';
+        backBtn.className = 'split-nb-back-btn';
+        backBtn.title = 'Remonter au dossier parent';
+        backBtn.setAttribute('aria-label', 'Remonter au dossier parent');
+        backBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>';
+        backBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          sv.browseFolderId = parentId;
+          renderSplitNotebookPickerList();
+        });
+        bcEl.appendChild(backBtn);
+
+        const rootCrumb = document.createElement('button');
+        rootCrumb.type = 'button';
+        rootCrumb.className = 'split-nb-crumb';
+        rootCrumb.textContent = 'Dossiers';
+        rootCrumb.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          sv.browseFolderId = null;
+          renderSplitNotebookPickerList();
+        });
+        bcEl.appendChild(rootCrumb);
+
+        chain.forEach((fld, idx) => {
+          const sep = document.createElement('span');
+          sep.className = 'split-nb-crumb-sep';
+          sep.textContent = '›';
+          bcEl.appendChild(sep);
+
+          const isLast = idx === chain.length - 1;
+          const cBtn = document.createElement('button');
+          cBtn.type = 'button';
+          cBtn.className = `split-nb-crumb${isLast ? ' current' : ''}`;
+          cBtn.textContent = fld.name || 'Dossier';
+          if (!isLast) {
+            cBtn.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              sv.browseFolderId = fld.id;
+              renderSplitNotebookPickerList();
+            });
+          }
+          bcEl.appendChild(cBtn);
+        });
+      }
+    }
+
     const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
-    const enriched = activeNbs.map((nb) => {
+    const enrichNb = (nb) => {
       const pages = (state.pagesByNotebook.get(nb.id) || []).filter((p) => !p.trashedAt);
       const folderPath = getNotebookFolderPathLabel(nb);
       const isPdf = pages.some((p) => Boolean(p.pdfId));
@@ -26498,19 +26570,72 @@
         isSelectedSplit: nb.id === sv.notebookId,
         lastTs: getNotebookLastActivityTs(nb)
       };
-    }).filter((entry) => {
-      if (!q) return true;
-      return entry.title.toLowerCase().includes(q) || entry.folderPath.toLowerCase().includes(q);
-    });
+    };
 
-    listEl.innerHTML = '';
-    if (enriched.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'split-nb-empty';
-      empty.textContent = q ? 'Aucun fichier ne correspond à votre recherche.' : 'Aucun cahier disponible.';
-      listEl.appendChild(empty);
-      return;
-    }
+    const appendFolderRow = (fld, showParentSub = false) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'split-nb-folder-row';
+      row.dataset.splitFolderId = fld.id;
+
+      const ico = document.createElement('span');
+      ico.className = 'split-nb-folder-ico';
+      const col = fld.color || '#0072ce';
+      ico.style.color = col;
+      ico.style.background = `${col}1c`;
+      ico.innerHTML = (typeof FOLDER_ICON_SVGS === 'object' && FOLDER_ICON_SVGS[fld.icon]) ? FOLDER_ICON_SVGS[fld.icon] : (FOLDER_ICON_SVGS.folder || '');
+      row.appendChild(ico);
+
+      const main = document.createElement('span');
+      main.className = 'split-nb-item-main';
+      const titleEl = document.createElement('span');
+      titleEl.className = 'split-nb-item-title';
+      titleEl.textContent = fld.name || 'Sans nom';
+      main.appendChild(titleEl);
+      if (showParentSub && fld.parentId) {
+        const pChain = typeof getFolderPath === 'function' ? (getFolderPath(fld.parentId) || []) : [];
+        if (pChain.length) {
+          const subEl = document.createElement('span');
+          subEl.className = 'split-nb-item-sub';
+          subEl.textContent = pChain.map((x) => x.name || 'Dossier').join(' / ');
+          main.appendChild(subEl);
+        }
+      }
+      row.appendChild(main);
+
+      const right = document.createElement('span');
+      right.className = 'split-nb-item-right';
+      if (doesFolderContainNotebook(fld.id, sv.notebookId)) {
+        const dot = document.createElement('span');
+        dot.className = 'split-nb-folder-active-dot';
+        dot.title = 'Contient le fichier actuellement affiché';
+        right.appendChild(dot);
+      }
+      const counts = typeof getFolderItemCounts === 'function' ? getFolderItemCounts(fld.id) : { notebooks: 0, total: 0 };
+      const countEl = document.createElement('span');
+      countEl.className = 'split-nb-folder-count';
+      countEl.textContent = String(counts.notebooks || counts.total || 0);
+      right.appendChild(countEl);
+
+      const chev = document.createElement('span');
+      chev.className = 'split-nb-folder-chevron';
+      chev.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+      right.appendChild(chev);
+      row.appendChild(right);
+
+      row.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        sv.sortMode = 'folders';
+        sv.browseFolderId = fld.id;
+        if (sv.searchQuery) {
+          sv.searchQuery = '';
+          const searchInput = document.getElementById('splitNbSearchInput');
+          if (searchInput) searchInput.value = '';
+        }
+        renderSplitNotebookPickerList();
+      });
+      listEl.appendChild(row);
+    };
 
     const appendRow = (entry, showFolderSub) => {
       const btn = document.createElement('button');
@@ -26573,47 +26698,75 @@
       listEl.appendChild(btn);
     };
 
-    if (sortMode === 'recent') {
-      enriched.sort((a, b) => (b.lastTs - a.lastTs) || compareSplitTitles(a.title, b.title));
-      enriched.forEach((entry) => appendRow(entry, true));
-    } else if (sortMode === 'alpha') {
-      enriched.sort((a, b) => compareSplitTitles(a.title, b.title));
-      enriched.forEach((entry) => appendRow(entry, true));
-    } else {
-      // Mode "Dossiers" : regroupe par dossier trié A–Z, puis fichiers triés naturellement (TD 3, TD 4, TD 5, TD 7…)
-      const hasAnyFolder = enriched.some((e) => Boolean(e.folderPath));
-      if (!hasAnyFolder) {
-        enriched.sort((a, b) => compareSplitTitles(a.title, b.title));
-        enriched.forEach((entry) => appendRow(entry, false));
-      } else {
-        const groups = new Map();
-        enriched.forEach((entry) => {
-          const key = entry.folderPath || '__root__';
-          if (!groups.has(key)) groups.set(key, []);
-          groups.get(key).push(entry);
-        });
-        const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
-          if (a === '__root__') return 1;
-          if (b === '__root__') return -1;
-          return compareSplitTitles(a, b);
-        });
-        sortedKeys.forEach((key) => {
-          const header = document.createElement('div');
-          header.className = 'split-nb-group-label';
-          header.innerHTML = key === '__root__'
-            ? '<span>Sans dossier</span>'
-            : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg><span></span>`;
-          if (key !== '__root__') {
-            const span = header.querySelector('span');
-            if (span) span.textContent = key;
-          }
-          listEl.appendChild(header);
-          const items = groups.get(key);
-          items.sort((a, b) => compareSplitTitles(a.title, b.title));
-          items.forEach((entry) => appendRow(entry, false));
-        });
+    listEl.innerHTML = '';
+
+    // Cas 1 : Recherche active -> affiche les dossiers correspondants (cliquables) puis les fichiers correspondants
+    if (q) {
+      const matchingFolders = activeFolders
+        .filter((f) => String(f.name || '').toLowerCase().includes(q))
+        .sort((a, b) => compareSplitTitles(a.name, b.name));
+      const matchingNbs = activeNbs
+        .map(enrichNb)
+        .filter((entry) => entry.title.toLowerCase().includes(q) || entry.folderPath.toLowerCase().includes(q))
+        .sort((a, b) => compareSplitTitles(a.title, b.title));
+
+      if (matchingFolders.length === 0 && matchingNbs.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'split-nb-empty';
+        empty.textContent = 'Aucun dossier ou fichier ne correspond.';
+        listEl.appendChild(empty);
+        return;
       }
+      matchingFolders.forEach((f) => appendFolderRow(f, true));
+      matchingNbs.forEach((entry) => appendRow(entry, true));
+      return;
     }
+
+    // Cas 2 : Mode "Dossiers" navigable niveau par niveau (cliquer sur un dossier ouvre uniquement son contenu)
+    if (sortMode === 'folders') {
+      const curFolderId = sv.browseFolderId || null;
+      const directSubfolders = activeFolders
+        .filter((f) => (f.parentId || null) === curFolderId)
+        .sort((a, b) => compareSplitTitles(a.name, b.name));
+      const directNbs = activeNbs
+        .filter((nb) => (nb.folderId || null) === curFolderId)
+        .map(enrichNb)
+        .sort((a, b) => compareSplitTitles(a.title, b.title));
+
+      if (directSubfolders.length === 0 && directNbs.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'split-nb-empty';
+        empty.textContent = curFolderId ? 'Ce dossier est vide.' : 'Aucun cahier disponible.';
+        listEl.appendChild(empty);
+        return;
+      }
+
+      directSubfolders.forEach((fld) => appendFolderRow(fld, false));
+      if (directSubfolders.length > 0 && directNbs.length > 0 && !curFolderId) {
+        const sep = document.createElement('div');
+        sep.className = 'split-nb-group-label';
+        sep.textContent = 'Hors dossier';
+        listEl.appendChild(sep);
+      }
+      directNbs.forEach((entry) => appendRow(entry, false));
+      return;
+    }
+
+    // Cas 3 : Modes plats "A–Z" ou "Récents"
+    const allEnriched = activeNbs.map(enrichNb);
+    if (allEnriched.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'split-nb-empty';
+      empty.textContent = 'Aucun cahier disponible.';
+      listEl.appendChild(empty);
+      return;
+    }
+    if (sortMode === 'recent') {
+      allEnriched.sort((a, b) => (b.lastTs - a.lastTs) || compareSplitTitles(a.title, b.title));
+    } else {
+      allEnriched.sort((a, b) => compareSplitTitles(a.title, b.title));
+    }
+    allEnriched.forEach((entry) => appendRow(entry, true));
   }
 
   function openSplitNotebookPopover() {
@@ -26621,6 +26774,7 @@
     if (!pop) return;
     state.splitView.pickerOpen = true;
     state.splitView.searchQuery = '';
+    state.splitView.browseFolderId = null;
     const searchInput = document.getElementById('splitNbSearchInput');
     if (searchInput) searchInput.value = '';
     pop.classList.remove('hidden');
@@ -26676,11 +26830,25 @@
         if (e.key === 'Escape') {
           e.preventDefault();
           closeSplitNotebookPopover();
+        } else if (e.key === 'Backspace' && !searchInput.value && state.splitView.browseFolderId) {
+          e.preventDefault();
+          const chain = typeof getFolderPath === 'function' ? (getFolderPath(state.splitView.browseFolderId) || []) : [];
+          state.splitView.browseFolderId = chain.length >= 2 ? chain[chain.length - 2].id : null;
+          renderSplitNotebookPickerList();
         } else if (e.key === 'Enter') {
           e.preventDefault();
           const firstItem = document.querySelector('#splitNbList .split-nb-item');
           if (firstItem && firstItem.dataset.splitNbId) {
             selectSplitNotebook(firstItem.dataset.splitNbId);
+          } else {
+            const firstFolder = document.querySelector('#splitNbList .split-nb-folder-row');
+            if (firstFolder && firstFolder.dataset.splitFolderId) {
+              state.splitView.sortMode = 'folders';
+              state.splitView.browseFolderId = firstFolder.dataset.splitFolderId;
+              state.splitView.searchQuery = '';
+              searchInput.value = '';
+              renderSplitNotebookPickerList();
+            }
           }
         }
       });
