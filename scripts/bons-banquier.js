@@ -177,6 +177,34 @@ function gh(args, input) {
   return execFileSync('gh', args, { input, encoding: 'utf8', stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
 }
 
+// Écriture avec `gh api -i` : sans -i, certaines versions de gh remplacent toute erreur HTTP
+// par « unexpected end of JSON input ». On lit donc le statut et le corps nous-mêmes.
+function splitHttpResponse(raw) {
+  const text = String(raw || '').replace(/\r\n/g, '\n');
+  const cut = text.indexOf('\n\n');
+  const head = cut >= 0 ? text.slice(0, cut) : text;
+  const bodyText = cut >= 0 ? text.slice(cut + 2).trim() : '';
+  const status = Number((head.match(/^HTTP\/[\d.]+\s+(\d{3})/) || [])[1]) || 0;
+  let json = null;
+  try { json = bodyText ? JSON.parse(bodyText) : null; } catch (_) { json = null; }
+  return { status, json, bodyText };
+}
+
+function ghWrite(args, input) {
+  let raw;
+  try {
+    raw = gh(args, input);
+  } catch (err) {
+    raw = err.stdout;
+    const res = splitHttpResponse(raw);
+    const detail = (res.json && res.json.message) || String(err.stderr || err.message).trim();
+    throw new Error(`GitHub a refusé l’écriture${res.status ? ` (HTTP ${res.status})` : ''} : ${detail}`);
+  }
+  const res = splitHttpResponse(raw);
+  if (res.status && (res.status < 200 || res.status >= 300)) throw new Error(`GitHub a refusé l’écriture (HTTP ${res.status}).`);
+  return res.json;
+}
+
 function gitConfig(key) {
   try {
     return execFileSync('git', ['-C', repoRoot, 'config', key], { encoding: 'utf8' }).trim();
@@ -233,7 +261,7 @@ function saveDocument(args, doc, sha, commitMessage) {
     body.author = { name, email };
     body.committer = { name, email };
   }
-  const res = JSON.parse(gh(['api', '-X', 'PUT', `repos/${REPO}/contents/${BONS_PATH}`, '--input', '-'], JSON.stringify(body)));
+  const res = ghWrite(['api', '-i', '-X', 'PUT', `repos/${REPO}/contents/${BONS_PATH}`, '--input', '-'], JSON.stringify(body));
   const commit = res && res.commit && res.commit.sha ? res.commit.sha.slice(0, 7) : '?';
   console.log(`Publié sur ${REPO}@${BRANCH} (commit ${commit}). L'app le verra en quelques minutes.`);
 }
