@@ -16,8 +16,10 @@
  *       Crée la paire de clés et écrit la clé publique dans app.js (entre les marqueurs
  *       <bons-cle-publique>). --force remplace une clé existante : tous les bons déjà
  *       émis deviennent invalides et l'app doit être republiée.
- *   node scripts/bons-banquier.js emettre <montant> [--pret] [--message "…"] [--jours 60]
+ *   node scripts/bons-banquier.js emettre <montant> [--pret | --retrait] [--message "…"] [--jours 60]
  *       Signe un bon et le publie sur main. --jours 0 : sans date d'expiration.
+ *       --retrait : l'app débite le montant sans clic, une fois par appareil ; si le solde
+ *       ne suffit pas, il tombe à 0 et le reste s'ajoute à la dette.
  *   node scripts/bons-banquier.js retirer <id>      Retire un bon (son bouton disparaît).
  *   node scripts/bons-banquier.js liste             Liste les bons publiés et vérifie leur signature.
  *   node scripts/bons-banquier.js purger            Retire les bons expirés.
@@ -45,6 +47,10 @@ const PAYLOAD_TAG = 'inkflow-bon-v1';
 const MAX_AMOUNT = 10000000;
 const MAX_MESSAGE = 140;
 const DEFAULT_DAYS = 60;
+// retrait : l'app débite le montant sans clic (le manque éventuel passe en dette).
+// Les versions de l'app antérieures à ce type ignorent ces bons.
+const BON_TYPES = ['cadeau', 'pret', 'retrait'];
+const TYPE_LABELS = { cadeau: 'cadeau', pret: 'prêt', retrait: 'retrait' };
 const ID_RE = /^[a-z0-9-]{6,40}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const repoRoot = path.resolve(__dirname, '..');
@@ -88,7 +94,7 @@ function buildBon({ montant, type = 'cadeau', message = '', jours = DEFAULT_DAYS
   if (!Number.isInteger(amount) || amount < 1 || amount > MAX_AMOUNT) {
     throw new Error(`Montant invalide : entier de 1 à ${MAX_AMOUNT}.`);
   }
-  if (type !== 'cadeau' && type !== 'pret') throw new Error('Type invalide : cadeau ou pret.');
+  if (!BON_TYPES.includes(type)) throw new Error(`Type invalide : ${BON_TYPES.join(', ')}.`);
   const msg = String(message || '').trim();
   if (msg.length > MAX_MESSAGE) throw new Error(`Message trop long (${MAX_MESSAGE} caractères au plus).`);
   const days = Number(jours);
@@ -110,10 +116,11 @@ function isExpired(bon, now = new Date()) {
 
 // ---------- Ligne de commande ----------
 function parseArgs(argv) {
-  const out = { _: [], pret: false, force: false, local: false, essai: false, message: '', jours: DEFAULT_DAYS, cle: null };
+  const out = { _: [], pret: false, retrait: false, force: false, local: false, essai: false, message: '', jours: DEFAULT_DAYS, cle: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--pret') out.pret = true;
+    else if (a === '--retrait') out.retrait = true;
     else if (a === '--force') out.force = true;
     else if (a === '--local') out.local = true;
     else if (a === '--essai') out.essai = true;
@@ -239,7 +246,8 @@ function describe(bon, publicKey) {
   const valid = publicKey ? (verifyBon(bon, publicKey) ? 'signature valide' : 'SIGNATURE INVALIDE') : '';
   const exp = bon.expire ? `expire le ${bon.expire}${isExpired(bon) ? ' (EXPIRÉ)' : ''}` : 'sans expiration';
   const msg = bon.message ? ` « ${bon.message} »` : '';
-  return `  ${bon.id}  ${bon.type === 'pret' ? 'prêt  ' : 'cadeau'} ${formatAmount(bon.montant).padStart(10)} jetons  ${exp}  ${valid}${msg}`;
+  const label = (TYPE_LABELS[bon.type] || String(bon.type)).padEnd(7);
+  return `  ${bon.id}  ${label} ${formatAmount(bon.montant).padStart(10)} jetons  ${exp}  ${valid}${msg}`;
 }
 
 function cmdInit(args) {
@@ -265,12 +273,14 @@ function cmdEmettre(args) {
   if (appJwk.x !== keyJwk.x || appJwk.y !== keyJwk.y) {
     throw new Error('La clé privée ne correspond pas à la clé publique de app.js : les bons seraient refusés.');
   }
-  const bon = signBon(buildBon({ montant, type: args.pret ? 'pret' : 'cadeau', message: args.message, jours: args.jours }), privatePem);
+  if (args.pret && args.retrait) throw new Error('--pret et --retrait ne vont pas ensemble.');
+  const type = args.retrait ? 'retrait' : (args.pret ? 'pret' : 'cadeau');
+  const bon = signBon(buildBon({ montant, type, message: args.message, jours: args.jours }), privatePem);
   const { doc, sha } = loadDocument(args);
   doc.bons.push(bon);
   console.log('Nouveau bon :');
   console.log(describe(bon, publicKey));
-  saveDocument(args, doc, sha, `bons: ${bon.type === 'pret' ? 'prêt' : 'cadeau'} de ${bon.montant} jetons (${bon.id})`);
+  saveDocument(args, doc, sha, `bons: ${TYPE_LABELS[bon.type]} de ${bon.montant} jetons (${bon.id})`);
 }
 
 function cmdRetirer(args) {

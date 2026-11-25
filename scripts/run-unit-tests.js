@@ -1738,12 +1738,29 @@ async function runTests() {
       const again = await api.refreshDetenteBons({ document: doc, publicKey: testKey, now: now.getTime() });
       assert.equal(again.length, 0, 'Une fois récupérés, les bons ne réapparaissent plus (mémorisés sur l’appareil)');
       assert.ok(JSON.parse(store.get('inkflow.detente.bonsRecus.v1')).includes('20261124-cadeau01'));
+
+      // Bon de retrait : débit sans clic, une seule fois ; le manque passe en dette
+      const retrait = bons.signBon(bons.buildBon({ montant: 1000, type: 'retrait', message: 'Retour à la banque', jours: 30, now, id: '20261124-retrait1' }), privatePem);
+      const forgedRetrait = { ...retrait, id: '20261124-retrait2', montant: 5 };
+      const docRetrait = { version: 1, bons: [gift, loan, retrait, forgedRetrait] };
+      const pendingRetrait = await api.refreshDetenteBons({ document: docRetrait, publicKey: testKey, now: now.getTime() });
+      assert.equal(pendingRetrait.length, 0, 'Un retrait ne crée pas de bouton à cliquer');
+      assert.equal(api.getDetenteWallet().balance, after.balance - 1000, 'Le retrait débite le solde automatiquement');
+      assert.equal(api.claimDetenteBon('20261124-retrait1'), false, 'Un retrait ne peut pas être « récupéré » comme un crédit');
+      await api.refreshDetenteBons({ document: docRetrait, publicKey: testKey, now: now.getTime() });
+      assert.equal(api.getDetenteWallet().balance, after.balance - 1000, 'Un retrait ne s’applique qu’une fois par appareil');
+      const rest = api.getDetenteWallet();
+      const big = bons.signBon(bons.buildBon({ montant: rest.balance + 300, type: 'retrait', jours: 30, now, id: '20261124-retrait3' }), privatePem);
+      await api.refreshDetenteBons({ document: { version: 1, bons: [big] }, publicKey: testKey, now: now.getTime() });
+      assert.equal(api.getDetenteWallet().balance, 0, 'Le solde ne descend pas sous zéro');
+      assert.equal(api.getDetenteWallet().debt, rest.debt + 300, 'Ce qui manque au solde s’ajoute à la dette');
+      assert.throws(() => bons.buildBon({ montant: 10, type: 'amende' }), /Type invalide/);
     } finally {
       sandbox.crypto = savedCrypto;
       sandbox.localStorage.getItem = savedStorage.getItem;
       sandbox.localStorage.setItem = savedStorage.setItem;
     }
-    return 'Bons valides acceptés ; montant modifié, autre clé, bon expiré et document mal formé refusés ; crédit unique (cadeau et prêt avec dette).';
+    return 'Bons valides acceptés ; montant modifié, autre clé, bon expiré et document mal formé refusés ; crédit unique (cadeau et prêt avec dette) ; retrait débité une fois, sans clic, manque reporté en dette.';
   });
 
   // ------------------------------------------------------------------------

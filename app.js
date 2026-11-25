@@ -22186,7 +22186,7 @@
   function isDetenteBonShapeValid(bon) {
     return Boolean(bon && typeof bon === 'object'
       && typeof bon.id === 'string' && /^[a-z0-9-]{6,40}$/.test(bon.id)
-      && (bon.type === 'cadeau' || bon.type === 'pret')
+      && (bon.type === 'cadeau' || bon.type === 'pret' || bon.type === 'retrait')
       && Number.isInteger(bon.montant) && bon.montant >= 1 && bon.montant <= DETENTE_BONS_MAX_AMOUNT
       && (bon.expire === undefined || (typeof bon.expire === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(bon.expire)))
       && (bon.message === undefined || (typeof bon.message === 'string' && bon.message.length <= DETENTE_BONS_MAX_MESSAGE))
@@ -22282,6 +22282,7 @@
         const doc = options.document !== undefined ? options.document : await fetchDetenteBonsDocument();
         if (doc) {
           detenteBons.list = await verifyDetenteBons(doc, options);
+          applyDetenteRetraits();
           renderDetenteBons();
         }
       } catch (_) { /* vérification impossible : la liste précédente reste affichée */ }
@@ -22314,7 +22315,7 @@
   }
 
   function renderDetenteBons() {
-    const pending = getDetentePendingBons();
+    const pending = getDetentePendingBons().filter((b) => b.type !== 'retrait');
     const total = pending.reduce((sum, b) => sum + b.montant, 0);
     const sideBtn = document.getElementById('btnOpenDetente');
     if (sideBtn) {
@@ -22381,7 +22382,7 @@
   function claimDetenteBon(id) {
     if (detenteBons.claiming.has(id)) return false;
     const bon = getDetentePendingBons().find((b) => b.id === id);
-    if (!bon) return false;
+    if (!bon || bon.type === 'retrait') return false;
     loadDetenteState();
     detenteBons.claiming.add(id);
     const claimed = loadDetenteClaimedBons();
@@ -22399,6 +22400,32 @@
     }
     animateDetenteBonOut(id, bon);
     return true;
+  }
+
+  // Bons de retrait : appliqués sans clic, une seule fois par appareil (identifiant mémorisé
+  // avant le débit). Le solde ne descend pas sous zéro : ce qui manque s'ajoute à la dette.
+  function applyDetenteRetraits() {
+    const retraits = getDetentePendingBons().filter((b) => b.type === 'retrait');
+    if (!retraits.length) return [];
+    loadDetenteState();
+    const claimed = loadDetenteClaimedBons();
+    retraits.forEach((b) => claimed.add(b.id));
+    saveDetenteClaimedBons(claimed);
+    const applied = retraits.map((bon) => {
+      const fromBalance = Math.min(bon.montant, detenteState.balance);
+      const toDebt = bon.montant - fromBalance;
+      if (toDebt > 0) detenteState.debt += toDebt;
+      detenteAddBalance(-fromBalance);
+      return { id: bon.id, montant: bon.montant, fromBalance, toDebt, message: bon.message };
+    });
+    const total = applied.reduce((s, a) => s + a.montant, 0);
+    const debtTotal = applied.reduce((s, a) => s + a.toDebt, 0);
+    const msgs = applied.map((a) => a.message).filter(Boolean);
+    let text = `Le banquier t’a retiré ${formatJetons(total)} jeton${total > 1 ? 's' : ''}.`;
+    if (debtTotal > 0) text += ` Solde insuffisant : ${formatJetons(debtTotal)} ajouté${debtTotal > 1 ? 's' : ''} à ta dette.`;
+    if (msgs.length) text += ` « ${msgs.join(' » « ')} »`;
+    if (typeof showToast === 'function') showToast(text, 'info', 'detente-retraits');
+    return applied;
   }
 
   function animateDetenteBonOut(id, bon) {

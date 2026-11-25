@@ -7,6 +7,12 @@ valide, elle affiche le bouton « Récupérer N jetons » en haut de la page Dé
 et une pastille sur le bouton Détente de la barre latérale. Au clic, le solde est
 crédité et le bouton disparaît avec une animation.
 
+Un bon de retrait (`--retrait`) enlève des jetons : l'application le débite dès
+qu'elle le lit, sans bouton, une fois par appareil, et affiche une notification
+(avec le message du bon s'il y en a un). Le solde ne descend pas sous zéro : ce
+qui manque s'ajoute à la dette. Les versions de l'application antérieures à ce
+type ignorent les bons de retrait.
+
 ## Sécurité
 
 - Signature ECDSA P-256 / SHA-256. La clé privée reste sur le PC du banquier :
@@ -29,6 +35,7 @@ crédité et le bouton disparaît avec une animation.
 ```powershell
 node scripts/bons-banquier.js emettre 500 --message "Bravo pour ta semaine !"
 node scripts/bons-banquier.js emettre 2000 --pret --jours 30
+node scripts/bons-banquier.js emettre 300 --retrait --message "Remboursement"
 node scripts/bons-banquier.js liste
 node scripts/bons-banquier.js retirer <id>
 node scripts/bons-banquier.js purger
