@@ -393,13 +393,12 @@
         <div class="doc-tabs-bar" id="docTabsBar" role="tablist" aria-label="Cahiers ouverts">
           <div class="doc-tabs-list" id="docTabsList"></div>
           <div class="doc-tab-add-wrap">
-            <button class="doc-tab-add-btn" id="btnDocTabAdd" type="button" title="Ouvrir un autre cahier dans un onglet" aria-label="Ouvrir un onglet">
+            <button class="doc-tab-add-btn" id="btnDocTabAdd" type="button" title="Ouvrir un autre cahier dans un onglet" aria-label="Ouvrir un onglet" aria-haspopup="dialog" aria-expanded="false">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" aria-hidden="true">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
             </button>
-            <div class="doc-tab-add-popover hidden" id="docTabAddPopover" role="menu"></div>
           </div>
           <button class="doc-tab-split-btn" id="btnToggleSplitView" type="button" title="Vue divisée — Afficher 2 cahiers côte à côte (Ctrl+\)" aria-label="Basculer la vue divisée" aria-pressed="false">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1983,6 +1982,15 @@
     </div>
     <div class="split-nb-breadcrumb hidden" id="splitNbBreadcrumb" aria-label="Chemin du dossier"></div>
     <div class="split-nb-list" id="splitNbList" role="listbox"></div>
+    <div class="split-nb-footer hidden" id="splitNbFooter">
+      <button class="split-nb-create-btn" id="btnSplitNbCreateNew" type="button">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span>Nouveau cahier</span>
+      </button>
+    </div>
   </div>
 
   <!-- ==================== MODAL : ÉDITEUR D'ÉQUATION LATEX ==================== -->

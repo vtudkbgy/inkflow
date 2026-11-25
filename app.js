@@ -2960,6 +2960,7 @@
       panStartScreen: { x: 0, y: 0 },
       panStartOffset: { x: 0, y: 0 },
       pickerOpen: false,
+      pickerMode: 'split',
       sortMode: 'folders',
       searchQuery: '',
       browseFolderId: null
@@ -26021,51 +26022,9 @@
 
   function renderDocTabAddPopover() {
     if (typeof document === 'undefined') return;
-    const pop = document.getElementById('docTabAddPopover');
-    if (!pop) return;
-    pop.innerHTML = '';
-    const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
-    const openSet = new Set(state.openNotebookTabIds || []);
-    activeNbs.forEach((nb) => {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'doc-tab-pop-item';
-      const dot = document.createElement('span');
-      dot.className = 'doc-tab-dot';
-      dot.style.background = nb.coverColor || nb.color || '#0072ce';
-      const name = document.createElement('span');
-      name.className = 'doc-tab-pop-name';
-      name.textContent = nb.title || 'Sans titre';
-      item.appendChild(dot);
-      item.appendChild(name);
-      if (openSet.has(nb.id)) {
-        const meta = document.createElement('span');
-        meta.className = 'doc-tab-pop-meta';
-        meta.textContent = nb.id === state.activeNotebookId ? 'Actif' : 'Ouvert';
-        item.appendChild(meta);
-      }
-      item.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        pop.classList.add('hidden');
-        openNotebookInTab(nb.id, true);
-      });
-      pop.appendChild(item);
-    });
-
-    const createBtn = document.createElement('button');
-    createBtn.type = 'button';
-    createBtn.className = 'doc-tab-pop-item create-new';
-    createBtn.textContent = '+ Nouveau cahier';
-    createBtn.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      pop.classList.add('hidden');
-      const count = activeNbs.length + 1;
-      const nb = await paidCreateNotebook(`Cahier ${count}`);
-      if (nb && nb.notebook && nb.notebook.id) {
-        openNotebookInTab(nb.notebook.id, true);
-      }
-    });
-    pop.appendChild(createBtn);
+    if (typeof renderSplitNotebookPickerList === 'function') {
+      renderSplitNotebookPickerList();
+    }
   }
 
   // ============================================================================
@@ -26169,7 +26128,7 @@
     if (resizer) resizer.classList.toggle('hidden', !sv.open);
     if (pane) pane.classList.toggle('hidden', !sv.open);
     if (!sv.open) {
-      closeSplitNotebookPopover();
+      if (sv.pickerMode !== 'tab') closeSplitNotebookPopover();
       return;
     }
 
@@ -26184,12 +26143,13 @@
     const triggerDot = document.getElementById('splitNbTriggerDot');
     const triggerLabel = document.getElementById('splitNbTriggerLabel');
     const triggerBadge = document.getElementById('splitNbTriggerBadge');
-    if (triggerDot) triggerDot.style.background = (curNb && curNb.color) || '#0072ce';
+    if (triggerDot) triggerDot.style.background = (curNb && (curNb.coverColor || curNb.color)) || '#0072ce';
     if (triggerLabel) triggerLabel.textContent = (curNb && curNb.title) || 'Choisir un fichier';
     if (triggerBadge) triggerBadge.classList.toggle('hidden', !curNb || curNb.id !== state.activeNotebookId);
     if (triggerBtn) {
-      triggerBtn.classList.toggle('open', Boolean(sv.pickerOpen));
-      triggerBtn.setAttribute('aria-expanded', String(Boolean(sv.pickerOpen)));
+      const isSplitPickerOpen = Boolean(sv.pickerOpen && sv.pickerMode !== 'tab');
+      triggerBtn.classList.toggle('open', isSplitPickerOpen);
+      triggerBtn.setAttribute('aria-expanded', String(isSplitPickerOpen));
     }
     if (sv.pickerOpen) {
       renderSplitNotebookPickerList();
@@ -26418,7 +26378,8 @@
   function positionSplitNotebookPopover() {
     const pop = document.getElementById('splitNotebookPopover');
     const caret = document.getElementById('splitNotebookPopoverCaret');
-    const anchor = document.getElementById('btnSplitNotebookPicker');
+    const isTabMode = state.splitView && state.splitView.pickerMode === 'tab';
+    const anchor = document.getElementById(isTabMode ? 'btnDocTabAdd' : 'btnSplitNotebookPicker');
     if (!pop || !anchor || typeof anchor.getBoundingClientRect !== 'function') return;
     const aR = anchor.getBoundingClientRect();
     const pR = pop.getBoundingClientRect();
@@ -26427,18 +26388,21 @@
     const vw = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1200;
     const vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
 
-    let left = Math.round(aR.left);
+    let left = isTabMode ? Math.round(aR.left + aR.width * 0.5 - popW * 0.5) : Math.round(aR.left);
     left = Math.max(12, Math.min(vw - popW - 12, left));
     let top = Math.round(aR.bottom + 8);
+    let flippedAbove = false;
     if (top + popH > vh - 12 && aR.top - popH - 8 >= 12) {
       top = Math.round(aR.top - popH - 8);
+      flippedAbove = true;
     } else if (top + popH > vh - 12) {
       top = Math.max(12, vh - popH - 12);
     }
+    pop.classList.toggle('flipped-above', flippedAbove);
     pop.style.left = `${left}px`;
     pop.style.top = `${top}px`;
     if (caret) {
-      const anchorCenterX = aR.left + Math.min(aR.width * 0.5, 80);
+      const anchorCenterX = isTabMode ? (aR.left + aR.width * 0.5) : (aR.left + Math.min(aR.width * 0.5, 80));
       const relX = Math.max(20, Math.min(popW - 20, anchorCenterX - left));
       caret.style.left = `${Math.round(relX)}px`;
     }
@@ -26448,16 +26412,29 @@
     if (!state.splitView) return;
     state.splitView.pickerOpen = false;
     const pop = document.getElementById('splitNotebookPopover');
-    if (pop) pop.classList.add('hidden');
+    if (pop) {
+      pop.classList.add('hidden');
+      pop.classList.remove('flipped-above');
+    }
     const triggerBtn = document.getElementById('btnSplitNotebookPicker');
     if (triggerBtn) {
       triggerBtn.classList.remove('open');
       triggerBtn.setAttribute('aria-expanded', 'false');
     }
+    const tabAddBtn = document.getElementById('btnDocTabAdd');
+    if (tabAddBtn) {
+      tabAddBtn.classList.remove('open');
+      tabAddBtn.setAttribute('aria-expanded', 'false');
+    }
   }
 
   function selectSplitNotebook(nbId) {
     if (!nbId) return;
+    if (state.splitView && state.splitView.pickerMode === 'tab') {
+      closeSplitNotebookPopover();
+      openNotebookInTab(nbId, true);
+      return;
+    }
     state.splitView.notebookId = nbId;
     const pages = getSplitPanePages();
     if (nbId === state.activeNotebookId && pages.length > 1) {
@@ -26555,6 +26532,8 @@
       }
     }
 
+    const isTabMode = sv.pickerMode === 'tab';
+    const openTabSet = new Set(state.openNotebookTabIds || []);
     const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
     const enrichNb = (nb) => {
       const pages = (state.pagesByNotebook.get(nb.id) || []).filter((p) => !p.trashedAt);
@@ -26567,7 +26546,8 @@
         pageCount: pages.length,
         isPdf,
         isActivePrimary: nb.id === state.activeNotebookId,
-        isSelectedSplit: nb.id === sv.notebookId,
+        isOpenInTab: isTabMode && openTabSet.has(nb.id) && nb.id !== state.activeNotebookId,
+        isSelected: isTabMode ? (nb.id === state.activeNotebookId) : (nb.id === sv.notebookId),
         lastTs: getNotebookLastActivityTs(nb)
       };
     };
@@ -26605,7 +26585,8 @@
 
       const right = document.createElement('span');
       right.className = 'split-nb-item-right';
-      if (doesFolderContainNotebook(fld.id, sv.notebookId)) {
+      const highlightTargetId = isTabMode ? state.activeNotebookId : sv.notebookId;
+      if (doesFolderContainNotebook(fld.id, highlightTargetId)) {
         const dot = document.createElement('span');
         dot.className = 'split-nb-folder-active-dot';
         dot.title = 'Contient le fichier actuellement affiché';
@@ -26640,14 +26621,14 @@
     const appendRow = (entry, showFolderSub) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = `split-nb-item${entry.isSelectedSplit ? ' selected' : ''}`;
+      btn.className = `split-nb-item${entry.isSelected ? ' selected' : ''}`;
       btn.setAttribute('role', 'option');
-      btn.setAttribute('aria-selected', String(entry.isSelectedSplit));
+      btn.setAttribute('aria-selected', String(entry.isSelected));
       btn.dataset.splitNbId = entry.nb.id;
 
       const dot = document.createElement('span');
       dot.className = 'split-nb-item-dot';
-      dot.style.background = entry.nb.color || '#0072ce';
+      dot.style.background = entry.nb.coverColor || entry.nb.color || '#0072ce';
       btn.appendChild(dot);
 
       const main = document.createElement('span');
@@ -26677,13 +26658,18 @@
         actTag.className = 'split-nb-item-tag active-doc';
         actTag.textContent = 'Actif';
         right.appendChild(actTag);
+      } else if (entry.isOpenInTab) {
+        const openTag = document.createElement('span');
+        openTag.className = 'split-nb-item-tag open-tab';
+        openTag.textContent = 'Ouvert';
+        right.appendChild(openTag);
       }
       const pagesEl = document.createElement('span');
       pagesEl.className = 'split-nb-item-pages';
       pagesEl.textContent = `${entry.pageCount} p.`;
       right.appendChild(pagesEl);
 
-      if (entry.isSelectedSplit) {
+      if (entry.isSelected) {
         const chk = document.createElement('span');
         chk.className = 'split-nb-item-check';
         chk.innerHTML = '<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10.5 8.2 14.8 16.5 6.2"></polyline></svg>';
@@ -26769,16 +26755,31 @@
     allEnriched.forEach((entry) => appendRow(entry, true));
   }
 
-  function openSplitNotebookPopover() {
+  function openSplitNotebookPopover(mode = 'split') {
     const pop = document.getElementById('splitNotebookPopover');
     if (!pop) return;
+    const nextMode = mode === 'tab' ? 'tab' : 'split';
     state.splitView.pickerOpen = true;
+    state.splitView.pickerMode = nextMode;
     state.splitView.searchQuery = '';
     state.splitView.browseFolderId = null;
+    pop.setAttribute('aria-label', nextMode === 'tab' ? 'Ouvrir un cahier dans un onglet' : 'Choisir un fichier pour la vue divisée');
+    const footer = document.getElementById('splitNbFooter');
+    if (footer) footer.classList.toggle('hidden', nextMode !== 'tab');
+    const tabAddBtn = document.getElementById('btnDocTabAdd');
+    if (tabAddBtn) {
+      tabAddBtn.classList.toggle('open', nextMode === 'tab');
+      tabAddBtn.setAttribute('aria-expanded', String(nextMode === 'tab'));
+    }
+    const splitTriggerBtn = document.getElementById('btnSplitNotebookPicker');
+    if (splitTriggerBtn) {
+      splitTriggerBtn.classList.toggle('open', nextMode !== 'tab');
+      splitTriggerBtn.setAttribute('aria-expanded', String(nextMode !== 'tab'));
+    }
     const searchInput = document.getElementById('splitNbSearchInput');
     if (searchInput) searchInput.value = '';
     pop.classList.remove('hidden');
-    syncSplitViewUi();
+    if (nextMode !== 'tab') syncSplitViewUi();
     renderSplitNotebookPickerList();
     positionSplitNotebookPopover();
     if (typeof requestAnimationFrame === 'function') {
@@ -26814,8 +26815,22 @@
     if (btnPicker) {
       btnPicker.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (state.splitView.pickerOpen) closeSplitNotebookPopover();
-        else openSplitNotebookPopover();
+        if (state.splitView.pickerOpen && state.splitView.pickerMode !== 'tab') closeSplitNotebookPopover();
+        else openSplitNotebookPopover('split');
+      });
+    }
+
+    const btnCreateNew = document.getElementById('btnSplitNbCreateNew');
+    if (btnCreateNew) {
+      btnCreateNew.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        closeSplitNotebookPopover();
+        const activeNbs = (state.notebooks || []).filter((n) => !n.trashedAt);
+        const count = activeNbs.length + 1;
+        const nb = await paidCreateNotebook(`Cahier ${count}`);
+        if (nb && nb.notebook && nb.notebook.id) {
+          openNotebookInTab(nb.notebook.id, true);
+        }
       });
     }
 
@@ -26870,7 +26885,8 @@
       if (!state.splitView || !state.splitView.pickerOpen) return;
       if (e.target && typeof e.target.closest === 'function' && (
         e.target.closest('#splitNotebookPopover') ||
-        e.target.closest('#btnSplitNotebookPicker')
+        e.target.closest('#btnSplitNotebookPicker') ||
+        e.target.closest('#btnDocTabAdd')
       )) {
         return;
       }
@@ -28525,17 +28541,13 @@
     // (les charger ici, avec le cahier de démo provisoire, effaçait la liste enregistrée)
     if (typeof document !== 'undefined') {
       const btnTabAdd = document.getElementById('btnDocTabAdd');
-      const popTabAdd = document.getElementById('docTabAddPopover');
-      if (btnTabAdd && popTabAdd) {
+      if (btnTabAdd) {
         btnTabAdd.addEventListener('click', (ev) => {
           ev.stopPropagation();
-          const willOpen = popTabAdd.classList.contains('hidden');
-          if (willOpen) renderDocTabAddPopover();
-          popTabAdd.classList.toggle('hidden', !willOpen);
-        });
-        document.addEventListener('pointerdown', (ev) => {
-          if (!popTabAdd.classList.contains('hidden') && !ev.target.closest('.doc-tab-add-wrap')) {
-            popTabAdd.classList.add('hidden');
+          if (state.splitView && state.splitView.pickerOpen && state.splitView.pickerMode === 'tab') {
+            closeSplitNotebookPopover();
+          } else {
+            openSplitNotebookPopover('tab');
           }
         });
       }
