@@ -26099,14 +26099,47 @@
     return pages[0];
   }
 
+  const SPLIT_MIN_ZOOM = 0.2;
+  const SPLIT_MAX_ZOOM = 5.0;
+  const splitTouchPoints = new Map();
+  let splitIsPinching = false;
+  let splitPinchLastDist = 0;
+  let splitPinchLastCenter = { x: 0, y: 0 };
+
+  function getSplitFitZoom(page, rect) {
+    if (!page || !rect || rect.width <= 0) return 0.72;
+    const pw = page.pdfWidth || page.pageWidth || PAGE_WIDTH;
+    return Math.max(SPLIT_MIN_ZOOM, Math.min(2.2, (rect.width - 36) / pw));
+  }
+
+  function applySplitZoom(factor, anchorScreenX = null, anchorScreenY = null) {
+    if (!state.splitView || !Number.isFinite(factor) || factor <= 0) return state.splitView ? state.splitView.zoom : 0.72;
+    const vp = document.getElementById('splitViewport');
+    const rect = (vp && typeof vp.getBoundingClientRect === 'function')
+      ? vp.getBoundingClientRect()
+      : { width: 600, height: 800 };
+    const oldZ = state.splitView.zoom || 0.72;
+    const nextZ = Math.max(SPLIT_MIN_ZOOM, Math.min(SPLIT_MAX_ZOOM, oldZ * factor));
+    const ax = anchorScreenX !== null ? anchorScreenX : rect.width * 0.5;
+    const ay = anchorScreenY !== null ? anchorScreenY : rect.height * 0.5;
+    const wx = (ax - state.splitView.panX) / oldZ;
+    const wy = (ay - state.splitView.panY) / oldZ;
+    state.splitView.zoom = nextZ;
+    state.splitView.panX = ax - wx * nextZ;
+    state.splitView.panY = ay - wy * nextZ;
+    syncSplitViewUi();
+    renderSplitPane();
+    return nextZ;
+  }
+
   function fitSplitPaneToWidth() {
     const vp = document.getElementById('splitViewport');
     const page = getSplitPaneActivePage();
     if (!vp || !page || typeof vp.getBoundingClientRect !== 'function') return;
     const rect = vp.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
-    const pw = page.pdfWidth || PAGE_WIDTH;
-    const targetZoom = Math.max(0.28, Math.min(2.2, (rect.width - 36) / pw));
+    const pw = page.pdfWidth || page.pageWidth || PAGE_WIDTH;
+    const targetZoom = getSplitFitZoom(page, rect);
     state.splitView.zoom = targetZoom;
     state.splitView.panX = Math.max(12, Math.round((rect.width - pw * targetZoom) * 0.5));
     state.splitView.panY = 18;
@@ -26171,8 +26204,21 @@
     if (prevBtn) prevBtn.disabled = pageIdx <= 0;
     if (nextBtn) nextBtn.disabled = pageIdx < 0 || pageIdx >= pages.length - 1;
 
+    const zoomPct = `${Math.round((sv.zoom || 0.72) * 100)}%`;
+    const atMinZoom = (sv.zoom || 0.72) <= SPLIT_MIN_ZOOM + 0.005;
+    const atMaxZoom = (sv.zoom || 0.72) >= SPLIT_MAX_ZOOM - 0.005;
     const zoomReadout = document.getElementById('btnSplitZoomFit');
-    if (zoomReadout) zoomReadout.textContent = `${Math.round((sv.zoom || 0.72) * 100)}%`;
+    const floatZoomReadout = document.getElementById('btnSplitFloatZoomFit');
+    if (zoomReadout) zoomReadout.textContent = zoomPct;
+    if (floatZoomReadout) floatZoomReadout.textContent = zoomPct;
+    const btnZOut = document.getElementById('btnSplitZoomOut');
+    const btnZIn = document.getElementById('btnSplitZoomIn');
+    const btnFZOut = document.getElementById('btnSplitFloatZoomOut');
+    const btnFZIn = document.getElementById('btnSplitFloatZoomIn');
+    if (btnZOut) btnZOut.disabled = atMinZoom;
+    if (btnZIn) btnZIn.disabled = atMaxZoom;
+    if (btnFZOut) btnFZOut.disabled = atMinZoom;
+    if (btnFZIn) btnFZIn.disabled = atMaxZoom;
   }
 
   function renderSplitPane() {
@@ -26210,8 +26256,8 @@
     }
 
     const sv = state.splitView;
-    const pw = page.pdfWidth || PAGE_WIDTH;
-    const ph = page.pdfHeight || PAGE_HEIGHT;
+    const pw = page.pdfWidth || page.pageWidth || PAGE_WIDTH;
+    const ph = page.pdfHeight || page.pageHeight || PAGE_HEIGHT;
 
     ctx.translate(sv.panX, sv.panY);
     ctx.scale(sv.zoom, sv.zoom);
@@ -26232,10 +26278,11 @@
 
     drawPaperBackground(ctx, page, pw, ph, true);
     if (page.pdfId) {
-      const entry = ensurePdfPageRendered(page, 0, false);
+      const splitPdfScale = Math.max(1.2, Math.min(4.0, dpr * sv.zoom * (pw / Math.max(1, page.pdfOriginalWidth || pw))));
+      const entry = ensurePdfPageRendered(page, splitPdfScale, false);
       drawLockedPdfBackground(ctx, page, false);
-      if (entry && entry.promise && !entry.ready) {
-        entry.promise.then(() => scheduleSplitPaneRender()).catch(() => {});
+      if (entry && entry.renderingPromise) {
+        entry.renderingPromise.then(() => scheduleSplitPaneRender()).catch(() => {});
       }
     }
 
@@ -26294,6 +26341,9 @@
   function closeSplitView() {
     if (!state.splitView || !state.splitView.open) return false;
     state.splitView.open = false;
+    state.splitView.isPanning = false;
+    splitTouchPoints.clear();
+    splitIsPinching = false;
     syncSplitViewUi();
     invalidateStaticInkCache();
     requestRender();
@@ -26678,44 +26728,106 @@
     const btnZoomOut = document.getElementById('btnSplitZoomOut');
     const btnZoomIn = document.getElementById('btnSplitZoomIn');
     const btnZoomFit = document.getElementById('btnSplitZoomFit');
-    const applySplitZoom = (factor, anchorScreenX = null, anchorScreenY = null) => {
-      const vp = document.getElementById('splitViewport');
-      if (!vp) return;
-      const rect = vp.getBoundingClientRect();
-      const oldZ = state.splitView.zoom || 0.72;
-      const nextZ = Math.max(0.25, Math.min(3.0, oldZ * factor));
-      const ax = anchorScreenX !== null ? anchorScreenX : rect.width * 0.5;
-      const ay = anchorScreenY !== null ? anchorScreenY : rect.height * 0.5;
-      const wx = (ax - state.splitView.panX) / oldZ;
-      const wy = (ay - state.splitView.panY) / oldZ;
-      state.splitView.zoom = nextZ;
-      state.splitView.panX = ax - wx * nextZ;
-      state.splitView.panY = ay - wy * nextZ;
-      syncSplitViewUi();
-      renderSplitPane();
+    const btnFloatZoomOut = document.getElementById('btnSplitFloatZoomOut');
+    const btnFloatZoomIn = document.getElementById('btnSplitFloatZoomIn');
+    const btnFloatZoomFit = document.getElementById('btnSplitFloatZoomFit');
+    const bindZoomClick = (el, fn) => {
+      if (!el) return;
+      el.addEventListener('pointerdown', (e) => e.stopPropagation());
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fn();
+      });
     };
-    if (btnZoomOut) btnZoomOut.addEventListener('click', () => applySplitZoom(1 / 1.15));
-    if (btnZoomIn) btnZoomIn.addEventListener('click', () => applySplitZoom(1.15));
-    if (btnZoomFit) btnZoomFit.addEventListener('click', () => fitSplitPaneToWidth());
+    bindZoomClick(btnZoomOut, () => applySplitZoom(1 / 1.18));
+    bindZoomClick(btnZoomIn, () => applySplitZoom(1.18));
+    bindZoomClick(btnZoomFit, () => fitSplitPaneToWidth());
+    bindZoomClick(btnFloatZoomOut, () => applySplitZoom(1 / 1.18));
+    bindZoomClick(btnFloatZoomIn, () => applySplitZoom(1.18));
+    bindZoomClick(btnFloatZoomFit, () => fitSplitPaneToWidth());
 
-    // Pan & Zoom sur le viewport secondaire
+    // Pan (1 doigt / souris) + Pinch-to-Zoom (2 doigts tactiles) + Ctrl+Molette sur le viewport secondaire
     const vp = document.getElementById('splitViewport');
     if (vp) {
+      let splitPanPointerId = null;
       vp.addEventListener('pointerdown', (e) => {
+        if (e.target && typeof e.target.closest === 'function' && e.target.closest('.split-floating-zoom-bar')) {
+          return;
+        }
+        if (e.pointerType === 'touch') {
+          splitTouchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (splitTouchPoints.size >= 2) {
+            state.splitView.isPanning = false;
+            splitPanPointerId = null;
+            splitIsPinching = true;
+            const pts = Array.from(splitTouchPoints.values());
+            splitPinchLastDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+            splitPinchLastCenter = { x: (pts[0].x + pts[1].x) * 0.5, y: (pts[0].y + pts[1].y) * 0.5 };
+            try { if (typeof e.pointerId === 'number') vp.setPointerCapture(e.pointerId); } catch (_) {}
+            return;
+          }
+        }
         state.splitView.isPanning = true;
+        splitPanPointerId = e.pointerId;
         state.splitView.panStartScreen = { x: e.clientX, y: e.clientY };
         state.splitView.panStartOffset = { x: state.splitView.panX, y: state.splitView.panY };
         try { if (typeof e.pointerId === 'number') vp.setPointerCapture(e.pointerId); } catch (_) {}
       });
       vp.addEventListener('pointermove', (e) => {
+        if (e.pointerType === 'touch' && splitTouchPoints.has(e.pointerId)) {
+          splitTouchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (splitIsPinching && splitTouchPoints.size >= 2) {
+            if (e.cancelable) e.preventDefault();
+            const pts = Array.from(splitTouchPoints.values());
+            const newDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+            const newCenter = { x: (pts[0].x + pts[1].x) * 0.5, y: (pts[0].y + pts[1].y) * 0.5 };
+            const rect = vp.getBoundingClientRect();
+            if (splitPinchLastDist > 10 && newDist > 10) {
+              const factor = newDist / splitPinchLastDist;
+              applySplitZoom(factor, newCenter.x - rect.left, newCenter.y - rect.top);
+            }
+            state.splitView.panX += (newCenter.x - splitPinchLastCenter.x);
+            state.splitView.panY += (newCenter.y - splitPinchLastCenter.y);
+            splitPinchLastDist = newDist;
+            splitPinchLastCenter = newCenter;
+            scheduleSplitPaneRender();
+            return;
+          }
+        }
         if (!state.splitView.isPanning) return;
+        if (splitPanPointerId !== null && e.pointerId !== undefined && e.pointerId !== splitPanPointerId) return;
         state.splitView.panX = state.splitView.panStartOffset.x + (e.clientX - state.splitView.panStartScreen.x);
         state.splitView.panY = state.splitView.panStartOffset.y + (e.clientY - state.splitView.panStartScreen.y);
         scheduleSplitPaneRender();
       });
       const endPan = (e) => {
+        if (e.pointerType === 'touch') {
+          const wasPinching = splitIsPinching;
+          splitTouchPoints.delete(e.pointerId);
+          if (splitTouchPoints.size < 2) {
+            splitIsPinching = false;
+            if (wasPinching && splitTouchPoints.size === 1) {
+              const [restId, restPt] = Array.from(splitTouchPoints.entries())[0];
+              state.splitView.isPanning = true;
+              splitPanPointerId = restId;
+              state.splitView.panStartScreen = { x: restPt.x, y: restPt.y };
+              state.splitView.panStartOffset = { x: state.splitView.panX, y: state.splitView.panY };
+              try { if (typeof e.pointerId === 'number') vp.releasePointerCapture(e.pointerId); } catch (_) {}
+              return;
+            }
+          } else if (wasPinching) {
+            const pts = Array.from(splitTouchPoints.values());
+            splitPinchLastDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+            splitPinchLastCenter = { x: (pts[0].x + pts[1].x) * 0.5, y: (pts[0].y + pts[1].y) * 0.5 };
+          }
+          if (wasPinching) {
+            try { if (typeof e.pointerId === 'number') vp.releasePointerCapture(e.pointerId); } catch (_) {}
+            return;
+          }
+        }
         if (!state.splitView.isPanning) return;
         state.splitView.isPanning = false;
+        splitPanPointerId = null;
         try { if (typeof e.pointerId === 'number') vp.releasePointerCapture(e.pointerId); } catch (_) {}
       };
       vp.addEventListener('pointerup', endPan);
@@ -26724,14 +26836,33 @@
         e.preventDefault();
         if (e.ctrlKey || e.metaKey) {
           const rect = vp.getBoundingClientRect();
-          applySplitZoom(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - rect.left, e.clientY - rect.top);
+          const absY = Math.abs(e.deltaY || 0);
+          const factor = absY > 0 && absY < 40
+            ? Math.exp(-(e.deltaY || 0) * 0.008)
+            : (e.deltaY < 0 ? 1.15 : 1 / 1.15);
+          applySplitZoom(factor, e.clientX - rect.left, e.clientY - rect.top);
+        } else if (e.shiftKey && !e.deltaX) {
+          state.splitView.panX -= e.deltaY || 0;
+          scheduleSplitPaneRender();
         } else {
           state.splitView.panX -= e.deltaX || 0;
           state.splitView.panY -= e.deltaY || 0;
           scheduleSplitPaneRender();
         }
       }, { passive: false });
-      vp.addEventListener('dblclick', () => fitSplitPaneToWidth());
+      vp.addEventListener('dblclick', (e) => {
+        if (e.target && typeof e.target.closest === 'function' && e.target.closest('.split-floating-zoom-bar')) {
+          return;
+        }
+        const rect = vp.getBoundingClientRect();
+        const page = getSplitPaneActivePage();
+        const fitZ = getSplitFitZoom(page, rect);
+        if (Math.abs((state.splitView.zoom || fitZ) - fitZ) < 0.08) {
+          applySplitZoom(1.75, e.clientX - rect.left, e.clientY - rect.top);
+        } else {
+          fitSplitPaneToWidth();
+        }
+      });
     }
 
     // Séparateur vertical redimensionnable (25% à 75%, double-clic = 50/50)
@@ -28920,6 +29051,8 @@
       closeSplitView,
       toggleSplitView,
       swapSplitViewPanes,
+      applySplitZoom,
+      fitSplitPaneToWidth,
       renderSplitPane,
       removeAllTapesOnActivePage,
       toggleVirtualRuler,

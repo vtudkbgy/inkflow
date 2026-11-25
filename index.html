@@ -1934,9 +1934,9 @@
           </div>
           <div class="split-pane-right">
             <div class="split-zoom-group">
-              <button class="split-icon-btn" id="btnSplitZoomOut" type="button" title="Zoom arrière">−</button>
+              <button class="split-icon-btn" id="btnSplitZoomOut" type="button" title="Zoom arrière" aria-label="Zoom arrière">−</button>
               <button class="split-zoom-readout" id="btnSplitZoomFit" type="button" title="Ajuster à la largeur">100%</button>
-              <button class="split-icon-btn" id="btnSplitZoomIn" type="button" title="Zoom avant">+</button>
+              <button class="split-icon-btn" id="btnSplitZoomIn" type="button" title="Zoom avant" aria-label="Zoom avant">+</button>
             </div>
             <button class="split-swap-btn" id="btnSplitSwapPanes" type="button" title="Échanger gauche / droite pour éditer ce cahier">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1952,6 +1952,11 @@
         </div>
         <div class="split-viewport" id="splitViewport">
           <canvas id="splitCanvas"></canvas>
+          <div class="split-floating-zoom-bar" id="splitFloatingZoomBar" role="group" aria-label="Zoom du document affiché">
+            <button class="split-float-zoom-btn" id="btnSplitFloatZoomOut" type="button" title="Dézoomer" aria-label="Dézoomer">−</button>
+            <button class="split-float-zoom-readout" id="btnSplitFloatZoomFit" type="button" title="Ajuster à la largeur">100%</button>
+            <button class="split-float-zoom-btn" id="btnSplitFloatZoomIn" type="button" title="Zoomer" aria-label="Zoomer">+</button>
+          </div>
         </div>
       </section>
       </div>

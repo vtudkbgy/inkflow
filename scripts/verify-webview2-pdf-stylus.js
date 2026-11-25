@@ -792,11 +792,63 @@ async function runVerification() {
     throw new Error('La capture PNG de la sélection Lasso a échoué');
   }
 
-  // Vérification Split View (ouverture, échange des 2 panneaux, fermeture)
+  // Vérification Split View (ouverture, zoom boutons + barre flottante + pinch 2 doigts + Ctrl+Molette, échange, fermeture)
   const splitOpened = api.openSplitView();
   if (!splitOpened || !state.splitView.open) {
     throw new Error('L\'ouverture de la Vue divisée (Split View) a échoué');
   }
+  api.fitSplitPaneToWidth();
+  const baseSplitZoom = state.splitView.zoom;
+  const btnSplitZIn = sandbox.document.getElementById('btnSplitZoomIn');
+  const btnSplitZOut = sandbox.document.getElementById('btnSplitZoomOut');
+  const btnSplitFZIn = sandbox.document.getElementById('btnSplitFloatZoomIn');
+  const btnSplitFZOut = sandbox.document.getElementById('btnSplitFloatZoomOut');
+  const btnSplitFZFit = sandbox.document.getElementById('btnSplitFloatZoomFit');
+  if (!btnSplitZIn || !btnSplitZOut || !btnSplitFZIn || !btnSplitFZOut || !btnSplitFZFit) {
+    throw new Error('Les contrôles de zoom Split View (barre haute + barre flottante) sont introuvables');
+  }
+  btnSplitZIn.dispatchEvent({ type: 'click', stopPropagation: () => {} });
+  if (!(state.splitView.zoom > baseSplitZoom)) {
+    throw new Error('Le bouton Zoom avant (+) du Split View n\'a pas augmenté le zoom');
+  }
+  const zoomedInOnce = state.splitView.zoom;
+  btnSplitFZIn.dispatchEvent({ type: 'click', stopPropagation: () => {} });
+  if (!(state.splitView.zoom > zoomedInOnce)) {
+    throw new Error('Le bouton flottant Zoom avant (+) du Split View n\'a pas augmenté le zoom');
+  }
+  const zoomedInTwice = state.splitView.zoom;
+  btnSplitFZOut.dispatchEvent({ type: 'click', stopPropagation: () => {} });
+  if (!(state.splitView.zoom < zoomedInTwice)) {
+    throw new Error('Le bouton flottant Zoom arrière (−) du Split View n\'a pas diminué le zoom');
+  }
+  // Pinch-to-Zoom 2 doigts tactiles sur #splitViewport
+  const splitVp = sandbox.document.getElementById('splitViewport');
+  const zoomBeforePinch = state.splitView.zoom;
+  splitVp.dispatchEvent({ type: 'pointerdown', pointerId: 201, pointerType: 'touch', clientX: 200, clientY: 300, target: splitVp });
+  splitVp.dispatchEvent({ type: 'pointerdown', pointerId: 202, pointerType: 'touch', clientX: 300, clientY: 300, target: splitVp });
+  splitVp.dispatchEvent({ type: 'pointermove', pointerId: 202, pointerType: 'touch', clientX: 400, clientY: 300, cancelable: true, preventDefault: () => {} });
+  splitVp.dispatchEvent({ type: 'pointerup', pointerId: 202, pointerType: 'touch', clientX: 400, clientY: 300 });
+  splitVp.dispatchEvent({ type: 'pointerup', pointerId: 201, pointerType: 'touch', clientX: 200, clientY: 300 });
+  if (!(state.splitView.zoom > zoomBeforePinch * 1.4)) {
+    throw new Error('Le pincement tactile à 2 doigts (Pinch-to-Zoom) sur Split View n\'a pas zoomé le document');
+  }
+  // Ctrl+Molette sur #splitViewport
+  const zoomBeforeWheel = state.splitView.zoom;
+  splitVp.dispatchEvent({ type: 'wheel', ctrlKey: true, deltaY: 100, clientX: 300, clientY: 300, preventDefault: () => {} });
+  if (!(state.splitView.zoom < zoomBeforeWheel)) {
+    throw new Error('Ctrl+Molette (dézoom) sur Split View n\'a pas réduit le zoom');
+  }
+  // Vérifie le bornage [20% - 500%]
+  api.applySplitZoom(100);
+  if (Math.abs(state.splitView.zoom - 5.0) > 0.01 || !btnSplitFZIn.disabled) {
+    throw new Error('Le zoom maximal du Split View (500%) et la désactivation du bouton + ont échoué');
+  }
+  api.applySplitZoom(0.01);
+  if (Math.abs(state.splitView.zoom - 0.2) > 0.01 || !btnSplitFZOut.disabled) {
+    throw new Error('Le zoom minimal du Split View (20%) et la désactivation du bouton − ont échoué');
+  }
+  btnSplitFZFit.dispatchEvent({ type: 'click', stopPropagation: () => {} });
+
   const swapped = api.swapSplitViewPanes();
   if (!swapped) {
     throw new Error('L\'échange des panneaux de la Vue divisée a échoué');
