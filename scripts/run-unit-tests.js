@@ -1690,7 +1690,7 @@ async function runTests() {
     return 'Enregistré en http(s) uniquement (ignoré sous Tauri, Electron, sans support ou hors contexte sûr) ; réseau d’abord, cache rafraîchi, secours hors-ligne (y compris avec paramètres d’URL) vérifiés.';
   });
 
-  await runStep('Test 10 : Bons du banquier signés (ECDSA P-256) : signature vérifiée, falsification refusée, récupération unique', async () => {
+  await runStep('Test 10 : Bons du banquier signés (ECDSA P-256) : comptes ciblés, falsification refusée, annulation, fournitures', async () => {
     const nodeCrypto = require('node:crypto');
     const bons = require('./bons-banquier.js');
     const { privateKey, publicKey } = nodeCrypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
@@ -1699,12 +1699,20 @@ async function runTests() {
     const testKey = { kty: 'EC', crv: 'P-256', x: jwk.x, y: jwk.y };
     const other = nodeCrypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ type: 'pkcs8', format: 'pem' });
     const now = new Date('2026-11-24T12:00:00');
+    // Bon v1 (ancien format, sans destinataire) signé comme le faisait la version précédente du script
+    const v1 = (fields) => {
+      const bon = { id: fields.id, type: fields.type || 'cadeau', montant: fields.montant };
+      if (fields.expire) bon.expire = fields.expire;
+      if (fields.message) bon.message = fields.message;
+      return bons.signBon(bon, privatePem);
+    };
 
-    const gift = bons.signBon(bons.buildBon({ montant: 500, message: 'Bravo pour ta semaine ! « é » ✓', jours: 30, now, id: '20261124-cadeau01' }), privatePem);
-    const loan = bons.signBon(bons.buildBon({ montant: 2000, type: 'pret', jours: 0, now, id: '20261124-pret0001' }), privatePem);
-    const tampered = { ...bons.signBon(bons.buildBon({ montant: 10, jours: 30, now, id: '20261124-falsifie' }), privatePem), montant: 10000 };
-    const foreign = bons.signBon(bons.buildBon({ montant: 777, jours: 30, now, id: '20261124-etranger' }), other);
-    const expired = bons.signBon(bons.buildBon({ montant: 50, jours: 1, now: new Date('2026-10-01T12:00:00'), id: '20261001-expire01' }), privatePem);
+    const gift = v1({ montant: 500, message: 'Bravo pour ta semaine ! « é » ✓', expire: '2026-12-24', id: '20261124-cadeau01' });
+    const loan = v1({ montant: 2000, type: 'pret', id: '20261124-pret0001' });
+    const tampered = { ...v1({ montant: 10, expire: '2026-12-24', id: '20261124-falsifie' }), montant: 10000 };
+    const foreign = { ...v1({ montant: 777, expire: '2026-12-24', id: '20261124-etranger' }) };
+    foreign.sig = bons.signBon({ id: foreign.id, type: 'cadeau', montant: 777, expire: '2026-12-24' }, other).sig;
+    const expired = v1({ montant: 50, expire: '2026-10-02', id: '20261001-expire01' });
     const doc = { version: 1, bons: [gift, loan, tampered, foreign, expired, { id: 'x', montant: 'beaucoup' }, gift] };
     assert.equal(bons.verifyBon(gift, publicKey), true, 'Le script doit vérifier ses propres signatures');
     assert.equal(bons.verifyBon(tampered, publicKey), false, 'Le script doit refuser un montant modifié');
@@ -1715,16 +1723,19 @@ async function runTests() {
     sandbox.crypto = globalThis.crypto;
     sandbox.localStorage.getItem = (k) => (store.has(k) ? store.get(k) : null);
     sandbox.localStorage.setItem = (k, v) => { store.set(k, String(v)); };
+    const legacy = { code: 'LEGACY2345', creeLe: 0, ancien: true };
+    const opts = (document, account, at = now) => ({ document, publicKey: testKey, now: at.getTime(), account });
     try {
-      const valid = await api.verifyDetenteBons(doc, { publicKey: testKey, now: now.getTime() });
+      // ---- Appareil déjà en service avant les comptes : les bons v1 restent valables ----
+      const valid = await api.verifyDetenteBons(doc, opts(undefined, legacy));
       assert.deepEqual([...valid].map((b) => b.id), ['20261124-cadeau01', '20261124-pret0001'],
         'Seuls les bons signés par la bonne clé, intacts et non expirés sont retenus (doublon ignoré)');
       assert.equal(valid[0].message, 'Bravo pour ta semaine ! « é » ✓', 'Le message (UTF-8) fait partie de la signature');
-      assert.deepEqual(await api.verifyDetenteBons(doc, { publicKey: testKey, now: new Date('2027-01-30T12:00:00').getTime() }).then((l) => [...l].map((b) => b.id)),
+      assert.deepEqual(await api.verifyDetenteBons(doc, opts(undefined, legacy, new Date('2027-01-30T12:00:00'))).then((l) => [...l].map((b) => b.id)),
         ['20261124-pret0001'], 'Après sa date, un bon expiré disparaît (le prêt sans expiration reste)');
-      assert.deepEqual([...(await api.verifyDetenteBons({ bons: 'rien' }, { publicKey: testKey }))], [], 'Un document mal formé ne doit rien donner');
+      assert.deepEqual([...(await api.verifyDetenteBons({ bons: 'rien' }, opts(undefined, legacy)))], [], 'Un document mal formé ne doit rien donner');
 
-      const pending = await api.refreshDetenteBons({ document: doc, publicKey: testKey, now: now.getTime() });
+      const pending = await api.refreshDetenteBons(opts(doc, legacy));
       assert.equal(pending.length, 2, 'Deux boutons attendus');
       const before = api.getDetenteWallet();
       assert.equal(api.claimDetenteBon('20261124-cadeau01'), true, 'Le premier clic crédite le bon');
@@ -1735,32 +1746,126 @@ async function runTests() {
       assert.equal(after.balance, before.balance + 2500);
       assert.equal(after.debt, before.debt + 2000, 'Un prêt ajoute la même somme à la dette');
       assert.equal(api.claimDetenteBon('20261124-falsifie'), false, 'Un bon falsifié ne peut pas être récupéré');
-      const again = await api.refreshDetenteBons({ document: doc, publicKey: testKey, now: now.getTime() });
+      const again = await api.refreshDetenteBons(opts(doc, legacy));
       assert.equal(again.length, 0, 'Une fois récupérés, les bons ne réapparaissent plus (mémorisés sur l’appareil)');
       assert.ok(JSON.parse(store.get('inkflow.detente.bonsRecus.v1')).includes('20261124-cadeau01'));
+      assert.ok(after.ledger.some((e) => e.label.startsWith('Cadeau du banquier') && e.delta === 500), 'Le cadeau apparaît dans le relevé');
 
-      // Bon de retrait : débit sans clic, une seule fois ; le manque passe en dette
-      const retrait = bons.signBon(bons.buildBon({ montant: 1000, type: 'retrait', message: 'Retour à la banque', jours: 30, now, id: '20261124-retrait1' }), privatePem);
+      // Retrait v1 : débit sans clic, une seule fois ; le manque passe en dette
+      const retrait = v1({ montant: 1000, type: 'retrait', message: 'Retour à la banque', expire: '2026-12-24', id: '20261124-retrait1' });
       const forgedRetrait = { ...retrait, id: '20261124-retrait2', montant: 5 };
       const docRetrait = { version: 1, bons: [gift, loan, retrait, forgedRetrait] };
-      const pendingRetrait = await api.refreshDetenteBons({ document: docRetrait, publicKey: testKey, now: now.getTime() });
+      const pendingRetrait = await api.refreshDetenteBons(opts(docRetrait, legacy));
       assert.equal(pendingRetrait.length, 0, 'Un retrait ne crée pas de bouton à cliquer');
       assert.equal(api.getDetenteWallet().balance, after.balance - 1000, 'Le retrait débite le solde automatiquement');
       assert.equal(api.claimDetenteBon('20261124-retrait1'), false, 'Un retrait ne peut pas être « récupéré » comme un crédit');
-      await api.refreshDetenteBons({ document: docRetrait, publicKey: testKey, now: now.getTime() });
+      await api.refreshDetenteBons(opts(docRetrait, legacy));
       assert.equal(api.getDetenteWallet().balance, after.balance - 1000, 'Un retrait ne s’applique qu’une fois par appareil');
       const rest = api.getDetenteWallet();
-      const big = bons.signBon(bons.buildBon({ montant: rest.balance + 300, type: 'retrait', jours: 30, now, id: '20261124-retrait3' }), privatePem);
-      await api.refreshDetenteBons({ document: { version: 1, bons: [big] }, publicKey: testKey, now: now.getTime() });
+      const big = v1({ montant: rest.balance + 300, type: 'retrait', expire: '2026-12-24', id: '20261124-retrait3' });
+      await api.refreshDetenteBons(opts({ version: 1, bons: [big] }, legacy));
       assert.equal(api.getDetenteWallet().balance, 0, 'Le solde ne descend pas sous zéro');
       assert.equal(api.getDetenteWallet().debt, rest.debt + 300, 'Ce qui manque au solde s’ajoute à la dette');
       assert.throws(() => bons.buildBon({ montant: 10, type: 'amende' }), /Type invalide/);
+
+      // ---- Installation neuve : ni anciens bons, ni bons adressés à un autre compte ----
+      const myCode = 'K7P2Q9XM4R';
+      const otherCode = 'ZZZZZ22222';
+      assert.equal(bons.normalizeAccountCode('k7p2q-9xm4r'), myCode, 'Le code client se saisit sans tenir compte de la casse ni du tiret');
+      assert.equal(bons.normalizeAccountCode('O0O0O-I1I1I'), '', 'Les caractères ambigus (0, O, 1, I) sont refusés');
+      const myHash = bons.accountHash(myCode);
+      assert.equal(await api.detenteAccountHash(myCode), myHash, 'Le script et l’app calculent la même empreinte de compte');
+      const fresh = { code: myCode, creeLe: new Date('2026-11-24T10:00:00Z').getTime(), ancien: false };
+      const sign2 = (fields) => bons.signBon(bons.buildBon({ jours: 30, now: new Date('2026-11-24T11:00:00Z'), ...fields }), privatePem);
+      const forMe = sign2({ montant: 300, id: '20261124-pourmoi1', pour: myHash, message: 'Pour toi' });
+      const forOther = sign2({ montant: 900, id: '20261124-pourlui1', pour: bons.accountHash(otherCode) });
+      const stolen = { ...forOther, id: '20261124-vole0001', pour: myHash };
+      const toAllAfter = sign2({ montant: 40, id: '20261124-tousapr1' });
+      const toAllBefore = bons.signBon(bons.buildBon({ montant: 4000, jours: 30, now: new Date('2026-11-24T09:00:00Z'), id: '20261124-tousavt1' }), privatePem);
+      const oldRetrait = v1({ montant: 1743, type: 'retrait', expire: '2026-12-24', id: '20261124-ancienrt' });
+      const docFresh = { version: 2, bons: [oldRetrait, gift, toAllBefore, forMe, forOther, stolen, toAllAfter] };
+      const seen = await api.verifyDetenteBons(docFresh, opts(undefined, fresh));
+      assert.deepEqual([...seen].map((b) => b.id), ['20261124-pourmoi1', '20261124-tousapr1'],
+        'Une installation neuve ne voit que ses bons et ceux pour tous émis après son ouverture (anciens bons, autre compte et destinataire falsifié refusés)');
+      const tamperedPour = { ...forMe, pour: bons.accountHash(otherCode) };
+      assert.equal(bons.verifyBon(tamperedPour, publicKey), false, 'Le destinataire fait partie de la signature');
+
+      // ---- Annulation : avant récupération, le bon disparaît ; après, l'opération est inversée ----
+      store.clear();
+      const wallet0 = api.getDetenteWallet();
+      const g1 = sign2({ montant: 1743, id: '20261124-annule01', pour: myHash });
+      const g2 = sign2({ montant: 1616, id: '20261124-garde001', pour: myHash });
+      const p1 = sign2({ montant: 500, type: 'pret', id: '20261124-pretann1', pour: myHash });
+      const r1 = sign2({ montant: 200, type: 'retrait', id: '20261124-retrann1', pour: myHash });
+      const annul = (target, id) => sign2({ montant: target.montant, type: 'annulation', annule: target.id, pour: target.pour, id, expire: target.expire });
+      assert.throws(() => bons.buildBon({ montant: 10, type: 'annulation' }), /annulation/, 'Une annulation doit viser un bon');
+      let docA = { version: 2, bons: [g1, g2, p1, r1] };
+      await api.refreshDetenteBons(opts(docA, fresh));
+      const afterR1 = api.getDetenteWallet();
+      assert.equal(afterR1.balance, Math.max(0, wallet0.balance - 200), 'Le retrait adressé est appliqué');
+      assert.equal(api.claimDetenteBon('20261124-garde001'), true);
+      assert.equal(api.claimDetenteBon('20261124-pretann1'), true);
+      const beforeAnnul = api.getDetenteWallet();
+      docA = { version: 2, bons: [g1, g2, p1, r1, annul(g1, '20261124-ann00001'), annul(p1, '20261124-ann00002'), annul(r1, '20261124-ann00003')] };
+      const left = await api.refreshDetenteBons(opts(docA, fresh));
+      assert.equal(left.length, 0, 'Le cadeau annulé avant récupération ne propose plus de bouton');
+      assert.equal(api.claimDetenteBon('20261124-annule01'), false, 'Un bon annulé ne peut plus être récupéré');
+      const afterAnnul = api.getDetenteWallet();
+      // Le retrait de 200 était tombé entièrement en dette (solde à 0) : l'annuler réduit la dette, pas le solde
+      assert.equal(afterR1.debt, wallet0.debt + 200, 'Solde vide : le retrait passe en dette');
+      assert.equal(afterAnnul.balance, beforeAnnul.balance - 500, 'Prêt repris (−500), cadeau non récupéré sans effet');
+      assert.equal(afterAnnul.debt, beforeAnnul.debt - 500 - 200, 'Annuler le prêt et le retrait efface la dette correspondante');
+      await api.refreshDetenteBons(opts(docA, fresh));
+      assert.deepEqual(api.getDetenteWallet().balance, afterAnnul.balance, 'Une annulation ne s’applique qu’une fois');
+
+      // Appareil resté hors ligne : retrait et annulation lus ensemble, rien n'est débité ni mis en dette
+      const r3 = sign2({ montant: 400, type: 'retrait', id: '20261124-retrhl01', pour: myHash });
+      await api.refreshDetenteBons(opts({ version: 2, bons: [r3, annul(r3, '20261124-annhl001')] }, fresh));
+      assert.equal(api.getDetenteWallet().balance, afterAnnul.balance, 'Retrait annulé avant application : solde intact');
+      assert.equal(api.getDetenteWallet().debt, afterAnnul.debt, 'Retrait annulé avant application : dette intacte');
+
+      // Retrait passé en partie en dette puis annulé : solde et dette reviennent exactement
+      const r4 = sign2({ montant: afterAnnul.balance + 250, type: 'retrait', id: '20261124-retrdt01', pour: myHash });
+      await api.refreshDetenteBons(opts({ version: 2, bons: [r4] }, fresh));
+      assert.equal(api.getDetenteWallet().balance, 0);
+      assert.equal(api.getDetenteWallet().debt, afterAnnul.debt + 250);
+      await api.refreshDetenteBons(opts({ version: 2, bons: [r4, annul(r4, '20261124-anndt001')] }, fresh));
+      assert.equal(api.getDetenteWallet().balance, afterAnnul.balance, 'Annuler le retrait rend la part prise sur le solde');
+      assert.equal(api.getDetenteWallet().debt, afterAnnul.debt, 'Annuler le retrait efface la part passée en dette');
+
+      // Une cible ne s'annule qu'une fois, même si une seconde annulation est publiée
+      await api.refreshDetenteBons(opts({ version: 2, bons: [g2, annul(g2, '20261124-anng2001')] }, fresh));
+      const onceG2 = api.getDetenteWallet();
+      assert.equal(onceG2.balance, afterAnnul.balance - 1616, 'Le cadeau récupéré puis annulé est repris');
+      await api.refreshDetenteBons(opts({ version: 2, bons: [g2, annul(g2, '20261124-anng2002')] }, fresh));
+      assert.equal(api.getDetenteWallet().balance, onceG2.balance, 'Une seconde annulation du même bon reste sans effet');
+
+      // ---- Boutique : fournitures en stock, consommées avant le solde ----
+      await api.refreshDetenteBons(opts({ version: 2, bons: [sign2({ montant: 100, id: '20261124-shop0001', pour: myHash })] }, fresh));
+      assert.equal(api.claimDetenteBon('20261124-shop0001'), true);
+      const startBal = api.getDetenteWallet().balance;
+      assert.ok(startBal >= 10, 'Solde suffisant pour le test des fournitures');
+      assert.equal(api.buyDetenteItem('pack-pages'), true, 'Un bloc de pages s’achète');
+      let w = api.getDetenteWallet();
+      assert.equal(w.balance, startBal - 10);
+      assert.equal(w.stock.page, 12, 'Le bloc ajoute 12 pages au stock');
+      assert.equal(api.buyDetenteItem('pack-pages'), true, 'Les fournitures s’achètent plusieurs fois');
+      assert.equal(api.getDetenteWallet().stock.page, 24);
+      assert.equal(await api.runDetentePaidCreation(1, 'Ajouter une page', async () => true, 'page'), true);
+      w = api.getDetenteWallet();
+      assert.equal(w.stock.page, 23, 'Une page créée consomme le stock');
+      assert.equal(w.balance, startBal - 20, 'Le solde n’est pas débité quand le stock suffit');
+      assert.equal(await api.runDetentePaidCreation(1, 'Ajouter une page', async () => null, 'page'), null);
+      assert.equal(api.getDetenteWallet().stock.page, 23, 'Une création qui échoue rend l’unité du stock');
+      assert.ok(api.getDetenteWallet().ledger.some((e) => e.label === 'Boutique : Bloc de 12 pages' && e.delta === -10), 'L’achat apparaît dans le relevé');
+      assert.ok(api.DETENTE_SHOP.filter((it) => it.kind === 'pack').every((it) => it.price < it.qty * ({ page: 1, notebook: 10, pdf: 10 })[it.stock]),
+        'Chaque lot coûte moins cher qu’à l’unité');
     } finally {
       sandbox.crypto = savedCrypto;
       sandbox.localStorage.getItem = savedStorage.getItem;
       sandbox.localStorage.setItem = savedStorage.setItem;
     }
-    return 'Bons valides acceptés ; montant modifié, autre clé, bon expiré et document mal formé refusés ; crédit unique (cadeau et prêt avec dette) ; retrait débité une fois, sans clic, manque reporté en dette.';
+    return 'Bons v1 gardés sur un appareil ancien ; installation neuve : anciens bons, autre compte et destinataire falsifié refusés ; annulation avant/après récupération ; retrait unique, manque en dette ; fournitures en stock consommées avant le solde.';
   });
 
   // ------------------------------------------------------------------------

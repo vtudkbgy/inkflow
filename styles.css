@@ -13611,6 +13611,121 @@ html, body {
   box-shadow: inset 5px 0 0 rgba(15, 23, 42, 0.18);
 }
 
+.detente-shop-preview.pack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.detente-shop-preview.pack strong {
+  font-size: 19px;
+  line-height: 1;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.detente-shop-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---------- Banque : compte et relevé ---------- */
+.detente-account-code {
+  flex: 1;
+  min-width: 160px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--border-color);
+  background: var(--surface-subtle);
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  color: var(--text-primary);
+  user-select: all;
+}
+
+.detente-ledger-card {
+  grid-column: 1 / -1;
+}
+
+.detente-ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.detente-ledger li {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.detente-ledger li:nth-child(odd) {
+  background: color-mix(in srgb, var(--surface-subtle) 70%, transparent);
+}
+
+.detente-ledger .detente-ledger-empty {
+  display: block;
+  color: var(--text-muted);
+}
+
+.detente-ledger-when,
+.detente-ledger-bal {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.detente-ledger-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.detente-ledger-delta {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.detente-ledger-delta.in {
+  color: #15803d;
+}
+
+[data-theme="dark"] .detente-ledger-delta.in {
+  color: #4ade80;
+}
+
+@media (max-width: 560px) {
+  .detente-ledger li {
+    grid-template-columns: 1fr auto;
+  }
+
+  .detente-ledger-when,
+  .detente-ledger-bal {
+    grid-column: 1 / -1;
+  }
+}
+
 /* ---------- Blackjack ---------- */
 .detente-page {
   --dt-felt: #e9efe9;

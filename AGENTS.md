@@ -27,7 +27,8 @@
 - Nettoyage RAM strict : `releaseCanvasMemory`, `destroyPdfDocumentResources`, `cleanupAppResources`.
 
 ## Bons du banquier (Détente)
-- Envoyer des jetons : `node scripts/bons-banquier.js emettre <montant> [--pret | --retrait] [--message "…"]` (`--retrait` enlève des jetons), publié directement sur `main` via `gh api`. Détails et sécurité : `docs/BONS-BANQUIER.md`.
+- Envoyer des jetons : `node scripts/bons-banquier.js emettre <montant> (--pour <nom|code client> | --tous) [--pret | --retrait] [--message "…"]` (`--retrait` enlève des jetons) ; corriger un envoi : `annuler <id>`. Publié directement sur `main` via `gh api`. Détails et sécurité : `docs/BONS-BANQUIER.md`.
+- Le carnet de clients (`Documents\InkFlow-banquier\clients.json`) reste hors dépôt, comme la clé.
 - La clé privée reste hors dépôt (`Documents\InkFlow-banquier\cle-privee-bons.pem`) : ne jamais la lire dans une réponse, la copier ou la commiter.
 
 ## Vérifications obligatoires après chaque modification

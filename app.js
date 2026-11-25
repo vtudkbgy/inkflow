@@ -5674,7 +5674,10 @@
     mint: { bg: '#eef6f0', line: '22, 101, 52', seyes: '13, 116, 104' },
     rose: { bg: '#fbf0f0', line: '159, 18, 57', seyes: '157, 23, 77' },
     sky: { bg: '#eef4fb', line: '30, 64, 175', seyes: '37, 99, 235' },
-    kraft: { bg: '#ecdfc6', line: '120, 83, 45', seyes: '87, 60, 30' }
+    kraft: { bg: '#ecdfc6', line: '120, 83, 45', seyes: '87, 60, 30' },
+    lavande: { bg: '#f3effa', line: '91, 33, 182', seyes: '109, 40, 217' },
+    sable: { bg: '#f6efe0', line: '146, 100, 40', seyes: '120, 80, 30' },
+    peche: { bg: '#fdf0e6', line: '194, 65, 12', seyes: '180, 70, 30' }
   };
 
   function getPaperPalette(tone = 'ivory') {
@@ -21859,19 +21862,38 @@
     { id: 'cover-bordeaux', kind: 'cover', label: 'Bordeaux', price: 200, coverColor: '#7f1d1d', accent: '#f59e0b', style: 'pat-fluid' },
     { id: 'cover-ocre', kind: 'cover', label: 'Ocre', price: 200, coverColor: '#a16207', accent: '#fde68a', style: 'pat-zigzag' },
     { id: 'cover-nuit', kind: 'cover', label: 'Nuit dorée', price: 300, coverColor: '#1e1b4b', accent: '#d4a017', style: 'pat-waves' },
-    { id: 'cover-ardoise', kind: 'cover', label: 'Ardoise et or', price: 300, coverColor: '#1f2937', accent: '#c8a24a', style: 'pat-brushes' }
+    { id: 'cover-ardoise', kind: 'cover', label: 'Ardoise et or', price: 300, coverColor: '#1f2937', accent: '#c8a24a', style: 'pat-brushes' },
+    { id: 'theme-framboise', kind: 'theme', label: 'Framboise', price: 200, light: '#be123c', lightDark: '#9f1239', dark: '#fb7185', darkDark: '#e11d48' },
+    { id: 'theme-graphite', kind: 'theme', label: 'Graphite', price: 200, light: '#475569', lightDark: '#334155', dark: '#a5b4c8', darkDark: '#64748b' },
+    { id: 'tone-lavande', kind: 'tone', tone: 'lavande', label: 'Lavande', price: 120, swatch: '#f3effa' },
+    { id: 'tone-sable', kind: 'tone', tone: 'sable', label: 'Sable', price: 120, swatch: '#f6efe0' },
+    { id: 'tone-peche', kind: 'tone', tone: 'peche', label: 'Pêche', price: 120, swatch: '#fdf0e6' },
+    { id: 'cover-foret', kind: 'cover', label: 'Forêt', price: 250, coverColor: '#14532d', accent: '#a3e635', style: 'pat-waves' },
+    { id: 'cover-lagon', kind: 'cover', label: 'Lagon', price: 250, coverColor: '#155e75', accent: '#67e8f9', style: 'pat-fluid' },
+    // Fournitures : achats répétables, mis en stock et consommés avant le solde lors d'une création
+    { id: 'pack-pages', kind: 'pack', stock: 'page', qty: 12, label: 'Bloc de 12 pages', price: 10 },
+    { id: 'pack-ramette', kind: 'pack', stock: 'page', qty: 50, label: 'Ramette de 50 pages', price: 35 },
+    { id: 'pack-cahiers', kind: 'pack', stock: 'notebook', qty: 3, label: 'Lot de 3 cahiers', price: 25 },
+    { id: 'pack-pdf', kind: 'pack', stock: 'pdf', qty: 3, label: 'Lot de 3 imports PDF', price: 25 }
   ];
   const DETENTE_SHOP_GROUPS = [
+    { kind: 'pack', title: 'Fournitures', note: 'Achats en lot, moins chers qu’à l’unité. Le stock sert avant le solde quand tu crées une page, un cahier ou importes un PDF.' },
     { kind: 'theme', title: 'Thèmes de couleur', note: 'Couleur d’accent de toute l’application.' },
     { kind: 'tone', title: 'Fonds de page', note: 'Nouvelles teintes dans le menu Papier de la page.' },
     { kind: 'cover', title: 'Couvertures de cahier', note: 'Dans la création de cahier et la bibliothèque de couvertures.' }
   ];
+  const DETENTE_STOCK_KINDS = ['notebook', 'page', 'pdf'];
+  const DETENTE_STOCK_LABELS = { notebook: ['cahier', 'cahiers'], page: ['page', 'pages'], pdf: ['import PDF', 'imports PDF'] };
+  const DETENTE_STOCK_MAX = 100000;
+  const DETENTE_LEDGER_MAX = 60;
 
   const detenteState = {
     balance: DETENTE_START_BALANCE,
     debt: 0,
     borrowed: 0,
     unlocked: [],
+    stock: { notebook: 0, page: 0, pdf: 0 },
+    ledger: [], // relevé : { t, label, delta, balance, count }
     theme: 'default',
     tab: 'slot',
     betIndex: 3,
@@ -21896,6 +21918,9 @@
   function loadDetenteState() {
     if (detenteState.loaded) return;
     detenteState.loaded = true;
+    // Le compte (code client) est créé avant toute écriture du portefeuille : c'est ce qui
+    // distingue un appareil déjà en service d'une installation neuve (voir getDetenteAccount)
+    getDetenteAccount();
     try {
       const raw = localStorage.getItem(DETENTE_STORAGE_KEY);
       if (!raw) return;
@@ -21904,7 +21929,19 @@
       if (Number.isFinite(data.balance) && data.balance >= 0) detenteState.balance = Math.floor(data.balance);
       if (Number.isFinite(data.debt) && data.debt >= 0) detenteState.debt = Math.floor(data.debt);
       if (Number.isFinite(data.borrowed) && data.borrowed >= 0) detenteState.borrowed = Math.floor(data.borrowed);
-      if (Array.isArray(data.unlocked)) detenteState.unlocked = data.unlocked.filter((id) => DETENTE_SHOP.some((it) => it.id === id));
+      if (Array.isArray(data.unlocked)) detenteState.unlocked = data.unlocked.filter((id) => DETENTE_SHOP.some((it) => it.id === id && it.kind !== 'pack'));
+      if (data.stock && typeof data.stock === 'object') {
+        DETENTE_STOCK_KINDS.forEach((k) => {
+          const n = data.stock[k];
+          if (Number.isInteger(n) && n >= 0) detenteState.stock[k] = Math.min(n, DETENTE_STOCK_MAX);
+        });
+      }
+      if (Array.isArray(data.ledger)) {
+        detenteState.ledger = data.ledger
+          .filter((e) => e && Number.isFinite(e.t) && typeof e.label === 'string' && Number.isFinite(e.delta))
+          .map((e) => ({ t: e.t, label: e.label.slice(0, 160), delta: Math.trunc(e.delta), balance: Number.isFinite(e.balance) ? Math.max(0, Math.floor(e.balance)) : null, count: Number.isInteger(e.count) && e.count > 1 ? e.count : 1 }))
+          .slice(0, DETENTE_LEDGER_MAX);
+      }
       if (typeof data.theme === 'string' && (data.theme === 'default' || detenteState.unlocked.includes(data.theme))) detenteState.theme = data.theme;
       if (typeof data.tab === 'string' && DETENTE_TABS.includes(data.tab)) detenteState.tab = data.tab;
       if (Number.isInteger(data.betIndex) && data.betIndex >= 0 && data.betIndex < DETENTE_BETS.length) detenteState.betIndex = data.betIndex;
@@ -21926,10 +21963,13 @@
   function saveDetenteState() {
     try {
       localStorage.setItem(DETENTE_STORAGE_KEY, JSON.stringify({
+        compte: true, // écrit par une version à comptes clients (voir getDetenteAccount)
         balance: detenteState.balance,
         debt: detenteState.debt,
         borrowed: detenteState.borrowed,
         unlocked: detenteState.unlocked,
+        stock: detenteState.stock,
+        ledger: detenteState.ledger,
         theme: detenteState.theme,
         tab: detenteState.tab,
         betIndex: detenteState.betIndex,
@@ -21973,6 +22013,29 @@
     refreshDetenteWalletUi();
   }
 
+  // Relevé de compte (banque, boutique, créations ; les jeux gardent leur propre historique).
+  // options.merge : regroupe les écritures identiques rapprochées (« Ajouter une page ×5 »).
+  function detenteLog(label, delta, options = {}) {
+    const now = Number.isFinite(options.now) ? options.now : Date.now();
+    const last = detenteState.ledger[0];
+    if (options.merge && last && last.label === label && now - last.t < 15 * 60 * 1000 && Math.sign(last.delta) === Math.sign(delta)) {
+      last.delta += delta;
+      last.count = (last.count || 1) + 1;
+      last.t = now;
+      last.balance = detenteState.balance;
+    } else {
+      detenteState.ledger.unshift({ t: now, label: String(label).slice(0, 160), delta: Math.trunc(delta), balance: detenteState.balance, count: 1 });
+      if (detenteState.ledger.length > DETENTE_LEDGER_MAX) detenteState.ledger.length = DETENTE_LEDGER_MAX;
+    }
+    saveDetenteState();
+    if (state.detentePageOpen && detenteState.tab === 'bank') renderDetenteBank();
+  }
+
+  function formatDetenteStock(kind, n) {
+    const [one, many] = DETENTE_STOCK_LABELS[kind] || ['unité', 'unités'];
+    return `${formatJetons(n)} ${n > 1 ? many : one}`;
+  }
+
   function refreshDetenteWalletUi() {
     const bal = document.getElementById('detenteBalance');
     if (bal && !bal.dataset.animating) bal.textContent = formatJetons(detenteState.balance);
@@ -21990,8 +22053,11 @@
     if (repayAllBtn) repayAllBtn.disabled = detenteState.debt <= 0 || detenteState.balance <= 0;
     const hint = document.getElementById('newNotebookCostHint');
     if (hint) {
-      hint.textContent = `Coût : ${DETENTE_COSTS.notebook} jetons. Solde : ${formatJetons(detenteState.balance)} jetons.`;
-      hint.classList.toggle('short', detenteState.balance < DETENTE_COSTS.notebook);
+      const inStock = detenteState.stock.notebook;
+      hint.textContent = inStock > 0
+        ? `Coût : 1 cahier du stock (reste ${formatDetenteStock('notebook', inStock)}). Solde : ${formatJetons(detenteState.balance)} jetons.`
+        : `Coût : ${DETENTE_COSTS.notebook} jetons. Solde : ${formatJetons(detenteState.balance)} jetons.`;
+      hint.classList.toggle('short', inStock <= 0 && detenteState.balance < DETENTE_COSTS.notebook);
     }
     if (detenteState.funds) renderDetenteFundsModal();
     if (state.detentePageOpen) {
@@ -21999,32 +22065,51 @@
       if (detenteState.tab === 'shop') renderDetenteShop();
       if (detenteState.tab === 'blackjack') renderBlackjackControls();
       if (detenteState.tab === 'roulette') renderRouletteControls();
+      if (detenteState.tab === 'bank') renderDetenteBank();
     }
   }
 
   // ---------- Créations payantes (cahier, page, import PDF) ----------
-  // Les jetons sont réservés avant l'action puis rendus si elle échoue ou ne crée rien.
-  async function runDetentePaidCreation(cost, label, action) {
+  // Une unité du stock (Fournitures de la boutique) sert en priorité, sinon les jetons.
+  // Le paiement est réservé avant l'action puis rendu si elle échoue ou ne crée rien.
+  async function runDetentePaidCreation(cost, label, action, stockKind = null) {
     loadDetenteState();
-    if (detenteState.balance < cost) {
-      openDetenteFundsModal(cost, label, action);
+    const fromStock = Boolean(stockKind && detenteState.stock[stockKind] > 0);
+    if (!fromStock && detenteState.balance < cost) {
+      openDetenteFundsModal(cost, label, action, stockKind);
       return null;
     }
-    detenteAddBalance(-cost);
+    const refund = () => {
+      if (fromStock) {
+        detenteState.stock[stockKind] += 1;
+        saveDetenteState();
+        refreshDetenteWalletUi();
+      } else {
+        detenteAddBalance(cost);
+      }
+    };
+    if (fromStock) {
+      detenteState.stock[stockKind] -= 1;
+      saveDetenteState();
+      refreshDetenteWalletUi();
+    } else {
+      detenteAddBalance(-cost);
+    }
     let result = null;
     try {
       result = await action();
     } catch (err) {
-      detenteAddBalance(cost);
+      refund();
       throw err;
     }
-    if (result === null || result === undefined || result === false) detenteAddBalance(cost);
+    if (result === null || result === undefined || result === false) refund();
+    else detenteLog(fromStock ? `${label} (stock)` : label, fromStock ? 0 : -cost, { merge: true });
     return result;
   }
 
-  function openDetenteFundsModal(cost, label, action) {
+  function openDetenteFundsModal(cost, label, action, stockKind = null) {
     const modal = document.getElementById('modalDetenteFunds');
-    detenteState.funds = { cost, label, action };
+    detenteState.funds = { cost, label, action, stockKind };
     if (!modal) return;
     const input = document.getElementById('detenteFundsCode');
     if (input) input.value = '';
@@ -22046,7 +22131,7 @@
     if (text) {
       const missing = Math.max(0, f.cost - detenteState.balance);
       text.textContent = missing > 0
-        ? `${f.label} coûte ${formatJetons(f.cost)} jeton${f.cost > 1 ? 's' : ''}. Ton solde est de ${formatJetons(detenteState.balance)} : il en manque ${formatJetons(missing)}. Saisis un code du banquier (cadeau ou prêt) pour continuer.`
+        ? `${f.label} coûte ${formatJetons(f.cost)} jeton${f.cost > 1 ? 's' : ''}. Ton solde est de ${formatJetons(detenteState.balance)} : il en manque ${formatJetons(missing)}. Saisis un code du banquier (cadeau ou prêt) pour continuer, ou demande-lui des jetons avec ton code client (Détente, onglet Banque).`
         : `${f.label} coûte ${formatJetons(f.cost)} jeton${f.cost > 1 ? 's' : ''}. Ton solde est de ${formatJetons(detenteState.balance)} : tu peux continuer.`;
     }
     const cont = document.getElementById('btnDetenteFundsContinue');
@@ -22057,27 +22142,27 @@
     const f = detenteState.funds;
     if (!f || detenteState.balance < f.cost) return;
     closeDetenteFundsModal();
-    try { await runDetentePaidCreation(f.cost, f.label, f.action); } catch (_) { /* l'action affiche déjà son erreur */ }
+    try { await runDetentePaidCreation(f.cost, f.label, f.action, f.stockKind); } catch (_) { /* l'action affiche déjà son erreur */ }
   }
 
   // Points d'entrée de l'interface (les fonctions programmatiques restent gratuites pour les tests et l'amorçage)
   function paidCreateNotebook(...args) {
-    return runDetentePaidCreation(DETENTE_COSTS.notebook, 'Créer un cahier', () => createNotebookProgrammatically(...args));
+    return runDetentePaidCreation(DETENTE_COSTS.notebook, 'Créer un cahier', () => createNotebookProgrammatically(...args), 'notebook');
   }
 
   function paidAddPage(options) {
-    return runDetentePaidCreation(DETENTE_COSTS.page, 'Ajouter une page', () => addNewPageToActiveNotebook(options));
+    return runDetentePaidCreation(DETENTE_COSTS.page, 'Ajouter une page', () => addNewPageToActiveNotebook(options), 'page');
   }
 
   function paidDuplicatePage(pageId) {
-    return runDetentePaidCreation(DETENTE_COSTS.page, 'Dupliquer une page', () => duplicatePageById(pageId));
+    return runDetentePaidCreation(DETENTE_COSTS.page, 'Dupliquer une page', () => duplicatePageById(pageId), 'page');
   }
 
   function paidImportPdf(buffer, fileName, mode) {
     return runDetentePaidCreation(DETENTE_COSTS.pdf, 'Importer un PDF', async () => {
       await importPdfFromBuffer(buffer, fileName, mode);
       return true;
-    });
+    }, 'pdf');
   }
 
   // ---------- Codes du banquier : empreintes SHA-256 salées, usage unique par appareil ----------
@@ -22126,9 +22211,11 @@
       detenteState.debt += match.amount;
       detenteState.borrowed += match.amount;
       detenteAddBalance(match.amount);
+      detenteLog('Prêt par code du banquier', match.amount);
       return { ok: true, kind: 'p', amount: match.amount, message: `Prêt accordé : +${formatJetons(match.amount)} jetons. Dette : ${formatJetons(detenteState.debt)}.` };
     }
     detenteAddBalance(match.amount);
+    detenteLog('Code cadeau du banquier', match.amount);
     return { ok: true, kind: 'g', amount: match.amount, message: `Code accepté : +${formatJetons(match.amount)} jeton${match.amount > 1 ? 's' : ''}.` };
   }
 
@@ -22154,6 +22241,9 @@
   // Chaque bon est signé en ECDSA P-256 / SHA-256 par scripts/bons-banquier.js avec une clé
   // privée qui reste sur le PC du banquier. L'app n'embarque que la clé publique : elle vérifie
   // les bons mais ne peut pas en fabriquer. Un bon modifié, inventé ou mal signé est ignoré.
+  // Bons v2 : adressés à un compte (code client de l'appareil, publié seulement sous forme
+  // d'empreinte) ou à tous les comptes ouverts avant leur émission. Une installation neuve ne
+  // reçoit donc ni les anciens cadeaux ni les anciens retraits.
   // Récupération mémorisée localement (pas de serveur) : un bon ne sert qu'une fois par appareil.
   // <bons-cle-publique> écrite par scripts/bons-banquier.js init : clé publique seule, la clé privée reste chez le banquier
   const DETENTE_BONS_PUBLIC_KEY = { kty: 'EC', crv: 'P-256', x: '1cFoTBrSWy0O7CjE_ml6ywJOJNXQgdV_olQlhT4Foas', y: 'lH908q2W0y4pooY9U-G1k1BOgmftzWQbhd8dVUwDhNQ' };
@@ -22163,15 +22253,87 @@
     { url: 'https://raw.githubusercontent.com/vtudkbgy/inkflow/main/credits/bons.json', api: false }
   ];
   const DETENTE_BONS_CLAIMED_KEY = 'inkflow.detente.bonsRecus.v1';
+  const DETENTE_ACCOUNT_KEY = 'inkflow.detente.compte.v1';
+  const DETENTE_RETRAITS_KEY = 'inkflow.detente.retraits.v1'; // part de chaque retrait passée en dette
+  // 32 symboles sans 0/1/I/O (pas de confusion à la dictée) : 10 symboles = 50 bits
+  const DETENTE_ACCOUNT_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const DETENTE_ACCOUNT_CODE_LEN = 10;
   const DETENTE_BONS_POLL_MS = 10 * 60 * 1000;
   const DETENTE_BONS_MIN_REFRESH_MS = 30 * 1000;
   const DETENTE_BONS_MAX_AMOUNT = 10000000;
   const DETENTE_BONS_MAX_MESSAGE = 140;
-  const detenteBons = { list: [], fetching: null, lastFetch: 0, started: false, claiming: new Set(), notified: new Set() };
+  const DETENTE_BON_TYPES = ['cadeau', 'pret', 'retrait', 'annulation'];
+  const detenteBons = { list: [], fetching: null, lastFetch: 0, lastOk: 0, started: false, claiming: new Set(), notified: new Set() };
   let detenteBonsKeyPromise = null;
+  let detenteAccount = null;
+
+  // ---------- Compte de l'appareil (code client) ----------
+  function newDetenteAccountCode() {
+    const bytes = new Uint8Array(DETENTE_ACCOUNT_CODE_LEN);
+    try { crypto.getRandomValues(bytes); } catch (_) { for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256); }
+    let out = '';
+    for (let i = 0; i < bytes.length; i++) out += DETENTE_ACCOUNT_ALPHABET[bytes[i] & 31];
+    return out;
+  }
+
+  function normalizeDetenteAccountCode(raw) {
+    const code = String(raw || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+    if (code.length !== DETENTE_ACCOUNT_CODE_LEN) return '';
+    for (const ch of code) if (!DETENTE_ACCOUNT_ALPHABET.includes(ch)) return '';
+    return code;
+  }
+
+  function formatDetenteAccountCode(code) {
+    return `${code.slice(0, 5)}-${code.slice(5)}`;
+  }
+
+  // Un appareil qui avait déjà un portefeuille avant l'arrivée des comptes est « ancien » : il
+  // garde les bons v1 (non adressés) qu'il connaissait. Une installation neuve ne les voit pas.
+  function getDetenteAccount() {
+    if (detenteAccount) return detenteAccount;
+    let acc = null;
+    try {
+      const raw = localStorage.getItem(DETENTE_ACCOUNT_KEY);
+      const data = raw ? JSON.parse(raw) : null;
+      const code = data && normalizeDetenteAccountCode(data.code);
+      if (code && Number.isFinite(data.creeLe) && data.creeLe >= 0) acc = { code, creeLe: data.creeLe, ancien: Boolean(data.ancien) };
+    } catch (_) { acc = null; }
+    if (!acc) {
+      let legacy = false;
+      // Ancien seulement si le portefeuille a été écrit par une version sans comptes (pas de
+      // marque « compte ») : un compte perdu sur un portefeuille récent ne rouvre pas les bons v1
+      try {
+        const walletRaw = localStorage.getItem(DETENTE_STORAGE_KEY);
+        if (walletRaw) {
+          const wallet = JSON.parse(walletRaw);
+          legacy = Boolean(wallet && typeof wallet === 'object' && !wallet.compte);
+        } else {
+          legacy = Boolean(localStorage.getItem(DETENTE_BONS_CLAIMED_KEY));
+        }
+      } catch (_) { legacy = false; }
+      acc = { code: newDetenteAccountCode(), creeLe: legacy ? 0 : Date.now(), ancien: legacy };
+      try { localStorage.setItem(DETENTE_ACCOUNT_KEY, JSON.stringify(acc)); } catch (_) { /* compte de session seulement */ }
+    }
+    detenteAccount = acc;
+    return acc;
+  }
+
+  // Empreinte publiée dans les bons (champ « pour ») : le code lui-même n'apparaît jamais sur GitHub
+  async function detenteAccountHash(code) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`inkflow-compte-v1:${code}`));
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 24);
+  }
+
+  async function getDetenteAccountHash(account) {
+    if (!account.hash) account.hash = await detenteAccountHash(account.code);
+    return account.hash;
+  }
 
   // Texte signé : doit rester identique à bonPayload() dans scripts/bons-banquier.js
   function detenteBonPayload(bon) {
+    if (bon.v === 2) {
+      return ['inkflow-bon-v2', bon.id, bon.type, String(bon.montant), bon.expire || '', bon.emis, bon.pour || '', bon.annule || '', bon.message || ''].join('\n');
+    }
     return ['inkflow-bon-v1', bon.id, bon.type, String(bon.montant), bon.expire || '', bon.message || ''].join('\n');
   }
 
@@ -22184,13 +22346,24 @@
   }
 
   function isDetenteBonShapeValid(bon) {
-    return Boolean(bon && typeof bon === 'object'
+    const base = Boolean(bon && typeof bon === 'object'
       && typeof bon.id === 'string' && /^[a-z0-9-]{6,40}$/.test(bon.id)
-      && (bon.type === 'cadeau' || bon.type === 'pret' || bon.type === 'retrait')
       && Number.isInteger(bon.montant) && bon.montant >= 1 && bon.montant <= DETENTE_BONS_MAX_AMOUNT
       && (bon.expire === undefined || (typeof bon.expire === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(bon.expire)))
       && (bon.message === undefined || (typeof bon.message === 'string' && bon.message.length <= DETENTE_BONS_MAX_MESSAGE))
       && typeof bon.sig === 'string' && bon.sig.length >= 80 && bon.sig.length <= 100);
+    if (!base) return false;
+    if (bon.v === undefined) {
+      return (bon.type === 'cadeau' || bon.type === 'pret' || bon.type === 'retrait')
+        && bon.emis === undefined && bon.pour === undefined && bon.annule === undefined;
+    }
+    return bon.v === 2
+      && DETENTE_BON_TYPES.includes(bon.type)
+      && typeof bon.emis === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(bon.emis) && Number.isFinite(Date.parse(bon.emis))
+      && (bon.pour === undefined || (typeof bon.pour === 'string' && /^[0-9a-f]{24}$/.test(bon.pour)))
+      && (bon.type === 'annulation'
+        ? (typeof bon.annule === 'string' && /^[a-z0-9-]{6,40}$/.test(bon.annule) && bon.annule !== bon.id)
+        : bon.annule === undefined);
   }
 
   function isDetenteBonExpired(bon, now) {
@@ -22210,18 +22383,30 @@
     return detenteBonsKeyPromise;
   }
 
-  // Retourne les bons à la forme correcte, non expirés et dont la signature est valide
+  // Retourne les bons de ce compte : forme correcte, non expirés, signature valide, et
+  // - v2 adressé : empreinte « pour » égale à celle du code client de l'appareil ;
+  // - v2 pour tous : émis après l'ouverture du compte ;
+  // - v1 (ancien format, pour tous) : seulement sur un appareil déjà en service avant les comptes.
+  // options.account : compte injecté par les tests ({ code, creeLe, ancien }).
   async function verifyDetenteBons(doc, options = {}) {
     const jwk = options.publicKey || DETENTE_BONS_PUBLIC_KEY;
     if (!jwk.x || !jwk.y) return [];
     if (!doc || typeof doc !== 'object' || !Array.isArray(doc.bons)) return [];
     if (typeof crypto === 'undefined' || !crypto.subtle) return [];
     const key = await getDetenteBonsKey(options.publicKey);
+    const account = options.account || getDetenteAccount();
+    const myHash = await getDetenteAccountHash(account);
     const now = Number.isFinite(options.now) ? options.now : Date.now();
     const seen = new Set();
     const valid = [];
-    for (const bon of doc.bons.slice(0, 200)) {
+    // Les bons récents sont en fin de fichier : au-delà de 300, ce sont les plus anciens qui sont ignorés
+    for (const bon of doc.bons.slice(-300)) {
       if (!isDetenteBonShapeValid(bon) || seen.has(bon.id) || isDetenteBonExpired(bon, now)) continue;
+      if (bon.v === 2) {
+        if (bon.pour ? bon.pour !== myHash : Date.parse(bon.emis) < account.creeLe) continue;
+      } else if (!account.ancien) {
+        continue;
+      }
       let ok = false;
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -22230,7 +22415,15 @@
       } catch (_) { ok = false; }
       if (!ok) continue;
       seen.add(bon.id);
-      valid.push({ id: bon.id, type: bon.type, montant: bon.montant, expire: bon.expire || '', message: bon.message || '' });
+      valid.push({
+        id: bon.id,
+        type: bon.type,
+        montant: bon.montant,
+        expire: bon.expire || '',
+        message: bon.message || '',
+        annule: bon.annule || '',
+        personnel: Boolean(bon.pour)
+      });
     }
     return valid;
   }
@@ -22246,7 +22439,7 @@
   }
 
   function saveDetenteClaimedBons(set) {
-    try { localStorage.setItem(DETENTE_BONS_CLAIMED_KEY, JSON.stringify(Array.from(set).slice(-500))); } catch (_) {}
+    try { localStorage.setItem(DETENTE_BONS_CLAIMED_KEY, JSON.stringify(Array.from(set).slice(-1000))); } catch (_) {}
   }
 
   function getDetentePendingBons() {
@@ -22273,7 +22466,7 @@
     return null;
   }
 
-  // options.document : document déjà lu (tests) ; options.publicKey / options.now : injectés par les tests
+  // options.document : document déjà lu (tests) ; options.publicKey / options.now / options.account : injectés par les tests
   function refreshDetenteBons(options = {}) {
     if (detenteBons.fetching) return detenteBons.fetching;
     detenteBons.lastFetch = Date.now();
@@ -22282,11 +22475,13 @@
         const doc = options.document !== undefined ? options.document : await fetchDetenteBonsDocument();
         if (doc) {
           detenteBons.list = await verifyDetenteBons(doc, options);
-          applyDetenteRetraits();
+          detenteBons.lastOk = Date.now();
+          applyDetenteAutoBons();
           renderDetenteBons();
+          if (state.detentePageOpen && detenteState.tab === 'bank') renderDetenteBank();
         }
       } catch (_) { /* vérification impossible : la liste précédente reste affichée */ }
-      return getDetentePendingBons();
+      return getDetentePendingBons().filter((b) => b.type === 'cadeau' || b.type === 'pret');
     })().finally(() => { detenteBons.fetching = null; });
     return detenteBons.fetching;
   }
@@ -22296,6 +22491,7 @@
     if (typeof fetch !== 'function' || typeof crypto === 'undefined' || !crypto.subtle) return;
     if (!DETENTE_BONS_PUBLIC_KEY.x) return;
     detenteBons.started = true;
+    getDetenteAccount();
     const tick = () => {
       setTimeout(tick, DETENTE_BONS_POLL_MS);
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
@@ -22315,7 +22511,7 @@
   }
 
   function renderDetenteBons() {
-    const pending = getDetentePendingBons().filter((b) => b.type !== 'retrait');
+    const pending = getDetentePendingBons().filter((b) => b.type === 'cadeau' || b.type === 'pret');
     const total = pending.reduce((sum, b) => sum + b.montant, 0);
     const sideBtn = document.getElementById('btnOpenDetente');
     if (sideBtn) {
@@ -22335,7 +22531,7 @@
     const wrap = document.getElementById('detenteBons');
     if (!wrap || typeof wrap.querySelectorAll !== 'function') return;
     const shownIds = new Set(pending.map((b) => b.id));
-    // Retire les bons disparus du fichier (sauf celui en cours d'animation)
+    // Retire les bons disparus du fichier ou annulés (sauf celui en cours d'animation)
     wrap.querySelectorAll('.detente-bon').forEach((el) => {
       if (!shownIds.has(el.dataset.bonId) && !el.classList.contains('claimed')) el.remove();
     });
@@ -22382,7 +22578,7 @@
   function claimDetenteBon(id) {
     if (detenteBons.claiming.has(id)) return false;
     const bon = getDetentePendingBons().find((b) => b.id === id);
-    if (!bon || bon.type === 'retrait') return false;
+    if (!bon || (bon.type !== 'cadeau' && bon.type !== 'pret')) return false;
     loadDetenteState();
     detenteBons.claiming.add(id);
     const claimed = loadDetenteClaimedBons();
@@ -22394,6 +22590,7 @@
       detenteState.borrowed += bon.montant;
     }
     detenteAddBalance(bon.montant);
+    detenteLog(bon.type === 'pret' ? 'Prêt du banquier' : (bon.message ? `Cadeau du banquier : ${bon.message}` : 'Cadeau du banquier'), bon.montant);
     if (state.detentePageOpen) {
       animateDetenteBalance(start, detenteState.balance);
       playDetenteChime(bon.montant >= 1000);
@@ -22402,30 +22599,164 @@
     return true;
   }
 
-  // Bons de retrait : appliqués sans clic, une seule fois par appareil (identifiant mémorisé
-  // avant le débit). Le solde ne descend pas sous zéro : ce qui manque s'ajoute à la dette.
-  function applyDetenteRetraits() {
-    const retraits = getDetentePendingBons().filter((b) => b.type === 'retrait');
-    if (!retraits.length) return [];
+  // Débit sans passer sous zéro : ce qui manque s'ajoute à la dette
+  function detenteDebitOrDebt(amount) {
+    const fromBalance = Math.min(amount, detenteState.balance);
+    const toDebt = amount - fromBalance;
+    if (toDebt > 0) detenteState.debt += toDebt;
+    detenteAddBalance(-fromBalance);
+    return { fromBalance, toDebt };
+  }
+
+  // Retraits et annulations : appliqués sans clic, une seule fois par appareil (identifiant
+  // mémorisé avant l'effet), dans l'ordre du fichier.
+  // Annulation d'un bon pas encore récupéré : il disparaît sans rien coûter.
+  // Annulation d'un bon déjà récupéré : l'opération est inversée (cadeau ou prêt repris, retrait
+  // rendu, part passée en dette comprise ; pour un prêt, seule la part encore due est reprise).
+  // Une cible ne s'annule qu'une fois (marqueur « annule:<id> » dans les bons appliqués).
+  function loadDetenteRetraitEffects() {
+    try {
+      const data = JSON.parse(localStorage.getItem(DETENTE_RETRAITS_KEY) || '{}');
+      return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveDetenteRetraitEffect(id, toDebt) {
+    const all = loadDetenteRetraitEffects();
+    all[id] = toDebt;
+    const keys = Object.keys(all);
+    keys.slice(0, Math.max(0, keys.length - 300)).forEach((k) => { delete all[k]; });
+    try { localStorage.setItem(DETENTE_RETRAITS_KEY, JSON.stringify(all)); } catch (_) {}
+  }
+
+  function applyDetenteAutoBons() {
+    const auto = getDetentePendingBons().filter((b) => b.type === 'retrait' || b.type === 'annulation');
+    if (!auto.length) return [];
     loadDetenteState();
     const claimed = loadDetenteClaimedBons();
-    retraits.forEach((b) => claimed.add(b.id));
-    saveDetenteClaimedBons(claimed);
-    const applied = retraits.map((bon) => {
-      const fromBalance = Math.min(bon.montant, detenteState.balance);
-      const toDebt = bon.montant - fromBalance;
-      if (toDebt > 0) detenteState.debt += toDebt;
-      detenteAddBalance(-fromBalance);
-      return { id: bon.id, montant: bon.montant, fromBalance, toDebt, message: bon.message };
+    // Cibles pas encore appliquées d'une annulation en attente (appareil resté hors ligne) :
+    // elles sont neutralisées d'emblée, même si elles précèdent l'annulation dans le fichier
+    const voidedEarly = new Set();
+    auto.forEach((a) => {
+      if (a.type !== 'annulation' || claimed.has(`annule:${a.annule}`)) return;
+      const t = detenteBons.list.find((b) => b.id === a.annule);
+      if (t && t.type !== 'annulation' && !claimed.has(t.id) && !detenteBons.claiming.has(t.id)) voidedEarly.add(t.id);
     });
-    const total = applied.reduce((s, a) => s + a.montant, 0);
-    const debtTotal = applied.reduce((s, a) => s + a.toDebt, 0);
-    const msgs = applied.map((a) => a.message).filter(Boolean);
-    let text = `Le banquier t’a retiré ${formatJetons(total)} jeton${total > 1 ? 's' : ''}.`;
-    if (debtTotal > 0) text += ` Solde insuffisant : ${formatJetons(debtTotal)} ajouté${debtTotal > 1 ? 's' : ''} à ta dette.`;
-    if (msgs.length) text += ` « ${msgs.join(' » « ')} »`;
-    if (typeof showToast === 'function') showToast(text, 'info', 'detente-retraits');
+    const applied = [];
+    for (const bon of auto) {
+      if (claimed.has(bon.id)) continue;
+      claimed.add(bon.id);
+      saveDetenteClaimedBons(claimed);
+      const note = bon.message ? ` : ${bon.message}` : '';
+      if (bon.type === 'retrait') {
+        if (voidedEarly.has(bon.id)) continue; // l'annulation qui suit le signale
+        const r = detenteDebitOrDebt(bon.montant);
+        saveDetenteRetraitEffect(bon.id, r.toDebt);
+        detenteLog(`Retrait du banquier${r.toDebt > 0 ? ` (${formatJetons(r.toDebt)} en dette)` : ''}${note}`, -r.fromBalance);
+        applied.push({ id: bon.id, kind: 'retrait', montant: bon.montant, toDebt: r.toDebt, message: bon.message });
+        continue;
+      }
+      const target = detenteBons.list.find((b) => b.id === bon.annule);
+      const marker = `annule:${bon.annule}`;
+      if (!target || target.type === 'annulation' || claimed.has(marker)) {
+        applied.push({ id: bon.id, kind: 'sans-effet', montant: 0, toDebt: 0, message: '' });
+        continue;
+      }
+      claimed.add(marker);
+      saveDetenteClaimedBons(claimed);
+      if (voidedEarly.has(target.id) || (!claimed.has(target.id) && !detenteBons.claiming.has(target.id))) {
+        // Pas encore récupéré (ou retrait pas encore appliqué) : il ne s'appliquera jamais
+        claimed.add(target.id);
+        saveDetenteClaimedBons(claimed);
+        detenteLog(`Bon annulé avant récupération (${formatJetons(target.montant)} jetons)${note}`, 0);
+        applied.push({ id: bon.id, kind: 'annule-avant', montant: target.montant, toDebt: 0, message: bon.message });
+        continue;
+      }
+      if (target.type === 'retrait') {
+        // Rend ce que le retrait a réellement pris : le solde débité, et la dette créée
+        const effects = loadDetenteRetraitEffects();
+        const wentToDebt = Math.min(target.montant, Number.isInteger(effects[target.id]) ? effects[target.id] : 0);
+        const debtBack = Math.min(wentToDebt, detenteState.debt);
+        detenteState.debt -= debtBack;
+        const back = target.montant - wentToDebt;
+        detenteAddBalance(back);
+        detenteLog(`Retrait annulé, jetons rendus${debtBack > 0 ? ` (dette réduite de ${formatJetons(debtBack)})` : ''}${note}`, back);
+        applied.push({ id: bon.id, kind: 'rendu', montant: back, toDebt: 0, message: bon.message });
+        continue;
+      }
+      // Prêt : solde moins dette n'avait pas bougé à la récupération ; on ne reprend que la part
+      // encore due (un prêt déjà remboursé ne coûte rien de plus)
+      let take = target.montant;
+      if (target.type === 'pret') {
+        take = Math.min(target.montant, detenteState.debt);
+        detenteState.debt -= take;
+        detenteState.borrowed = Math.max(0, detenteState.borrowed - target.montant);
+      }
+      const r = detenteDebitOrDebt(take);
+      detenteLog(`${target.type === 'pret' ? 'Prêt' : 'Cadeau'} annulé par le banquier${r.toDebt > 0 ? ` (${formatJetons(r.toDebt)} en dette)` : ''}${note}`, -r.fromBalance);
+      applied.push({ id: bon.id, kind: 'repris', montant: take, toDebt: r.toDebt, message: bon.message });
+    }
+    const visible = applied.filter((a) => a.kind !== 'sans-effet');
+    if (!visible.length) return applied;
+    const taken = visible.filter((a) => a.kind === 'retrait' || a.kind === 'repris').reduce((s, a) => s + a.montant, 0);
+    const given = visible.filter((a) => a.kind === 'rendu').reduce((s, a) => s + a.montant, 0);
+    const voided = visible.filter((a) => a.kind === 'annule-avant');
+    const debtTotal = visible.reduce((s, a) => s + a.toDebt, 0);
+    const parts = [];
+    if (taken > 0) parts.push(`Le banquier t’a retiré ${formatJetons(taken)} jeton${taken > 1 ? 's' : ''}.`);
+    if (given > 0) parts.push(`Le banquier t’a rendu ${formatJetons(given)} jeton${given > 1 ? 's' : ''}.`);
+    if (voided.length) parts.push(voided.length > 1 ? `${voided.length} bons en attente ont été annulés.` : 'Un bon en attente a été annulé.');
+    if (debtTotal > 0) parts.push(`Solde insuffisant : ${formatJetons(debtTotal)} ajouté${debtTotal > 1 ? 's' : ''} à ta dette.`);
+    const msgs = visible.map((a) => a.message).filter(Boolean);
+    if (msgs.length) parts.push(`« ${msgs.join(' » « ')} »`);
+    if (parts.length && typeof showToast === 'function') showToast(parts.join(' '), 'info', 'detente-retraits');
     return applied;
+  }
+
+  // ---------- Onglet Banque : compte, stock et relevé ----------
+  function renderDetenteBank() {
+    const account = getDetenteAccount();
+    const codeEl = document.getElementById('detenteAccountCode');
+    if (codeEl) codeEl.textContent = formatDetenteAccountCode(account.code);
+    const sync = document.getElementById('detenteAccountSync');
+    if (sync) {
+      sync.textContent = detenteBons.lastOk
+        ? `Dernière vérification des envois du banquier : ${new Date(detenteBons.lastOk).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}.`
+        : 'Envois du banquier pas encore vérifiés (connexion Internet nécessaire).';
+    }
+    const stockEl = document.getElementById('detenteStockList');
+    if (stockEl) {
+      stockEl.innerHTML = DETENTE_STOCK_KINDS.map((k) => {
+        const many = DETENTE_STOCK_LABELS[k][1];
+        return `<li><span>${escapeHtml(many.charAt(0).toUpperCase() + many.slice(1))} en stock</span><strong>${formatJetons(detenteState.stock[k])}</strong></li>`;
+      }).join('');
+    }
+    const list = document.getElementById('detenteLedger');
+    if (!list) return;
+    if (!detenteState.ledger.length) {
+      list.innerHTML = '<li class="detente-ledger-empty">Aucune opération pour l’instant.</li>';
+      return;
+    }
+    list.innerHTML = detenteState.ledger.map((e) => {
+      const d = new Date(e.t);
+      const when = `${d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+      const sign = e.delta > 0 ? '+' : (e.delta < 0 ? '−' : '');
+      const tone = e.delta > 0 ? 'in' : (e.delta < 0 ? 'out' : 'zero');
+      const label = e.count > 1 ? `${e.label} ×${e.count}` : e.label;
+      const bal = Number.isFinite(e.balance) ? `<span class="detente-ledger-bal">solde ${formatJetons(e.balance)}</span>` : '';
+      return `<li><span class="detente-ledger-when">${escapeHtml(when)}</span><span class="detente-ledger-label">${escapeHtml(label)}</span><strong class="detente-ledger-delta ${tone}">${sign}${formatJetons(Math.abs(e.delta))}</strong>${bal}</li>`;
+    }).join('');
+  }
+
+  async function copyDetenteAccountCode() {
+    const code = formatDetenteAccountCode(getDetenteAccount().code);
+    let ok = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(code); ok = true; }
+    } catch (_) { ok = false; }
+    if (typeof showToast === 'function') showToast(ok ? `Code client copié : ${code}` : `Ton code client : ${code}`, 'info', 'detente-compte');
   }
 
   function animateDetenteBonOut(id, bon) {
@@ -22468,6 +22799,7 @@
     if (amount <= 0) { setDetenteMessage('detenteBankMsg', 'Solde vide : rien à rembourser pour l’instant.', 'muted'); return; }
     detenteState.debt -= amount;
     detenteAddBalance(-amount);
+    detenteLog('Remboursement de dette', -amount);
     const input = document.getElementById('detenteRepayAmount');
     if (input) input.value = '';
     setDetenteMessage('detenteBankMsg', detenteState.debt > 0
@@ -22481,19 +22813,32 @@
   }
 
   function buyDetenteItem(id) {
+    loadDetenteState();
     const item = DETENTE_SHOP.find((it) => it.id === id);
-    if (!item || isDetenteUnlocked(id)) return;
+    if (!item || (item.kind !== 'pack' && isDetenteUnlocked(id))) return false;
     if (detenteState.balance < item.price) {
       setDetenteMessage('detenteShopMsg', `Il manque ${formatJetons(item.price - detenteState.balance)} jetons pour « ${item.label} ». Un code ou un prêt à la Banque peut aider.`, 'muted');
-      return;
+      return false;
+    }
+    if (item.kind === 'pack') {
+      // Fourniture : achat répétable, ajouté au stock (rien n'est « débloqué »)
+      detenteState.stock[item.stock] = Math.min(DETENTE_STOCK_MAX, detenteState.stock[item.stock] + item.qty);
+      detenteAddBalance(-item.price);
+      detenteLog(`Boutique : ${item.label}`, -item.price);
+      setDetenteMessage('detenteShopMsg', `« ${item.label} » ajouté au stock : ${formatDetenteStock(item.stock, detenteState.stock[item.stock])} disponibles.`, 'win');
+      playDetenteChime(false);
+      renderDetenteShop();
+      return true;
     }
     detenteState.unlocked.push(id);
     if (item.kind === 'theme') detenteState.theme = id;
     detenteAddBalance(-item.price);
+    detenteLog(`Boutique : ${item.label}`, -item.price);
     applyDetenteUnlocks();
     setDetenteMessage('detenteShopMsg', `« ${item.label} » débloqué.`, 'win');
     playDetenteChime(false);
     renderDetenteShop();
+    return true;
   }
 
   function setDetenteTheme(id) {
@@ -22570,6 +22915,9 @@
     if (item.kind === 'tone') {
       return `<span class="detente-shop-preview tone" style="background:${item.swatch}"></span>`;
     }
+    if (item.kind === 'pack') {
+      return `<span class="detente-shop-preview pack"><strong>×${item.qty}</strong><span>${escapeHtml(DETENTE_STOCK_LABELS[item.stock][1])}</span></span>`;
+    }
     return `<span class="detente-shop-preview cover" style="background:linear-gradient(135deg, ${item.coverColor}, ${item.accent})"></span>`;
   }
 
@@ -22584,6 +22932,15 @@
         html += `<div class="detente-shop-item${active ? ' active' : ''}"><span class="detente-shop-preview theme" style="--prev-a:#0072ce;--prev-b:#0c8cf3"><span></span><span></span></span><span class="detente-shop-name">Bleu InkFlow</span><button type="button" class="detente-chip-btn" data-detente-theme="default"${active ? ' disabled' : ''}>${active ? 'Actif' : 'Activer'}</button></div>`;
       }
       DETENTE_SHOP.filter((it) => it.kind === g.kind).forEach((it) => {
+        if (it.kind === 'pack') {
+          const unit = DETENTE_COSTS[it.stock] * it.qty;
+          const saving = unit > it.price ? `<span class="detente-shop-meta">au lieu de ${formatJetons(unit)} à l’unité</span>` : '';
+          const have = detenteState.stock[it.stock];
+          html += `<div class="detente-shop-item pack">${detenteShopPreview(it)}<span class="detente-shop-name">${escapeHtml(it.label)}</span>${saving}`
+            + `<span class="detente-shop-meta">En stock : ${formatDetenteStock(it.stock, have)}</span>`
+            + `<button type="button" class="detente-chip-btn buy" data-detente-buy="${it.id}"${detenteState.balance < it.price ? ' data-short="1"' : ''}>${formatJetons(it.price)} jetons</button></div>`;
+          return;
+        }
         const owned = isDetenteUnlocked(it.id);
         let btn;
         if (!owned) {
@@ -23817,6 +24174,8 @@
       renderRouletteControls();
     } else if (tab === 'shop') {
       renderDetenteShop();
+    } else if (tab === 'bank') {
+      renderDetenteBank();
     }
     renderDetenteHud();
     refreshDetenteWalletUi();
@@ -23916,6 +24275,7 @@
     document.getElementById('detenteCodeInput')?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); submitDetenteCode('detenteCodeInput', 'detenteCodeMsg'); }
     });
+    document.getElementById('btnDetenteCopyAccount')?.addEventListener('click', copyDetenteAccountCode);
     document.getElementById('btnDetenteRepay')?.addEventListener('click', () => repayDetenteDebt(false));
     document.getElementById('btnDetenteRepayAll')?.addEventListener('click', () => repayDetenteDebt(true));
     document.getElementById('detenteRepayAmount')?.addEventListener('keydown', (e) => {
@@ -29217,7 +29577,12 @@
       refreshDetenteBons,
       claimDetenteBon,
       getDetentePendingBons,
-      getDetenteWallet: () => ({ balance: detenteState.balance, debt: detenteState.debt, borrowed: detenteState.borrowed }),
+      getDetenteWallet: () => ({ balance: detenteState.balance, debt: detenteState.debt, borrowed: detenteState.borrowed, stock: { ...detenteState.stock }, ledger: detenteState.ledger.map((e) => ({ ...e })) }),
+      getDetenteAccount,
+      detenteAccountHash,
+      buyDetenteItem,
+      runDetentePaidCreation,
+      DETENTE_SHOP,
       openRadialWheelEditor,
       RADIAL_WHEEL_COLORS,
       duplicateNotebookById,

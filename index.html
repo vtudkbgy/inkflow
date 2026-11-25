@@ -1685,6 +1685,9 @@
             <button class="tone-btn hidden" data-tone="rose" data-detente-item="tone-rose" style="background:#fbf0f0;color:#881337;">Rose poudré</button>
             <button class="tone-btn hidden" data-tone="sky" data-detente-item="tone-sky" style="background:#eef4fb;color:#1e3a8a;">Bleu ciel</button>
             <button class="tone-btn hidden" data-tone="kraft" data-detente-item="tone-kraft" style="background:#ecdfc6;color:#451a03;">Kraft</button>
+            <button class="tone-btn hidden" data-tone="lavande" data-detente-item="tone-lavande" style="background:#f3effa;color:#4c1d95;">Lavande</button>
+            <button class="tone-btn hidden" data-tone="sable" data-detente-item="tone-sable" style="background:#f6efe0;color:#5b3a12;">Sable</button>
+            <button class="tone-btn hidden" data-tone="peche" data-detente-item="tone-peche" style="background:#fdf0e6;color:#7c2d12;">Pêche</button>
           </div>
         </div>
 
@@ -3085,7 +3088,7 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
       <!-- Boutique -->
       <div class="detente-panel hidden" data-detente-panel="shop" role="tabpanel">
         <div class="detente-wide">
-          <div class="detente-result detente-panel-msg" id="detenteShopMsg" aria-live="polite">Les jetons débloquent des personnalisations. Un achat est définitif.</div>
+          <div class="detente-result detente-panel-msg" id="detenteShopMsg" aria-live="polite">Les jetons débloquent des personnalisations (achat définitif) et des fournitures mises en stock.</div>
           <div class="detente-shop" id="detenteShopGroups"></div>
         </div>
       </div>
@@ -3093,6 +3096,16 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
       <!-- Banque -->
       <div class="detente-panel hidden" data-detente-panel="bank" role="tabpanel">
         <div class="detente-wide detente-bank">
+          <section class="detente-card" aria-labelledby="detenteAccountTitle">
+            <h3 class="detente-card-title" id="detenteAccountTitle">Ton compte</h3>
+            <p class="detente-note detente-note-top">Ton code client permet au banquier de t’envoyer des jetons, un prêt ou un retrait à toi seul.</p>
+            <div class="detente-code-row">
+              <output class="detente-account-code" id="detenteAccountCode" aria-label="Code client">-----</output>
+              <button type="button" class="detente-chip-btn" id="btnDetenteCopyAccount">Copier</button>
+            </div>
+            <p class="detente-note" id="detenteAccountSync"></p>
+            <ul class="detente-kv" id="detenteStockList" aria-label="Fournitures en stock"></ul>
+          </section>
           <section class="detente-card" aria-labelledby="detenteCodeTitle">
             <h3 class="detente-card-title" id="detenteCodeTitle">Code du banquier</h3>
             <p class="detente-note detente-note-top">Un code cadeau crédite le solde. Un code de prêt crédite le solde et ajoute la même somme à ta dette.</p>
@@ -3102,7 +3115,7 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
             </div>
             <div class="detente-result detente-panel-msg" id="detenteCodeMsg" aria-live="polite"></div>
             <p class="detente-note">Chaque code ne sert qu’une fois sur cet appareil : sans serveur, l’usage est mémorisé localement.</p>
-            <p class="detente-note">Le banquier peut aussi t’envoyer des jetons : un bouton « Récupérer » apparaît alors en haut de cette page (connexion Internet nécessaire pour le recevoir).</p>
+            <p class="detente-note">Le banquier peut aussi t’envoyer des jetons avec ton code client : un bouton « Récupérer » apparaît alors en haut de cette page (connexion Internet nécessaire pour le recevoir).</p>
           </section>
           <section class="detente-card" aria-labelledby="detenteLoanTitle">
             <h3 class="detente-card-title" id="detenteLoanTitle">Prêt</h3>
@@ -3121,6 +3134,11 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
           <section class="detente-card" aria-labelledby="detenteCostsTitle">
             <h3 class="detente-card-title" id="detenteCostsTitle">Tarifs</h3>
             <ul class="detente-kv" id="detenteOddsCosts"></ul>
+          </section>
+          <section class="detente-card detente-ledger-card" aria-labelledby="detenteLedgerTitle">
+            <h3 class="detente-card-title" id="detenteLedgerTitle">Relevé de compte</h3>
+            <p class="detente-note detente-note-top">Envois du banquier, codes, prêts, achats et créations. Les parties de jeu ont leur propre historique.</p>
+            <ul class="detente-ledger" id="detenteLedger"></ul>
           </section>
         </div>
       </div>
