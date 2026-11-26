@@ -556,8 +556,11 @@ async function runTests() {
   const api = sandbox.__plumeStudioApi;
   assert.ok(api, 'window.__plumeStudioApi doit être exposé');
 
-  // Attendre la fin du chargement initial IndexedDB
-  await new Promise((r) => setTimeout(r, 120));
+  // Attendre la fin réelle du chargement initial IndexedDB (sans race condition sur setTimeout)
+  if (typeof api.waitForInitialDbLoad === 'function') {
+    await api.waitForInitialDbLoad();
+  }
+  await new Promise((r) => setTimeout(r, 40));
 
   const results = [];
   async function runStep(name, fn) {

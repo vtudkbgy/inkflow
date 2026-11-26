@@ -14352,3 +14352,18 @@ svg.bj-card.back .card-hatch {
   color: var(--text-muted);
   padding: 8px 10px 4px;
 }
+
+.canvas-viewport.app-booting {
+  background: var(--surface-canvas-desk, #e6e5e4);
+}
+
+[data-theme="dark"] .canvas-viewport.app-booting {
+  background: #1d1f25;
+}
+
+.canvas-viewport.app-booting #pdfBgCanvas,
+.canvas-viewport.app-booting #inkCanvas,
+.canvas-viewport.app-booting #activeInkCanvas,
+.canvas-viewport.app-booting #worldObjectsLayer {
+  opacity: 0;
+}

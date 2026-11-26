@@ -4502,6 +4502,7 @@
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,
+      waitForInitialDbLoad: () => initialDbLoadPromise || Promise.resolve(),
       computeStrokeBounds,
       getCachedStrokePath,
       getCachedStrokeBounds,
@@ -4541,15 +4542,24 @@
     };
   }
 
-  applyDemoStateSynchronously();
+  // N'affiche jamais le cahier de démo provisoire avant la lecture d'IndexedDB :
+  // évite le flash visuel au démarrage lorsque l'utilisateur possède déjà ses propres cahiers.
+  const hasIndexedDbStorage = typeof indexedDB !== 'undefined';
+  if (!hasIndexedDbStorage) {
+    applyDemoStateSynchronously();
+  } else if (dom.canvasViewport && dom.canvasViewport.classList) {
+    dom.canvasViewport.classList.add('app-booting');
+  }
   bindEvents();
   initGoodnotesExtensions();
   initGnTemplateLibraryModal();
   updateNewNotebookPaperPreview();
   initNewFeaturesPack();
   updateToolbarActiveState();
-  renderWorldTextCards();
-  fitPageToViewport();
-  requestRender();
+  if (!hasIndexedDbStorage) {
+    renderWorldTextCards();
+    fitPageToViewport();
+    requestRender();
+  }
   initialDbLoadPromise = loadFromIndexedDB();
   registerOfflineServiceWorker();

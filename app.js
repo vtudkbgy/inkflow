@@ -26569,10 +26569,14 @@
       }
       state.notebooks = notebooks;
       state.pagesByNotebook.clear();
-      for (const nb of state.notebooks) {
-        const pages = await db.getPagesForNotebook(nb.id);
-        pages.forEach((p) => { if (!p.viewMode) p.viewMode = 'infinite'; });
-        state.pagesByNotebook.set(nb.id, pages.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+      // Charge les pages de tous les cahiers en parallèle pour réduire le temps de démarrage
+      const pagesResults = await Promise.all(
+        state.notebooks.map((nb) => db.getPagesForNotebook(nb.id).then((pages) => ({ nbId: nb.id, pages })))
+      );
+      for (const { nbId, pages } of pagesResults) {
+        const list = Array.isArray(pages) ? pages : [];
+        list.forEach((p) => { if (!p.viewMode) p.viewMode = 'infinite'; });
+        state.pagesByNotebook.set(nbId, list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
       }
       // Rouvre le dernier cahier/page actif enregistré, sinon le premier cahier hors corbeille
       const savedNb = ws && ws.activeNotebookId
@@ -26587,6 +26591,9 @@
       if (!state.notebooks || state.notebooks.length === 0) applyDemoStateSynchronously();
     }
     initialDbLoadPromise = null;
+    if (dom.canvasViewport && dom.canvasViewport.classList) {
+      dom.canvasViewport.classList.remove('app-booting');
+    }
     ensureActiveAndAdjacentPdfPagesLoaded(getActivePage());
     renderNotebooksSidebar();
     renderPagesSidebar();
@@ -31103,6 +31110,7 @@
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,
+      waitForInitialDbLoad: () => initialDbLoadPromise || Promise.resolve(),
       computeStrokeBounds,
       getCachedStrokePath,
       getCachedStrokeBounds,
@@ -31142,16 +31150,25 @@
     };
   }
 
-  applyDemoStateSynchronously();
+  // N'affiche jamais le cahier de démo provisoire avant la lecture d'IndexedDB :
+  // évite le flash visuel au démarrage lorsque l'utilisateur possède déjà ses propres cahiers.
+  const hasIndexedDbStorage = typeof indexedDB !== 'undefined';
+  if (!hasIndexedDbStorage) {
+    applyDemoStateSynchronously();
+  } else if (dom.canvasViewport && dom.canvasViewport.classList) {
+    dom.canvasViewport.classList.add('app-booting');
+  }
   bindEvents();
   initGoodnotesExtensions();
   initGnTemplateLibraryModal();
   updateNewNotebookPaperPreview();
   initNewFeaturesPack();
   updateToolbarActiveState();
-  renderWorldTextCards();
-  fitPageToViewport();
-  requestRender();
+  if (!hasIndexedDbStorage) {
+    renderWorldTextCards();
+    fitPageToViewport();
+    requestRender();
+  }
   initialDbLoadPromise = loadFromIndexedDB();
   registerOfflineServiceWorker();
 
