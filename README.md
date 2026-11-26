@@ -43,8 +43,10 @@ cd inkflow
 # 2. Installer les dépendances npm
 npm install
 
-# 3. Lancer les tests automatisés (9/9) + vérification WebView2
+# 3. Lancer les tests automatisés + vérification du bundle dist/ et WebView2
 npm test
+npm run build:dist
+npm run test:dist
 npm run verify:webview2
 
 # 4. Lancer l'application en local dans le navigateur (http://localhost:5173)
@@ -56,7 +58,7 @@ npm start
 ```bash
 npm run tauri:build
 ```
-L'exécutable natif léger (~4 Mo) est généré dans `src-tauri/target/.../release/PlumeStudioPro.exe` et copié à la racine du projet.
+L'exécutable natif léger (~6 Mo) est généré dans `src-tauri/target/.../release/InkFlow.exe` et copié à la racine du projet.
 
 ---
 
@@ -105,20 +107,22 @@ Pour partager l'avancement uniquement avec les personnes que vous autorisez :
 ## 📁 Structure du projet
 
 ```text
-├── index.html                   # Interface principale Plume Studio Pro
+├── index.html                   # Interface principale InkFlow
 ├── styles.css                   # Design responsive, thèmes clair/sombre, accélération GPU
-├── app.js                       # Moteur de dessin triple-canvas, IndexedDB, PDF, LaTeX, Lasso
+├── src/                         # Modules sources découpés (assemblés vers app.js & dist/app.js)
+├── app.js                       # Bundle front-end assemblé (triple-canvas, IndexedDB, PDF, Drive, Détente)
 ├── manifest.json / sw.js        # Support PWA hors-ligne
 ├── vendor/                      # Bibliothèques locales hors-ligne (pdf.js, worker, pdf-lib)
 ├── src-tauri/                   # Projet Rust / Tauri v2 (compilation Windows .exe)
-├── electron/                    # Support optionnel Electron
 ├── scripts/
-│   ├── run-unit-tests.js        # Suite de 8 tests unitaires & benchmarks 60/120 FPS
+│   ├── build-app.js             # Assemblage modulaire src/ -> app.js
+│   ├── prepare-dist.js          # Préparation & minification esbuild -> dist/
+│   ├── run-unit-tests.js        # Suite de tests unitaires & benchmarks 60/120 FPS
 │   ├── verify-webview2-pdf-stylus.js
 │   ├── tauri-runner.js          # Build Tauri v2
 │   └── rea-cli.js               # Lanceur Reverse Engineer Anything (REA)
 ├── .agents/skills/reverse-engineer-anything/  # Skill REA pour agents IA
-├── .github/workflows/ci.yml     # Intégration Continue (tests automatiques sur chaque PR)
+├── .github/workflows/ci.yml     # Intégration Continue (tests source + dist + cargo check Windows)
 └── mcp.json                     # Configuration MCP pour REA
 ```
 

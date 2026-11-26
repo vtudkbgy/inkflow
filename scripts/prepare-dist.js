@@ -1,38 +1,56 @@
 #!/usr/bin/env node
 /**
- * Prépare et allège le dossier `dist/` contenant uniquement les ressources front-end locales
+ * Prépare et optimise le dossier `dist/` contenant uniquement les ressources front-end locales
  * (HTML, CSS, JS, PWA et bibliothèques PDF hors-ligne `pdfjs-dist` + `pdf-lib`)
  * afin que Tauri v2 compile un exécutable Windows `.exe` léger et 100 % autonome.
+ *
+ * Utilise `esbuild` pour la validation syntaxique et la minification sûre de `app.js` et `styles.css`
+ * (sans aucune regex fragile sur le code JavaScript).
  */
 const fs = require('fs');
 const path = require('path');
+const esbuild = require('esbuild');
 
 const rootDir = path.resolve(__dirname, '..');
 const distDir = path.join(rootDir, 'dist');
 const vendorSrc = path.join(rootDir, 'vendor');
 const vendorDest = path.join(distDir, 'vendor');
 
+// Assemble les modules `src/` vers `app.js` si le manifeste modulaire est présent
+const buildAppScript = path.join(__dirname, 'build-app.js');
+if (fs.existsSync(buildAppScript) && fs.existsSync(path.join(rootDir, 'src', 'modules.json'))) {
+  const { buildAppBundle } = require('./build-app.js');
+  buildAppBundle({ silent: false });
+}
+
 fs.rmSync(distDir, { recursive: true, force: true });
 fs.mkdirSync(vendorDest, { recursive: true });
 
-function minifyCssBundle(css) {
-  return css
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\s*\n\s*/g, '\n')
-    .replace(/\n{2,}/g, '\n')
-    .trim() + '\n';
+function minifyCssWithEsbuild(css, sourcefile) {
+  const res = esbuild.transformSync(css, {
+    loader: 'css',
+    minify: true,
+    charset: 'utf8',
+    sourcefile
+  });
+  return res.code;
 }
 
-function cleanJsBundle(js) {
-  return js
-    .replace(/^\s*\/\/.*$/gm, '')
-    .replace(/^\s*console\.(log|debug)\b.*$/gm, '')
-    .replace(/\n{2,}/g, '\n')
-    .trim() + '\n';
+function minifyJsWithEsbuild(js, sourcefile) {
+  const res = esbuild.transformSync(js, {
+    loader: 'js',
+    minify: true,
+    target: ['es2020', 'chrome100', 'edge100'],
+    charset: 'utf8',
+    pure: ['console.debug'],
+    sourcefile
+  });
+  return res.code;
 }
 
 const rootFiles = [
   'index.html',
+  'oauth-callback.html',
   'styles.css',
   'app.js',
   'manifest.json',
@@ -46,10 +64,14 @@ for (const file of rootFiles) {
 
   if (file === 'styles.css') {
     const rawCss = fs.readFileSync(src, 'utf8');
-    fs.writeFileSync(dest, minifyCssBundle(rawCss), 'utf8');
+    const outCss = minifyCssWithEsbuild(rawCss, file);
+    fs.writeFileSync(dest, outCss, 'utf8');
+    console.log(`[prepare-dist] styles.css : ${(rawCss.length / 1024).toFixed(1)} Ko -> ${(outCss.length / 1024).toFixed(1)} Ko`);
   } else if (file === 'app.js') {
     const rawJs = fs.readFileSync(src, 'utf8');
-    fs.writeFileSync(dest, cleanJsBundle(rawJs), 'utf8');
+    const outJs = minifyJsWithEsbuild(rawJs, file);
+    fs.writeFileSync(dest, outJs, 'utf8');
+    console.log(`[prepare-dist] app.js     : ${(rawJs.length / 1024).toFixed(1)} Ko -> ${(outJs.length / 1024).toFixed(1)} Ko`);
   } else {
     fs.copyFileSync(src, dest);
   }

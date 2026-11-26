@@ -1,0 +1,21 @@
+{
+  "description": "Architecture modulaire InkFlow (assemblée vers app.js par scripts/build-app.js et minifiée en dist/app.js par esbuild)",
+  "modules": [
+    "01-latex.js",
+    "02-icr.js",
+    "03-geometry-shapes.js",
+    "04-storage.js",
+    "05-state-history.js",
+    "06-text-paper.js",
+    "07-ink-pdf-render.js",
+    "07b-spatial-index.js",
+    "07c-pdf-outline-links.js",
+    "08-input-lasso-pdf.js",
+    "09-sidebar-ui-popovers.js",
+    "09b-async-offscreen-render.js",
+    "10-extensions-gdrive.js",
+    "10b-gdrive-incremental-sync.js",
+    "11-detente.js",
+    "12-templates-features-split.js"
+  ]
+}

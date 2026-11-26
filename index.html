@@ -1801,6 +1801,12 @@
           <button class="pdf-search-close-btn" id="btnPdfSearchClose" type="button" title="Fermer (Échap)" aria-label="Fermer la recherche">✕</button>
         </div>
 
+        <!-- PILULE RETOUR LIEN INTERNE PDF (masquée par défaut) -->
+        <button class="pdf-link-back-pill hidden" id="pdfLinkBackPill" type="button" title="Revenir à la page précédente du lien PDF">
+          <span aria-hidden="true">←</span>
+          <span id="pdfLinkBackLabel">Revenir</span>
+        </button>
+
         <!-- Barre flottante d'édition de forme sélectionnée (GoodNotes ShapeTool Editing) -->
         <div class="shape-edit-bar hidden" id="shapeEditFloatingBar" role="toolbar" aria-label="Édition de la forme sélectionnée">
           <div class="shape-edit-group" id="shapeEditClosedTypes">
@@ -2562,6 +2568,17 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
         </div>
       </div>
 
+      <div class="pdf-limit-row">
+        <label for="selectPdfMaxPages">Limite de pages (Lazy Loading)</label>
+        <select id="selectPdfMaxPages" class="gn-sort-select" aria-label="Limite maximale de pages PDF par import">
+          <option value="100">100 pages (standard)</option>
+          <option value="250">250 pages</option>
+          <option value="500">500 pages</option>
+          <option value="1000">1 000 pages</option>
+          <option value="0">Illimité</option>
+        </select>
+      </div>
+
       <div class="pdf-import-error hidden" id="pdfImportErrorBanner" role="alert"></div>
 
       <div class="pdf-import-progress gn-pdf-progress hidden" id="pdfImportProgressWrap">
@@ -2741,9 +2758,11 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
             <span>Importer depuis Drive</span>
           </button>
           <div class="cloud-actions-row">
-            <button class="cloud-btn-secondary" id="btnGdriveBackupNow" type="button" data-needs-network>Sauvegarder</button>
+            <button class="cloud-btn-primary" id="btnGdriveSyncIncremental" type="button" data-needs-network title="Synchroniser uniquement les cahiers modifiés dans le dossier InkFlow/">Synchroniser</button>
+            <button class="cloud-btn-secondary" id="btnGdriveBackupNow" type="button" data-needs-network>Sauvegarde complète</button>
             <button class="cloud-btn-secondary" id="btnGdriveListBackups" type="button" data-needs-network>Historique</button>
           </div>
+          <div class="gdrive-sync-summary" id="gdriveSyncSummary">Dossier Google Drive « InkFlow/ » — synchronisation incrémentale par cahier</div>
           <div class="gn-gdrive-backups-list" id="gdriveBackupsList"></div>
         </div>
       </div>

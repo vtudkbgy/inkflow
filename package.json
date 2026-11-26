@@ -1,11 +1,13 @@
 {
   "name": "inkflow",
   "version": "1.0.0",
-  "description": "Application de prise de notes manuscrites sur PC (Windows Ink, PointerEvents, Perfect-Freehand, IndexedDB) inspirée de GoodNotes et Nebo",
-  "main": "electron/main.js",
+  "description": "InkFlow — Application de prise de notes manuscrites 100 % locale et hors-ligne (Windows Ink, PointerEvents, IndexedDB, PDF.js, Tauri v2)",
   "scripts": {
     "start": "npx serve . -l 5173",
+    "build:app": "node scripts/build-app.js",
+    "build:dist": "node scripts/prepare-dist.js",
     "test": "node scripts/run-unit-tests.js",
+    "test:dist": "node scripts/run-unit-tests.js --target=dist/app.js",
     "verify:webview2": "node scripts/verify-webview2-pdf-stylus.js",
     "rea": "node scripts/rea-cli.js",
     "rea:setup": "node scripts/rea-cli.js setup",
@@ -13,11 +15,7 @@
     "tauri": "node scripts/tauri-runner.js",
     "tauri:dev": "node scripts/tauri-runner.js dev",
     "tauri:build": "node scripts/tauri-runner.js build",
-    "install:start-menu": "powershell -ExecutionPolicy Bypass -File scripts/install-start-menu.ps1",
-    "desktop": "electron .",
-    "build:win": "electron-builder --win --x64",
-    "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux"
+    "install:start-menu": "powershell -ExecutionPolicy Bypass -File scripts/install-start-menu.ps1"
   },
   "keywords": [
     "handwriting",
@@ -27,49 +25,14 @@
     "pointer-events",
     "perfect-freehand",
     "indexeddb",
-    "goodnotes",
-    "nebo"
+    "tauri",
+    "pdf"
   ],
-  "author": "Plume Studio",
+  "author": "InkFlow",
   "license": "MIT",
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.4",
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.8"
-  },
-  "build": {
-    "appId": "com.plumestudio.notes",
-    "productName": "InkFlow",
-    "files": [
-      "index.html",
-      "styles.css",
-      "app.js",
-      "manifest.json",
-      "sw.js",
-      "assets/**/*",
-      "vendor/**/*",
-      "electron/**/*"
-    ],
-    "win": {
-      "icon": "src-tauri/icons/icon.ico",
-      "target": [
-        "nsis",
-        "portable"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "Office"
-    },
-    "mac": {
-      "target": [
-        "dmg"
-      ],
-      "category": "public.app-category.productivity"
-    }
+    "esbuild": "^0.28.2"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

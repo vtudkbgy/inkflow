@@ -1,8 +1,8 @@
 [package]
 name = "plume-studio-pro"
 version = "1.0.0"
-description = "Plume Studio Pro — Application native légère (Tauri v2 / WebView2) de prise de notes manuscrites au stylet Windows Ink et d'annotation PDF 100 % hors-ligne"
-authors = ["Plume Studio"]
+description = "InkFlow — Application native légère (Tauri v2 / WebView2) de prise de notes manuscrites au stylet Windows Ink et d'annotation PDF 100 % hors-ligne"
+authors = ["InkFlow"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.77.2"

@@ -1,4 +1,4 @@
-name: CI — Tests & Vérification WebView2
+name: CI — Tests, Build & Vérification Tauri
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Tests unitaires & WebView2 (Node 24)
+    name: Tests unitaires, bundle dist & WebView2 (Node 24)
     runs-on: ubuntu-latest
     steps:
       - name: Récupérer le dépôt
@@ -23,8 +23,45 @@ jobs:
       - name: Installer les dépendances
         run: npm ci
 
-      - name: Exécuter la suite de tests unitaires (9/9)
+      - name: Assembler les modules src/ et vérifier l'intégrité
+        run: npm run build:app
+
+      - name: Exécuter la suite de tests unitaires (source)
         run: npm test
+
+      - name: Préparer le bundle production dist/ (esbuild)
+        run: npm run build:dist
+
+      - name: Exécuter la suite de tests unitaires (bundle dist/app.js)
+        run: npm run test:dist
 
       - name: Vérifier l'intégration WebView2 / PDF.js / Stylet
         run: npm run verify:webview2
+
+  rust-check:
+    name: Vérification compilation Rust / Tauri v2 (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Installer Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Préparer dist/ pour Tauri
+        run: npm ci && npm run build:dist
+
+      - name: Vérifier src-tauri avec cargo check
+        working-directory: src-tauri
+        run: cargo check

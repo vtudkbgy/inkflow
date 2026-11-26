@@ -1,16 +1,11 @@
 /**
- * PLUME STUDIO PRO — Moteur d'Encre Vectorielle, Canevas Infini, LaTeX & Reconnaissance ICR
- * - API Pointer Events native (Windows Ink, Stylet, Souris, Tactile multi-doigts)
- * - Pincement à 2 doigts (Pinch-to-Zoom) & Déplacement fluide (Pan) sur Page Infinie
- * - Lissage Perfect-Freehand + Courbes de Bézier quadratiques + getCoalescedEvents()
- * - Emplacements de texte interactifs au clavier & Support mathématique LaTeX natif
- * - Reconnaissance géométrique vectorielle d'écriture manuscrite et d'équations 2D
- * - Stockage local automatique dans IndexedDB avec bascule mémoire automatique
+ * InkFlow — Moteur d'Encre Vectorielle, Canevas Infini, LaTeX, PDF & Google Drive
+ * Fichier généré automatiquement depuis `src/` par `npm run build:app`.
  */
-
 (() => {
   'use strict';
 
+  // >>> MODULE: src/01-latex.js
   // ============================================================================
   // 1. MOTEUR DE RENDU MATHÉMATIQUE LATEX NATIF (100% AUTONOME HORS-LIGNE)
   // ============================================================================
@@ -293,6 +288,7 @@
     }).join('');
   }
 
+  // >>> MODULE: src/02-icr.js
   // ============================================================================
   // 2. RECONNAISSANCE VECTORIELLE D'ÉCRITURE MANUSCRITE & D'ÉQUATIONS (ICR 2D)
   // ============================================================================
@@ -608,6 +604,7 @@
     };
   }
 
+  // >>> MODULE: src/03-geometry-shapes.js
   // ============================================================================
   // 3. MOTEUR VECTORIEL HAUTE PRÉCISION (COURBES CATMULL-ROM & CAPSULES ANTI-BUGS)
   // ============================================================================
@@ -2310,6 +2307,7 @@
     return null;
   }
 
+  // >>> MODULE: src/04-storage.js
   // ============================================================================
   // 4. STOCKAGE LOCAL INDEXEDDB AVEC FALLBACK MÉMOIRE AUTOMATIQUE
   // ============================================================================
@@ -2870,6 +2868,7 @@
     return { notebooks: [notebook], pages: [page1, page2] };
   }
 
+  // >>> MODULE: src/05-state-history.js
   // ============================================================================
   // 6. ÉTAT GLOBAL DE L'APPLICATION
   // ============================================================================
@@ -4900,6 +4899,7 @@
     scheduleHiDpiPdfCheck();
   }
 
+  // >>> MODULE: src/06-text-paper.js
   // ============================================================================
   // 10. EMPLACEMENTS DE TEXTE CLAVIER & BLOCS LATEX SUR LA PAGE INFINIE
   // ============================================================================
@@ -6938,6 +6938,7 @@
     return [];
   }
 
+  // >>> MODULE: src/07-ink-pdf-render.js
   // ============================================================================
   // 11A-BIS. MOTEUR CRAYON GRAPHITE RÉALISTE (GRAIN PAPIER MULTI-OCTAVE + PRESSION + INCLINAISON)
   // ============================================================================
@@ -7666,6 +7667,9 @@
         pdfTextIndexCache.delete(key);
       }
     }
+    if (typeof clearPdfOutlineAndLinksCache === 'function') {
+      clearPdfOutlineAndLinksCache(pdfId);
+    }
 
     if (pdfDocInstanceCache.has(pdfId)) {
       const docPromise = pdfDocInstanceCache.get(pdfId);
@@ -7823,6 +7827,11 @@
         entry.lastUsedAt = Date.now();
         pdfRenderedCanvasCache.set(key, entry);
 
+        // Extraction paresseuse des liens internes/externes de cette page PDF avant cleanup()
+        if (typeof extractAndCachePdfPageLinks === 'function') {
+          try { await extractAndCachePdfPageLinks(pdfDoc, pdfPage, page); } catch (_) {}
+        }
+
         // Nettoyage de la page PDF.js temporaire
         if (pdfPage && typeof pdfPage.cleanup === 'function') {
           try { pdfPage.cleanup(); } catch (_) {}
@@ -7949,6 +7958,10 @@
 
   function invalidateStaticInkCache() {
     staticInkCache.valid = false;
+    if (typeof invalidatePageSpatialIndex === 'function') {
+      const active = typeof getActivePage === 'function' ? getActivePage() : null;
+      if (active) invalidatePageSpatialIndex(active);
+    }
   }
 
   function releaseStaticInkCacheMemory() {
@@ -9101,8 +9114,12 @@
   }
 
   function drawStaticElementsInWorldRect(targetCtx, page, effectiveDark, viewBounds) {
-    const strokes = page.strokes || [];
-    const shapes = page.shapes || [];
+    const strokes = (viewBounds && typeof queryPageStrokesInRect === 'function')
+      ? queryPageStrokesInRect(page, viewBounds.minX, viewBounds.minY, viewBounds.maxX, viewBounds.maxY, true)
+      : (page.strokes || []);
+    const shapes = (viewBounds && typeof queryPageShapesInRect === 'function')
+      ? queryPageShapesInRect(page, viewBounds.minX, viewBounds.minY, viewBounds.maxX, viewBounds.maxY, true)
+      : (page.shapes || []);
     const tapes = page.tapes || [];
     const hasSelectedStrokes = state.selectedIds.strokes.size > 0;
     const hasSelectedShapes = state.selectedIds.shapes.size > 0;
@@ -9137,6 +9154,9 @@
     }
     for (let i = 0; i < tapes.length; i++) {
       drawTapeItem(targetCtx, tapes[i], false);
+    }
+    if (typeof drawPdfLinkHintsOverlay === 'function') {
+      drawPdfLinkHintsOverlay(targetCtx, page);
     }
     if (clipBounded) {
       targetCtx.restore();
@@ -9526,6 +9546,482 @@
     }
   }
 
+  // >>> MODULE: src/07b-spatial-index.js
+  // ============================================================================
+  // 11C. INDEXATION SPATIALE 2D (GRILLE HACHÉE O(k) — GOMME, LASSO & VIEWPORT)
+  // ============================================================================
+
+  const SPATIAL_GRID_CELL_SIZE = 128;
+  const SPATIAL_GRID_MIN_ITEMS = 64;
+  const SPATIAL_KEY_BIAS = 65536;
+  const SPATIAL_KEY_STRIDE = 131072;
+
+  function spatialCellKey(cx, cy) {
+    return (cx + SPATIAL_KEY_BIAS) * SPATIAL_KEY_STRIDE + (cy + SPATIAL_KEY_BIAS);
+  }
+
+  class SpatialStrokeGrid {
+    constructor(cellSize = SPATIAL_GRID_CELL_SIZE) {
+      this.cellSize = Math.max(32, cellSize || SPATIAL_GRID_CELL_SIZE);
+      this.invCell = 1 / this.cellSize;
+      this.strokeCells = new Map();
+      this.shapeCells = new Map();
+      this.strokeCount = 0;
+      this.shapeCount = 0;
+      this._queryStamp = 0;
+      this._seenStrokes = new WeakMap();
+      this._seenShapes = new WeakMap();
+      this._strokeOrder = new WeakMap();
+      this._shapeOrder = new WeakMap();
+    }
+
+    clear() {
+      this.strokeCells.clear();
+      this.shapeCells.clear();
+      this.strokeCount = 0;
+      this.shapeCount = 0;
+    }
+
+    _insertInto(cellMap, item, bounds) {
+      if (!bounds || !Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY)) return;
+      const minCx = Math.floor(bounds.minX * this.invCell);
+      const maxCx = Math.floor(bounds.maxX * this.invCell);
+      const minCy = Math.floor(bounds.minY * this.invCell);
+      const maxCy = Math.floor(bounds.maxY * this.invCell);
+      // Garde-fou contre un trait géant aberrant (> 64×64 cellules)
+      const clampedMaxCx = Math.min(maxCx, minCx + 64);
+      const clampedMaxCy = Math.min(maxCy, minCy + 64);
+      for (let cx = minCx; cx <= clampedMaxCx; cx++) {
+        for (let cy = minCy; cy <= clampedMaxCy; cy++) {
+          const key = spatialCellKey(cx, cy);
+          let bucket = cellMap.get(key);
+          if (!bucket) {
+            bucket = [];
+            cellMap.set(key, bucket);
+          }
+          bucket.push(item);
+        }
+      }
+    }
+
+    buildFromPage(page) {
+      this.clear();
+      if (!page) return this;
+      const strokes = page.strokes || [];
+      const shapes = page.shapes || [];
+      this.strokeCount = strokes.length;
+      this.shapeCount = shapes.length;
+
+      for (let i = 0; i < strokes.length; i++) {
+        const s = strokes[i];
+        this._strokeOrder.set(s, i);
+        const b = getCachedStrokeBounds(s);
+        if (b) this._insertInto(this.strokeCells, s, b);
+      }
+      for (let i = 0; i < shapes.length; i++) {
+        const sh = shapes[i];
+        this._shapeOrder.set(sh, i);
+        const b = getShapeBoundingBox(sh);
+        if (b) this._insertInto(this.shapeCells, sh, b);
+      }
+      return this;
+    }
+
+    _queryMap(cellMap, seenMap, orderMap, minX, minY, maxX, maxY, preserveOrder = true) {
+      if (cellMap.size === 0) return [];
+      const minCx = Math.floor(minX * this.invCell);
+      const maxCx = Math.floor(maxX * this.invCell);
+      const minCy = Math.floor(minY * this.invCell);
+      const maxCy = Math.floor(maxY * this.invCell);
+      const stamp = ++this._queryStamp;
+      const out = [];
+      for (let cx = minCx; cx <= maxCx; cx++) {
+        for (let cy = minCy; cy <= maxCy; cy++) {
+          const bucket = cellMap.get(spatialCellKey(cx, cy));
+          if (!bucket) continue;
+          for (let i = 0; i < bucket.length; i++) {
+            const item = bucket[i];
+            if (seenMap.get(item) !== stamp) {
+              seenMap.set(item, stamp);
+              out.push(item);
+            }
+          }
+        }
+      }
+      if (preserveOrder && out.length > 1) {
+        out.sort((a, b) => (orderMap.get(a) || 0) - (orderMap.get(b) || 0));
+      }
+      return out;
+    }
+
+    queryStrokesRect(minX, minY, maxX, maxY, preserveOrder = true) {
+      return this._queryMap(this.strokeCells, this._seenStrokes, this._strokeOrder, minX, minY, maxX, maxY, preserveOrder);
+    }
+
+    queryShapesRect(minX, minY, maxX, maxY, preserveOrder = true) {
+      return this._queryMap(this.shapeCells, this._seenShapes, this._shapeOrder, minX, minY, maxX, maxY, preserveOrder);
+    }
+  }
+
+  const pageSpatialIndexCache = new WeakMap();
+
+  function invalidatePageSpatialIndex(page) {
+    if (!page || typeof page !== 'object') return;
+    page._spatialVersion = (page._spatialVersion || 0) + 1;
+    pageSpatialIndexCache.delete(page);
+  }
+
+  function getPageSpatialIndex(page) {
+    if (!page || typeof page !== 'object') return null;
+    const strokes = page.strokes || [];
+    const shapes = page.shapes || [];
+    const ver = page._spatialVersion || 0;
+    let entry = pageSpatialIndexCache.get(page);
+    if (
+      entry &&
+      entry.strokesRef === strokes &&
+      entry.strokesLen === strokes.length &&
+      entry.shapesRef === shapes &&
+      entry.shapesLen === shapes.length &&
+      entry.version === ver
+    ) {
+      return entry.grid;
+    }
+    const grid = entry ? entry.grid : new SpatialStrokeGrid(SPATIAL_GRID_CELL_SIZE);
+    grid.buildFromPage(page);
+    pageSpatialIndexCache.set(page, {
+      grid,
+      strokesRef: strokes,
+      strokesLen: strokes.length,
+      shapesRef: shapes,
+      shapesLen: shapes.length,
+      version: ver
+    });
+    return grid;
+  }
+
+  function queryPageStrokesInRect(page, minX, minY, maxX, maxY, preserveOrder = true) {
+    const strokes = (page && page.strokes) || [];
+    if (strokes.length <= SPATIAL_GRID_MIN_ITEMS) return strokes;
+    const grid = getPageSpatialIndex(page);
+    return grid ? grid.queryStrokesRect(minX, minY, maxX, maxY, preserveOrder) : strokes;
+  }
+
+  function queryPageStrokesAtPoint(page, wx, wy, radius) {
+    const r = Math.max(1, radius || 12);
+    return queryPageStrokesInRect(page, wx - r, wy - r, wx + r, wy + r, false);
+  }
+
+  function queryPageShapesInRect(page, minX, minY, maxX, maxY, preserveOrder = true) {
+    const shapes = (page && page.shapes) || [];
+    if (shapes.length <= SPATIAL_GRID_MIN_ITEMS) return shapes;
+    const grid = getPageSpatialIndex(page);
+    return grid ? grid.queryShapesRect(minX, minY, maxX, maxY, preserveOrder) : shapes;
+  }
+
+  // >>> MODULE: src/07c-pdf-outline-links.js
+  // ============================================================================
+  // 11D. TABLE DES MATIÈRES PDF (OUTLINE), LIENS INTERNES & LIMITE CONFIGURABLE
+  // ============================================================================
+
+  const PDF_MAX_PAGES_STORAGE_KEY = 'inkflow.pdf.maxImportPages.v1';
+  const PDF_DEFAULT_MAX_IMPORT_PAGES = 100;
+
+  // 0 signifie « illimité » (grâce au Lazy Loading {k-1, k, k+1})
+  let configuredPdfMaxImportPages = null;
+
+  function getPdfMaxImportPages() {
+    if (configuredPdfMaxImportPages !== null) return configuredPdfMaxImportPages;
+    try {
+      const raw = readLocalSetting(PDF_MAX_PAGES_STORAGE_KEY, '');
+      if (raw !== '') {
+        const parsed = Number(raw);
+        if (Number.isInteger(parsed) && parsed >= 0 && parsed <= 10000) {
+          configuredPdfMaxImportPages = parsed;
+          return configuredPdfMaxImportPages;
+        }
+      }
+    } catch (_) {}
+    return PDF_DEFAULT_MAX_IMPORT_PAGES;
+  }
+
+  function setPdfMaxImportPages(limit) {
+    const n = Number(limit);
+    const clean = (Number.isFinite(n) && n >= 0) ? Math.min(10000, Math.floor(n)) : PDF_DEFAULT_MAX_IMPORT_PAGES;
+    configuredPdfMaxImportPages = clean;
+    try {
+      writeLocalSetting(PDF_MAX_PAGES_STORAGE_KEY, String(clean));
+    } catch (_) {}
+    const sel = document.getElementById('selectPdfMaxPages');
+    if (sel) sel.value = String(clean);
+    return clean;
+  }
+
+  // Caches mémoire pour la table des matières et les liens internes PDF (purgés dans destroyPdfDocumentResources)
+  const pdfOutlineCache = new Map();       // pdfId -> Array<{ id, title, level, pageNumber, pageId, url }>
+  const pdfPageLinksCache = new Map();     // `${pdfId}_${pageNumber}` -> Array<{ rect, targetPageNumber, url, title }>
+  const pdfNavHistoryStack = [];           // Pile de retour arrière après un saut par lien interne
+
+  function clearPdfOutlineAndLinksCache(pdfId) {
+    if (!pdfId) return;
+    pdfOutlineCache.delete(pdfId);
+    const prefix = `${pdfId}_`;
+    for (const k of Array.from(pdfPageLinksCache.keys())) {
+      if (k.startsWith(prefix)) pdfPageLinksCache.delete(k);
+    }
+  }
+
+  async function resolvePdfDestinationToPageNumber(pdfDoc, dest) {
+    if (!pdfDoc || !dest) return null;
+    try {
+      let resolved = dest;
+      if (typeof dest === 'string' && typeof pdfDoc.getDestination === 'function') {
+        resolved = await pdfDoc.getDestination(dest);
+      }
+      if (!Array.isArray(resolved) || resolved.length === 0) return null;
+      const ref = resolved[0];
+      let pageIndex = -1;
+      if (typeof ref === 'number' && Number.isInteger(ref)) {
+        pageIndex = ref;
+      } else if (ref && typeof ref === 'object' && typeof pdfDoc.getPageIndex === 'function') {
+        pageIndex = await pdfDoc.getPageIndex(ref);
+      }
+      if (!Number.isInteger(pageIndex) || pageIndex < 0) return null;
+      return { pageNumber: pageIndex + 1 };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function extractPdfOutlineTree(pdfDoc, pages = []) {
+    if (!pdfDoc || typeof pdfDoc.getOutline !== 'function') return [];
+    let rawOutline = null;
+    try {
+      rawOutline = await pdfDoc.getOutline();
+    } catch (_) {
+      return [];
+    }
+    if (!Array.isArray(rawOutline) || rawOutline.length === 0) return [];
+
+    const pageByPdfNum = new Map();
+    (pages || []).forEach((p) => {
+      if (p && p.pdfPageNumber) pageByPdfNum.set(Number(p.pdfPageNumber), p);
+    });
+
+    const out = [];
+    const walk = async (items, level) => {
+      if (!Array.isArray(items)) return;
+      for (const item of items) {
+        if (!item) continue;
+        const title = String(item.title || '').trim() || 'Section';
+        let pageNumber = null;
+        if (item.dest) {
+          const resolved = await resolvePdfDestinationToPageNumber(pdfDoc, item.dest);
+          if (resolved && resolved.pageNumber) pageNumber = resolved.pageNumber;
+        }
+        const matchedPage = pageNumber ? pageByPdfNum.get(pageNumber) : null;
+        const safeUrl = typeof item.url === 'string' && /^https?:\/\//i.test(item.url) ? item.url : null;
+        if (pageNumber || safeUrl) {
+          out.push({
+            id: createUid('pdfout'),
+            title,
+            level: Math.max(1, Math.min(4, level)),
+            pageNumber: pageNumber || null,
+            pageId: matchedPage ? matchedPage.id : null,
+            url: safeUrl,
+            isPdfOutline: true
+          });
+        }
+        if (Array.isArray(item.items) && item.items.length > 0 && out.length < 500) {
+          await walk(item.items, level + 1);
+        }
+      }
+    };
+    await walk(rawOutline, 1);
+    return out;
+  }
+
+  async function ensurePdfOutlineLoadedForNotebook(nb) {
+    if (!nb) return [];
+    const pages = state.pagesByNotebook.get(nb.id) || [];
+    const pdfId = nb.pdfId || (pages.find((p) => p.pdfId) || {}).pdfId;
+    if (!pdfId) return [];
+    if (pdfOutlineCache.has(pdfId)) return pdfOutlineCache.get(pdfId);
+    if (Array.isArray(nb.pdfOutline) && nb.pdfOutline.length > 0) {
+      pdfOutlineCache.set(pdfId, nb.pdfOutline);
+      return nb.pdfOutline;
+    }
+    try {
+      const pdfDoc = await getOrLoadPdfDocument(pdfId);
+      if (!pdfDoc) return [];
+      const tree = await extractPdfOutlineTree(pdfDoc, pages);
+      pdfOutlineCache.set(pdfId, tree);
+      if (tree.length > 0) {
+        nb.pdfOutline = tree;
+        db.saveNotebook(nb).catch(() => {});
+      }
+      return tree;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function extractAndCachePdfPageLinks(pdfDoc, pdfPage, page) {
+    if (!pdfDoc || !pdfPage || !page || !page.pdfId || !page.pdfPageNumber) return [];
+    const cacheKey = `${page.pdfId}_${page.pdfPageNumber}`;
+    if (pdfPageLinksCache.has(cacheKey)) return pdfPageLinksCache.get(cacheKey);
+    if (typeof pdfPage.getAnnotations !== 'function') {
+      pdfPageLinksCache.set(cacheKey, []);
+      return [];
+    }
+
+    let annotations = [];
+    try {
+      annotations = await pdfPage.getAnnotations({ intent: 'display' });
+    } catch (_) {
+      pdfPageLinksCache.set(cacheKey, []);
+      return [];
+    }
+    if (!Array.isArray(annotations) || annotations.length === 0) {
+      pdfPageLinksCache.set(cacheKey, []);
+      return [];
+    }
+
+    const vp = pdfPage.getViewport({ scale: 1 });
+    const worldW = page.pdfWidth || vp.width || PAGE_WIDTH;
+    const worldH = page.pdfHeight || vp.height || PAGE_HEIGHT;
+    const scaleX = worldW / Math.max(1, vp.width || worldW);
+    const scaleY = worldH / Math.max(1, vp.height || worldH);
+
+    const links = [];
+    for (const ann of annotations) {
+      if (!ann || ann.subtype !== 'Link' || !Array.isArray(ann.rect) || ann.rect.length < 4) continue;
+      let rectCanvas = null;
+      if (typeof vp.convertToViewportRectangle === 'function') {
+        rectCanvas = vp.convertToViewportRectangle(ann.rect);
+      } else {
+        const [rx1, ry1, rx2, ry2] = ann.rect;
+        rectCanvas = [rx1, vp.height - ry2, rx2, vp.height - ry1];
+      }
+      const x1 = Math.min(rectCanvas[0], rectCanvas[2]) * scaleX;
+      const y1 = Math.min(rectCanvas[1], rectCanvas[3]) * scaleY;
+      const x2 = Math.max(rectCanvas[0], rectCanvas[2]) * scaleX;
+      const y2 = Math.max(rectCanvas[1], rectCanvas[3]) * scaleY;
+      const w = Math.max(4, x2 - x1);
+      const h = Math.max(4, y2 - y1);
+
+      let targetPageNumber = null;
+      if (ann.dest) {
+        const resolved = await resolvePdfDestinationToPageNumber(pdfDoc, ann.dest);
+        if (resolved && resolved.pageNumber) targetPageNumber = resolved.pageNumber;
+      }
+      const safeUrl = typeof ann.url === 'string' && /^https?:\/\//i.test(ann.url) ? ann.url : null;
+      if (!targetPageNumber && !safeUrl) continue;
+
+      links.push({
+        rect: { x: x1, y: y1, w, h },
+        targetPageNumber,
+        url: safeUrl,
+        title: targetPageNumber ? `Aller à la page ${targetPageNumber}` : safeUrl
+      });
+    }
+
+    pdfPageLinksCache.set(cacheKey, links);
+    return links;
+  }
+
+  function getCachedPdfLinksForPage(page) {
+    if (!page || !page.pdfId || !page.pdfPageNumber) return [];
+    const cacheKey = `${page.pdfId}_${page.pdfPageNumber}`;
+    return pdfPageLinksCache.get(cacheKey) || [];
+  }
+
+  function findPdfLinkAtWorldPoint(page, wx, wy) {
+    const links = getCachedPdfLinksForPage(page);
+    for (let i = 0; i < links.length; i++) {
+      const r = links[i].rect;
+      if (wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h) {
+        return links[i];
+      }
+    }
+    return null;
+  }
+
+  function updatePdfLinkBackPillUi() {
+    const pill = document.getElementById('pdfLinkBackPill');
+    const label = document.getElementById('pdfLinkBackLabel');
+    if (!pill) return;
+    const top = pdfNavHistoryStack.length > 0 ? pdfNavHistoryStack[pdfNavHistoryStack.length - 1] : null;
+    const visible = Boolean(top && top.notebookId === state.activeNotebookId && top.pageId !== state.activePageId);
+    pill.classList.toggle('hidden', !visible);
+    if (visible && label) {
+      label.textContent = `Revenir p. ${top.pageNumber}`;
+    }
+  }
+
+  function navigateBackFromPdfLink() {
+    const top = pdfNavHistoryStack.pop();
+    if (!top) {
+      updatePdfLinkBackPillUi();
+      return false;
+    }
+    if (top.notebookId === state.activeNotebookId) {
+      selectPage(top.pageId);
+    }
+    updatePdfLinkBackPillUi();
+    return true;
+  }
+
+  function activatePdfLink(link, sourcePage = getActivePage()) {
+    if (!link) return false;
+    if (link.targetPageNumber) {
+      const pages = getActiveNotebookPages();
+      const target = pages.find((p) => Number(p.pdfPageNumber) === Number(link.targetPageNumber))
+        || pages[link.targetPageNumber - 1];
+      if (!target) return false;
+      if (sourcePage && sourcePage.id !== target.id) {
+        const srcIdx = pages.findIndex((p) => p.id === sourcePage.id);
+        pdfNavHistoryStack.push({
+          notebookId: state.activeNotebookId,
+          pageId: sourcePage.id,
+          pageNumber: sourcePage.pdfPageNumber || (srcIdx >= 0 ? srcIdx + 1 : 1)
+        });
+        if (pdfNavHistoryStack.length > 20) pdfNavHistoryStack.shift();
+      }
+      selectPage(target.id);
+      updatePdfLinkBackPillUi();
+      showToast(`Page ${link.targetPageNumber}`);
+      return true;
+    }
+    if (link.url && /^https?:\/\//i.test(link.url)) {
+      try {
+        if (typeof window !== 'undefined' && typeof window.open === 'function') {
+          window.open(link.url, '_blank', 'noopener,noreferrer');
+        }
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  function drawPdfLinkHintsOverlay(targetCtx, page) {
+    if (!page || !page.pdfId) return;
+    const links = getCachedPdfLinksForPage(page);
+    if (!links || links.length === 0) return;
+    if (state.tool !== 'pan' && !state.ctrlKeyPressed) return;
+    targetCtx.save();
+    targetCtx.fillStyle = 'rgba(37, 99, 235, 0.08)';
+    targetCtx.strokeStyle = 'rgba(37, 99, 235, 0.45)';
+    targetCtx.lineWidth = Math.max(0.8, 1.2 / Math.max(0.3, state.zoom));
+    for (let i = 0; i < links.length; i++) {
+      const r = links[i].rect;
+      targetCtx.fillRect(r.x, r.y, r.w, r.h);
+      targetCtx.strokeRect(r.x, r.y, r.w, r.h);
+    }
+    targetCtx.restore();
+  }
+
+  // >>> MODULE: src/08-input-lasso-pdf.js
   // ============================================================================
   // 12. GESTION DES ENTRÉES STYLET, FORMES AUTO, ROUE DE COULEURS & PINCEMENT
   // ============================================================================
@@ -10275,7 +10771,10 @@
     const selTexts = new Set();
     const selImages = new Set();
     if (filters.handwriting !== false) {
-      (page.strokes || []).forEach((s) => {
+      const candidateStrokes = typeof queryPageStrokesInRect === 'function'
+        ? queryPageStrokesInRect(page, minX, minY, maxX, maxY, false)
+        : (page.strokes || []);
+      candidateStrokes.forEach((s) => {
         const sb = getCachedStrokeBounds(s);
         if (sb && pointInPolygon((sb.minX + sb.maxX) * 0.5, (sb.minY + sb.maxY) * 0.5, poly)) {
           selStrokes.add(s.id);
@@ -10283,7 +10782,10 @@
       });
     }
     if (filters.shapes !== false) {
-      (page.shapes || []).forEach((sh) => {
+      const candidateShapes = typeof queryPageShapesInRect === 'function'
+        ? queryPageShapesInRect(page, minX, minY, maxX, maxY, false)
+        : (page.shapes || []);
+      candidateShapes.forEach((sh) => {
         const sb = getShapeBoundingBox(sh);
         if (sb && pointInPolygon((sb.minX + sb.maxX) * 0.5, (sb.minY + sb.maxY) * 0.5, poly)) {
           selShapes.add(sh.id);
@@ -10612,6 +11114,14 @@
     state.lastPointerPoint = worldPt;
     state.lastPointerTime = e.timeStamp || performance.now();
     updateTelemetryHUD(e, 1, pressure, true);
+
+    // Activation des liens internes/externes PDF en mode Main (pan) ou avec Ctrl+Clic (ne gêne jamais le stylet)
+    if (page.pdfId && (state.tool === 'pan' || e.ctrlKey) && typeof findPdfLinkAtWorldPoint === 'function') {
+      const hitPdfLink = findPdfLinkAtWorldPoint(page, worldPt.x, worldPt.y);
+      if (hitPdfLink && activatePdfLink(hitPdfLink, page)) {
+        return;
+      }
+    }
 
     // Si une sélection Lasso est active (ex. après cercle-lasso, 2e bouton du stylet ou duplication),
     // cliquer/glisser dans le cadre de sélection déplace ou redimensionne directement les éléments au lieu de dessiner par-dessus
@@ -11729,26 +12239,38 @@
     const hlOnly = Boolean(state.eraserHighlighterOnly);
     let changed = false;
 
+    const spatialCandidates = (typeof queryPageStrokesAtPoint === 'function')
+      ? queryPageStrokesAtPoint(page, wx, wy, radius)
+      : (page.strokes || []);
+    const candidateStrokeSet = spatialCandidates === page.strokes ? null : new Set(spatialCandidates);
+
     if (state.eraserMode === 'stroke') {
       const beforeLen = (page.strokes || []).length;
-      page.strokes = (page.strokes || []).filter((s) => {
-        if (!canEraserEraseStroke(s)) return true;
-        const b = getCachedStrokeBounds(s);
-        if (b && (wx < b.minX - radius || wx > b.maxX + radius || wy < b.minY - radius || wy > b.maxY + radius)) {
+      if (!candidateStrokeSet || candidateStrokeSet.size > 0) {
+        page.strokes = (page.strokes || []).filter((s) => {
+          if (candidateStrokeSet && !candidateStrokeSet.has(s)) return true;
+          if (!canEraserEraseStroke(s)) return true;
+          const b = getCachedStrokeBounds(s);
+          if (b && (wx < b.minX - radius || wx > b.maxX + radius || wy < b.minY - radius || wy > b.maxY + radius)) {
+            return true;
+          }
+          const pts = s.points || [];
+          for (let i = 0; i < pts.length; i++) {
+            const pt = pts[i];
+            if ((pt.x - wx) ** 2 + (pt.y - wy) ** 2 <= rSq) return false;
+            if (i > 0 && pointToSegmentDist({ x: wx, y: wy }, pts[i - 1], pt) <= radius) return false;
+          }
           return true;
-        }
-        const pts = s.points || [];
-        for (let i = 0; i < pts.length; i++) {
-          const pt = pts[i];
-          if ((pt.x - wx) ** 2 + (pt.y - wy) ** 2 <= rSq) return false;
-          if (i > 0 && pointToSegmentDist({ x: wx, y: wy }, pts[i - 1], pt) <= radius) return false;
-        }
-        return true;
-      });
+        });
+      }
       if (page.strokes.length !== beforeLen) changed = true;
-    } else {
+    } else if (!candidateStrokeSet || candidateStrokeSet.size > 0) {
       const next = [];
       for (const s of page.strokes || []) {
+        if (candidateStrokeSet && !candidateStrokeSet.has(s)) {
+          next.push(s);
+          continue;
+        }
         if (!canEraserEraseStroke(s)) {
           next.push(s);
           continue;
@@ -12261,14 +12783,28 @@
     if (state.lassoAction === 'draw') {
       if (state.lassoPolygon.length >= 3) {
         const filters = state.lassoFilters || { handwriting: true, shapes: true, texts: true, images: true };
+        let lMinX = Infinity, lMinY = Infinity, lMaxX = -Infinity, lMaxY = -Infinity;
+        for (let i = 0; i < state.lassoPolygon.length; i++) {
+          const lp = state.lassoPolygon[i];
+          if (lp.x < lMinX) lMinX = lp.x;
+          if (lp.y < lMinY) lMinY = lp.y;
+          if (lp.x > lMaxX) lMaxX = lp.x;
+          if (lp.y > lMaxY) lMaxY = lp.y;
+        }
         if (filters.handwriting !== false) {
-          (page.strokes || []).forEach((s) => {
+          const candidateStrokes = typeof queryPageStrokesInRect === 'function'
+            ? queryPageStrokesInRect(page, lMinX, lMinY, lMaxX, lMaxY, false)
+            : (page.strokes || []);
+          candidateStrokes.forEach((s) => {
             const inside = s.points.filter((p) => pointInPolygon(p.x, p.y, state.lassoPolygon)).length;
             if (inside > 0 && inside >= Math.min(2, s.points.length * 0.25)) state.selectedIds.strokes.add(s.id);
           });
         }
         if (filters.shapes !== false) {
-          (page.shapes || []).forEach((sh) => {
+          const candidateShapes = typeof queryPageShapesInRect === 'function'
+            ? queryPageShapesInRect(page, lMinX, lMinY, lMaxX, lMaxY, false)
+            : (page.shapes || []);
+          candidateShapes.forEach((sh) => {
             const verts = getShapeVertices(sh);
             const samples = verts ? [...verts, { x: (sh.x1 + sh.x2) / 2, y: (sh.y1 + sh.y2) / 2 }] : [
               { x: (sh.x1 + sh.x2) / 2, y: (sh.y1 + sh.y2) / 2 },
@@ -13076,11 +13612,12 @@
       throw new Error(`Le document PDF « ${fileName} » ne contient aucune page (0 page).`);
     }
 
-    if (numPages > MAX_PDF_IMPORT_PAGES) {
+    const maxImportPages = typeof getPdfMaxImportPages === 'function' ? getPdfMaxImportPages() : MAX_PDF_IMPORT_PAGES;
+    if (maxImportPages > 0 && numPages > maxImportPages) {
       if (pdfDoc && typeof pdfDoc.destroy === 'function') {
         try { await pdfDoc.destroy(); } catch (_) {}
       }
-      throw new Error(`Ce PDF contient ${numPages} pages. La limite maximale est fixée à ${MAX_PDF_IMPORT_PAGES} pages par import pour garantir la fluidité et préserver la mémoire RAM.`);
+      throw new Error(`Ce PDF contient ${numPages} pages. La limite maximale est fixée à ${maxImportPages} pages par import pour garantir la fluidité et préserver la mémoire RAM.`);
     }
 
     // Vérifie que la première page est décodable (détecte les arbres de pages PDF corrompus)
@@ -13292,6 +13829,18 @@
     state.activeNotebookId = targetNb.id;
     state.activePageId = createdPages[0].id;
     state.pendingPdfImport = null;
+
+    // Extrait la table des matières PDF (pdfDoc.getOutline()) pour navigation instantanée dans la barre latérale
+    if (typeof extractPdfOutlineTree === 'function') {
+      try {
+        const pdfOutline = await extractPdfOutlineTree(pdfDoc, createdPages);
+        if (pdfOutline && pdfOutline.length > 0) {
+          targetNb.pdfOutline = pdfOutline;
+          if (typeof pdfOutlineCache !== 'undefined') pdfOutlineCache.set(pdfId, pdfOutline);
+          await db.saveNotebook(targetNb);
+        }
+      } catch (_) {}
+    }
 
     updatePdfImportProgressUI(true, 'Rendu haute résolution de la page affichée...', 90);
     // Charge et rend uniquement la page affichée (p.1) et la page suivante (p.2) en mémoire
@@ -13685,6 +14234,7 @@
     return pdfBytes;
   }
 
+  // >>> MODULE: src/09-sidebar-ui-popovers.js
   // ============================================================================
   // 15. BARRE LATÉRALE, MINIATURES & SAUVEGARDE INDEXEDDB
   // ============================================================================
@@ -13796,6 +14346,9 @@
         targetPage.updatedAt = Date.now();
         await db.savePage(targetPage);
         await db.saveWorkspaceState({ activeNotebookId: state.activeNotebookId, activePageId: state.activePageId });
+        if (typeof notifyLocalNotebookMutatedForDriveSync === 'function' && targetPage.notebookId) {
+          notifyLocalNotebookMutatedForDriveSync(targetPage.notebookId);
+        }
         if (pageSaveTimers.size === 0 && inFlightPageSaves.size <= 1) {
           if (dom.dbStatusDot) dom.dbStatusDot.classList.remove('saving');
           if (dom.dbStatusText) dom.dbStatusText.textContent = 'IndexedDB synchronisé';
@@ -14573,29 +15126,75 @@
     outlineList.innerHTML = '';
     if (!nb) return;
 
-    const entries = Array.isArray(nb.outline) && nb.outline.length > 0
-      ? nb.outline
-      : pages.map((p, idx) => ({
+    const pdfId = nb.pdfId || (pages.find((p) => p.pdfId) || {}).pdfId;
+    const cachedPdfOutline = (pdfId && typeof pdfOutlineCache !== 'undefined' && pdfOutlineCache.has(pdfId))
+      ? pdfOutlineCache.get(pdfId)
+      : (Array.isArray(nb.pdfOutline) ? nb.pdfOutline : null);
+
+    if (pdfId && !cachedPdfOutline && typeof ensurePdfOutlineLoadedForNotebook === 'function') {
+      ensurePdfOutlineLoadedForNotebook(nb).then((loaded) => {
+        if (loaded && loaded.length > 0 && state.activeNotebookId === nb.id && state.pagesSubTab === 'outline') {
+          renderOutlineSidebar();
+        }
+      }).catch(() => {});
+    }
+
+    const pdfEntries = Array.isArray(cachedPdfOutline) ? cachedPdfOutline : [];
+    const manualEntries = Array.isArray(nb.outline) ? nb.outline : [];
+
+    const appendOutlineEntry = (entry) => {
+      let pageIdx = -1;
+      if (entry.pageId) pageIdx = pages.findIndex((p) => p.id === entry.pageId);
+      if (pageIdx < 0 && entry.pageNumber) {
+        pageIdx = pages.findIndex((p) => Number(p.pdfPageNumber) === Number(entry.pageNumber));
+        if (pageIdx < 0 && entry.pageNumber <= pages.length) pageIdx = entry.pageNumber - 1;
+      }
+      if (pageIdx < 0 && !entry.url) return;
+      const targetPage = pageIdx >= 0 ? pages[pageIdx] : null;
+      const item = document.createElement('div');
+      item.className = `gn-outline-item${targetPage && targetPage.id === state.activePageId ? ' active' : ''}${entry.isPdfOutline ? ' is-pdf-outline' : ''}`;
+      item.style.paddingLeft = `${10 + ((entry.level || 1) - 1) * 14}px`;
+      item.innerHTML = `
+        <span class="gn-outline-title">${escapeHtml(entry.title)}</span>
+        <span class="gn-outline-page">${pageIdx >= 0 ? `p.${pageIdx + 1}` : '↗'}</span>
+      `;
+      item.addEventListener('click', () => {
+        if (targetPage) {
+          selectPage(targetPage.id);
+        } else if (entry.url && /^https?:\/\//i.test(entry.url) && typeof window !== 'undefined' && typeof window.open === 'function') {
+          window.open(entry.url, '_blank', 'noopener,noreferrer');
+        }
+      });
+      outlineList.appendChild(item);
+    };
+
+    if (pdfEntries.length > 0) {
+      const hdr = document.createElement('div');
+      hdr.className = 'gn-outline-group-label';
+      hdr.textContent = `Table des matières PDF (${pdfEntries.length})`;
+      outlineList.appendChild(hdr);
+      pdfEntries.forEach(appendOutlineEntry);
+    }
+
+    if (manualEntries.length > 0) {
+      if (pdfEntries.length > 0) {
+        const hdr = document.createElement('div');
+        hdr.className = 'gn-outline-group-label';
+        hdr.textContent = 'Signets du plan';
+        outlineList.appendChild(hdr);
+      }
+      manualEntries.forEach(appendOutlineEntry);
+    } else if (pdfEntries.length === 0) {
+      pages.forEach((p, idx) => {
+        appendOutlineEntry({
           id: `auto_${p.id}`,
           pageId: p.id,
           title: p.title || `Page ${idx + 1}`,
           level: 1,
           isAuto: true
-        }));
-
-    entries.forEach((entry) => {
-      const pageIdx = pages.findIndex((p) => p.id === entry.pageId);
-      if (pageIdx < 0) return;
-      const item = document.createElement('div');
-      item.className = `gn-outline-item${pages[pageIdx].id === state.activePageId ? ' active' : ''}`;
-      item.style.paddingLeft = `${10 + ((entry.level || 1) - 1) * 14}px`;
-      item.innerHTML = `
-        <span class="gn-outline-title">${escapeHtml(entry.title)}</span>
-        <span class="gn-outline-page">p.${pageIdx + 1}</span>
-      `;
-      item.addEventListener('click', () => selectPage(entry.pageId));
-      outlineList.appendChild(item);
-    });
+        });
+      });
+    }
   }
 
   let draggedPageIndex = null;
@@ -14625,6 +15224,9 @@
       if (!p.thumbnail) {
         if (p.pdfId && !p._pdfThumbGenerated) {
           p.thumbnail = generateLazyPdfPlaceholderThumbnail(p.pdfPageNumber || realIdx + 1, allPages.length, p.title);
+        } else if (typeof scheduleAsyncPageThumbnail === 'function' && p.id !== state.activePageId && pages.length > 3) {
+          p.thumbnail = generateLazyPdfPlaceholderThumbnail(realIdx + 1, allPages.length, p.title || 'Page');
+          scheduleAsyncPageThumbnail(p, { priority: 'normal' });
         } else {
           p.thumbnail = generatePageThumbnail(p);
         }
@@ -19579,6 +20181,306 @@
     state.activePageId = getActiveNotebookPages()[0]?.id || null;
   }
 
+  // >>> MODULE: src/09b-async-offscreen-render.js
+  // ============================================================================
+  // 15B. RENDU ASYNCHRONE NON-BLOQUANT & OFFSCREENCANVAS (MINIATURES & SPLIT VIEW)
+  // ============================================================================
+
+  function createOffscreenRenderSurface(width, height) {
+    const w = Math.max(1, Math.round(width || 1));
+    const h = Math.max(1, Math.round(height || 1));
+    if (typeof OffscreenCanvas !== 'undefined') {
+      try {
+        const oc = new OffscreenCanvas(w, h);
+        const ctx = oc.getContext('2d');
+        if (ctx) return { canvas: oc, ctx, isOffscreen: true };
+      } catch (_) {}
+    }
+    if (typeof document !== 'undefined') {
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext && c.getContext('2d');
+      if (ctx) return { canvas: c, ctx, isOffscreen: false };
+    }
+    return null;
+  }
+
+  async function surfaceToDataUrl(surface, mime = 'image/png', quality = 0.7) {
+    if (!surface || !surface.canvas) return '';
+    if (surface.isOffscreen && typeof surface.canvas.convertToBlob === 'function') {
+      try {
+        const blob = await surface.canvas.convertToBlob({ type: mime, quality });
+        if (typeof FileReader !== 'undefined') {
+          return await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(String(reader.result || ''));
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(blob);
+          });
+        }
+      } catch (_) {}
+    }
+    if (typeof surface.canvas.toDataURL === 'function') {
+      try {
+        return surface.canvas.toDataURL(mime, quality);
+      } catch (_) {}
+    }
+    return '';
+  }
+
+  function releaseOffscreenSurface(surface) {
+    if (!surface || !surface.canvas) return;
+    try {
+      surface.canvas.width = 0;
+      surface.canvas.height = 0;
+    } catch (_) {}
+  }
+
+  function paintPageThumbnailOnContext(tCtx, page, pw, ph, sc) {
+    tCtx.save();
+    tCtx.scale(sc, sc);
+    drawPaperBackground(tCtx, page, pw, ph, true);
+    if (page && page.pdfId) {
+      drawLockedPdfBackground(tCtx, page, true);
+    }
+    const isDark = !page?.pdfId && (page.paperTone === 'dark' || page.paperTone === 'blueprint');
+    (page.images || []).forEach((imgItem) => {
+      const imgEl = getCachedThumbnailImage(imgItem);
+      if (imgEl && typeof tCtx.drawImage === 'function') {
+        try {
+          tCtx.drawImage(imgEl, imgItem.x || 0, imgItem.y || 0, imgItem.width || 240, imgItem.height || 160);
+        } catch (_) {}
+      }
+    });
+    (page.strokes || []).forEach((s) => { if (s.tool === 'highlighter') drawSingleStroke(tCtx, s, isDark, false); });
+    (page.shapes || []).forEach((sh) => drawGeometricShape(tCtx, sh, false, isDark));
+    (page.strokes || []).forEach((s) => { if (s.tool !== 'highlighter') drawSingleStroke(tCtx, s, isDark, false); });
+    (page.tapes || []).forEach((tp) => { if (!tp.revealed) drawTapeItem(tCtx, tp, false); });
+    drawTextBlocksOnCanvas(tCtx, page.texts);
+    tCtx.restore();
+  }
+
+  async function generatePageThumbnailAsync(page) {
+    const sc = 0.16;
+    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
+    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    const surface = createOffscreenRenderSurface(Math.round(pw * sc), Math.round(ph * sc));
+    if (!surface) return generatePageThumbnail(page);
+    try {
+      paintPageThumbnailOnContext(surface.ctx, page, pw, ph, sc);
+      return await surfaceToDataUrl(surface, 'image/png', 0.7);
+    } finally {
+      releaseOffscreenSurface(surface);
+    }
+  }
+
+  // File asynchrone prioritaire : rend les miniatures pendant les temps libres du thread principal
+  // et cède immédiatement la priorité dès qu'un trait au stylet ou un Pan est actif (120 Hz protégé).
+  const asyncThumbQueue = [];
+  const asyncThumbQueuedIds = new Set();
+  const asyncThumbStats = { scheduled: 0, completed: 0, deferredForStylus: 0, usedOffscreen: typeof OffscreenCanvas !== 'undefined' };
+  let asyncThumbTimer = null;
+  let asyncThumbRunning = false;
+
+  function isInteractiveGestureBusy() {
+    return Boolean(
+      state.isDrawing ||
+      state.isPanning ||
+      (typeof activeTouchPointers !== 'undefined' && activeTouchPointers && activeTouchPointers.size > 0)
+    );
+  }
+
+  function scheduleNextAsyncThumbTick(delayMs = 16) {
+    if (asyncThumbTimer !== null || asyncThumbRunning) return;
+    if (asyncThumbQueue.length === 0) return;
+    if (delayMs <= 16 && typeof requestIdleCallback === 'function') {
+      asyncThumbTimer = requestIdleCallback((deadline) => {
+        asyncThumbTimer = null;
+        processAsyncThumbSlice(deadline);
+      }, { timeout: 220 });
+    } else {
+      asyncThumbTimer = setTimeout(() => {
+        asyncThumbTimer = null;
+        processAsyncThumbSlice(null);
+      }, delayMs);
+    }
+  }
+
+  async function processAsyncThumbSlice(deadline) {
+    if (asyncThumbRunning || asyncThumbQueue.length === 0) return;
+    if (isInteractiveGestureBusy()) {
+      asyncThumbStats.deferredForStylus++;
+      scheduleNextAsyncThumbTick(120);
+      return;
+    }
+    if (deadline && typeof deadline.timeRemaining === 'function' && deadline.timeRemaining() < 3 && !deadline.didTimeout) {
+      scheduleNextAsyncThumbTick(16);
+      return;
+    }
+    const job = asyncThumbQueue.shift();
+    if (!job || !job.page) {
+      scheduleNextAsyncThumbTick(16);
+      return;
+    }
+    asyncThumbQueuedIds.delete(job.page.id);
+    asyncThumbRunning = true;
+    try {
+      const dataUrl = await generatePageThumbnailAsync(job.page);
+      if (dataUrl) {
+        job.page.thumbnail = dataUrl;
+        asyncThumbStats.completed++;
+        if (job.page.notebookId === state.activeNotebookId) {
+          updateSingleSidebarThumbnailDom(job.page);
+        }
+        if (typeof job.onDone === 'function') job.onDone(dataUrl, job.page);
+      }
+    } catch (_) {
+      // Silencieux : une miniature non générée ne bloque jamais l'application
+    } finally {
+      asyncThumbRunning = false;
+      if (asyncThumbQueue.length > 0) scheduleNextAsyncThumbTick(16);
+    }
+  }
+
+  function scheduleAsyncPageThumbnail(page, { priority = 'normal', onDone = null } = {}) {
+    if (!page || !page.id) return false;
+    if (asyncThumbQueuedIds.has(page.id)) return false;
+    asyncThumbQueuedIds.add(page.id);
+    asyncThumbStats.scheduled++;
+    const job = { page, priority, onDone };
+    if (priority === 'high') asyncThumbQueue.unshift(job);
+    else asyncThumbQueue.push(job);
+    scheduleNextAsyncThumbTick(16);
+    return true;
+  }
+
+  async function flushAsyncThumbnailQueue() {
+    if (asyncThumbTimer !== null) {
+      if (typeof cancelIdleCallback === 'function') {
+        try { cancelIdleCallback(asyncThumbTimer); } catch (_) {}
+      }
+      try { clearTimeout(asyncThumbTimer); } catch (_) {}
+      asyncThumbTimer = null;
+    }
+    while (asyncThumbQueue.length > 0) {
+      const job = asyncThumbQueue.shift();
+      if (!job || !job.page) continue;
+      asyncThumbQueuedIds.delete(job.page.id);
+      const dataUrl = await generatePageThumbnailAsync(job.page);
+      if (dataUrl) {
+        job.page.thumbnail = dataUrl;
+        asyncThumbStats.completed++;
+        if (job.page.notebookId === state.activeNotebookId) {
+          updateSingleSidebarThumbnailDom(job.page);
+        }
+        if (typeof job.onDone === 'function') job.onDone(dataUrl, job.page);
+      }
+    }
+  }
+
+  function getAsyncThumbnailStats() {
+    return { ...asyncThumbStats, pending: asyncThumbQueue.length };
+  }
+
+  // Cache OffscreenCanvas dédié au panneau secondaire Split View (évite de re-rastériser tous les traits lors d'un Pan)
+  const splitOffscreenCache = {
+    surface: null,
+    pageId: null,
+    revision: '',
+    scale: 0,
+    isDark: false,
+    pw: 0,
+    ph: 0
+  };
+
+  function releaseSplitOffscreenCache() {
+    if (splitOffscreenCache.surface) {
+      releaseOffscreenSurface(splitOffscreenCache.surface);
+      splitOffscreenCache.surface = null;
+    }
+    splitOffscreenCache.pageId = null;
+    splitOffscreenCache.revision = '';
+    splitOffscreenCache.scale = 0;
+  }
+
+  function getSplitPageRevisionKey(page) {
+    if (!page) return '';
+    const pdfEntry = (page.pdfId && typeof pdfRenderedCanvasCache !== 'undefined')
+      ? pdfRenderedCanvasCache.get(`${page.pdfId}_${page.pdfPageNumber || 1}`)
+      : null;
+    const pdfReady = pdfEntry && pdfEntry.canvas ? `${Math.round((pdfEntry.renderedScale || 1) * 10)}` : '0';
+    return [
+      page.updatedAt || 0,
+      (page.strokes || []).length,
+      (page.shapes || []).length,
+      (page.texts || []).length,
+      (page.tapes || []).length,
+      (page.images || []).length,
+      page.paperType || '',
+      page.paperTone || '',
+      page.rotation || 0,
+      pdfReady
+    ].join(':');
+  }
+
+  function ensureSplitOffscreenPageBitmap(page, pw, ph, targetScale, isDark) {
+    const quantizedScale = Math.max(0.5, Math.min(2.5, Math.round(targetScale * 4) / 4));
+    const rev = getSplitPageRevisionKey(page);
+    if (
+      splitOffscreenCache.surface &&
+      splitOffscreenCache.pageId === page.id &&
+      splitOffscreenCache.revision === rev &&
+      splitOffscreenCache.scale === quantizedScale &&
+      splitOffscreenCache.isDark === isDark &&
+      splitOffscreenCache.pw === pw &&
+      splitOffscreenCache.ph === ph
+    ) {
+      return splitOffscreenCache.surface.canvas;
+    }
+
+    const bw = Math.max(1, Math.min(2400, Math.round(pw * quantizedScale)));
+    const bh = Math.max(1, Math.min(3200, Math.round(ph * quantizedScale)));
+    const effScaleX = bw / Math.max(1, pw);
+    const effScaleY = bh / Math.max(1, ph);
+
+    if (!splitOffscreenCache.surface || splitOffscreenCache.surface.canvas.width !== bw || splitOffscreenCache.surface.canvas.height !== bh) {
+      releaseSplitOffscreenCache();
+      splitOffscreenCache.surface = createOffscreenRenderSurface(bw, bh);
+    }
+    if (!splitOffscreenCache.surface) return null;
+
+    const sctx = splitOffscreenCache.surface.ctx;
+    sctx.save();
+    sctx.setTransform(effScaleX, 0, 0, effScaleY, 0, 0);
+    sctx.clearRect(0, 0, pw, ph);
+    drawPaperBackground(sctx, page, pw, ph, true);
+    if (page.pdfId) {
+      drawLockedPdfBackground(sctx, page, false);
+    }
+    (page.images || []).forEach((imgItem) => {
+      const imgEl = getCachedThumbnailImage(imgItem);
+      if (imgEl && typeof sctx.drawImage === 'function') {
+        try { sctx.drawImage(imgEl, imgItem.x || 0, imgItem.y || 0, imgItem.width || 240, imgItem.height || 180); } catch (_) {}
+      }
+    });
+    (page.strokes || []).forEach((s) => { if (s.tool === 'highlighter') drawSingleStroke(sctx, s, isDark, false); });
+    (page.shapes || []).forEach((sh) => drawGeometricShape(sctx, sh, false, isDark));
+    (page.strokes || []).forEach((s) => { if (s.tool !== 'highlighter') drawSingleStroke(sctx, s, isDark, false); });
+    (page.tapes || []).forEach((tp) => { if (!tp.revealed) drawTapeItem(sctx, tp, false); });
+    drawTextBlocksOnCanvas(sctx, page.texts);
+    sctx.restore();
+
+    splitOffscreenCache.pageId = page.id;
+    splitOffscreenCache.revision = rev;
+    splitOffscreenCache.scale = quantizedScale;
+    splitOffscreenCache.isDark = isDark;
+    splitOffscreenCache.pw = pw;
+    splitOffscreenCache.ph = ph;
+    return splitOffscreenCache.surface.canvas;
+  }
+
+  // >>> MODULE: src/10-extensions-gdrive.js
   // ============================================================================
   // 18. EXTENSIONS GOODNOTES : DOSSIERS, IMAGES, FENÊTRE DE ZOOM & GOOGLE DRIVE
   // ============================================================================
@@ -21738,6 +22640,502 @@
     }
   }
 
+  // >>> MODULE: src/10b-gdrive-incremental-sync.js
+  // ============================================================================
+  // 18B. SYNCHRONISATION INCRÉMENTALE & SAUVEGARDE AUTO GOOGLE DRIVE (DOSSIER InkFlow/)
+  // ============================================================================
+
+  const GDRIVE_SYNC_FOLDER_NAME = 'InkFlow';
+  const GDRIVE_SYNC_META_KEY = 'inkflow.gdrive.incrementalSync.v1';
+  const GDRIVE_SYNC_DEBOUNCE_MS = 15000;
+
+  const gdriveSyncState = {
+    folderId: null,
+    notebooks: {}, // { [nbId]: { driveFileId, lastSyncedHash, lastSyncedAt, remoteModifiedTime } }
+    inFlight: false,
+    dirtyNotebookIds: new Set(),
+    debounceTimer: null,
+    lastReport: null
+  };
+
+  function loadGdriveSyncMeta() {
+    try {
+      const raw = readLocalSetting(GDRIVE_SYNC_META_KEY, '');
+      if (!raw) return gdriveSyncState;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        if (typeof parsed.folderId === 'string') gdriveSyncState.folderId = parsed.folderId;
+        if (parsed.notebooks && typeof parsed.notebooks === 'object') {
+          gdriveSyncState.notebooks = { ...parsed.notebooks };
+        }
+      }
+    } catch (_) {}
+    return gdriveSyncState;
+  }
+
+  function saveGdriveSyncMeta() {
+    try {
+      writeLocalSetting(GDRIVE_SYNC_META_KEY, JSON.stringify({
+        folderId: gdriveSyncState.folderId || null,
+        notebooks: gdriveSyncState.notebooks || {}
+      }));
+    } catch (_) {}
+  }
+
+  function resetGdriveSyncMeta() {
+    gdriveSyncState.folderId = null;
+    gdriveSyncState.notebooks = {};
+    gdriveSyncState.dirtyNotebookIds.clear();
+    gdriveSyncState.lastReport = null;
+    if (gdriveSyncState.debounceTimer) {
+      clearTimeout(gdriveSyncState.debounceTimer);
+      gdriveSyncState.debounceTimer = null;
+    }
+    saveGdriveSyncMeta();
+  }
+
+  // Empreinte déterministe rapide (double FNV-1a 32 bits → 16 hex) sur le contenu utile d'un cahier
+  function fnv1aDualHex(str) {
+    let h1 = 0x811c9dc5;
+    let h2 = 0x9e3779b9;
+    for (let i = 0; i < str.length; i++) {
+      const c = str.charCodeAt(i);
+      h1 ^= c;
+      h1 = Math.imul(h1, 0x01000193);
+      h2 ^= (c + i) & 0xffff;
+      h2 = Math.imul(h2, 0x85ebca6b);
+    }
+    return (h1 >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0');
+  }
+
+  function serializeNotebookForDriveSync(nb, pagesList) {
+    const pages = (Array.isArray(pagesList) ? pagesList : (state.pagesByNotebook.get(nb.id) || []))
+      .slice()
+      .sort((a, b) => (a.order || 0) - (b.order || 0))
+      .map((p) => ({
+        id: p.id,
+        notebookId: nb.id,
+        order: p.order || 0,
+        title: p.title || '',
+        paperType: p.paperType || 'grid',
+        paperTone: p.paperTone || 'ivory',
+        gridSize: p.gridSize || 28,
+        viewMode: p.viewMode || 'infinite',
+        pageWidth: p.pageWidth || null,
+        pageHeight: p.pageHeight || null,
+        pdfId: p.pdfId || null,
+        pdfPageNumber: p.pdfPageNumber || null,
+        pdfWidth: p.pdfWidth || null,
+        pdfHeight: p.pdfHeight || null,
+        pdfOriginalWidth: p.pdfOriginalWidth || null,
+        pdfOriginalHeight: p.pdfOriginalHeight || null,
+        rotation: p.rotation || 0,
+        bookmarked: Boolean(p.bookmarked),
+        strokes: (p.strokes || []).map((s) => ({
+          id: s.id,
+          tool: s.tool,
+          penStyle: s.penStyle || 'fountain',
+          lineStyle: s.lineStyle || 'solid',
+          color: s.color,
+          size: s.size,
+          smoothing: s.smoothing,
+          pressureMode: s.pressureMode,
+          points: (s.points || []).map((pt) => ({
+            x: Math.round(pt.x * 100) / 100,
+            y: Math.round(pt.y * 100) / 100,
+            pressure: Math.round((pt.pressure ?? 0.5) * 1000) / 1000
+          }))
+        })),
+        shapes: (p.shapes || []).map((sh) => ({ ...sh })),
+        texts: (p.texts || []).map((tx) => ({ ...tx })),
+        tapes: (p.tapes || []).map((tp) => ({ ...tp })),
+        images: (p.images || []).map((im) => ({
+          id: im.id, x: im.x, y: im.y, width: im.width, height: im.height, src: im.src
+        }))
+      }));
+
+    return {
+      format: 'inkflow-notebook-sync-v1',
+      notebook: {
+        id: nb.id,
+        title: nb.title || 'Sans titre',
+        coverColor: nb.coverColor || '#2563eb',
+        coverStyle: nb.coverStyle || 'simple',
+        defaultPaperType: nb.defaultPaperType || 'grid',
+        folderId: nb.folderId || null,
+        starred: Boolean(nb.starred),
+        outline: Array.isArray(nb.outline) ? nb.outline : [],
+        updatedAt: nb.updatedAt || 0
+      },
+      pages
+    };
+  }
+
+  function computeNotebookContentHash(nb, pagesList) {
+    if (!nb) return '';
+    const payload = serializeNotebookForDriveSync(nb, pagesList);
+    // updatedAt exclu du hash pour que deux états au contenu strictement identique produisent le même hash
+    const canonical = {
+      ...payload,
+      notebook: { ...payload.notebook, updatedAt: 0 }
+    };
+    return fnv1aDualHex(JSON.stringify(canonical));
+  }
+
+  async function ensureGdriveInkflowSyncFolderId(actionLabel = 'Synchronisation InkFlow', fetchOpts = {}) {
+    loadGdriveSyncMeta();
+    if (gdriveSyncState.folderId) return gdriveSyncState.folderId;
+    const q = encodeURIComponent(
+      `name='${GDRIVE_SYNC_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false and 'me' in owners`
+    );
+    const listRes = await gdriveFetch(`${GDRIVE_API}/files?q=${q}&fields=files(id,name)`, {}, actionLabel, fetchOpts);
+    const listData = await listRes.json();
+    if (listData && Array.isArray(listData.files) && listData.files.length > 0) {
+      gdriveSyncState.folderId = listData.files[0].id;
+      saveGdriveSyncMeta();
+      return gdriveSyncState.folderId;
+    }
+    const createRes = await gdriveFetch(`${GDRIVE_API}/files?fields=id`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: GDRIVE_SYNC_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
+    }, actionLabel, fetchOpts);
+    const created = await createRes.json();
+    gdriveSyncState.folderId = created.id;
+    saveGdriveSyncMeta();
+    return gdriveSyncState.folderId;
+  }
+
+  async function uploadOrUpdateNotebookOnDrive(folderId, nb, pages, contentHash, existingDriveFileId, actionLabel, fetchOpts) {
+    const payload = serializeNotebookForDriveSync(nb, pages);
+    payload.contentHash = contentHash;
+    payload.syncedAt = Date.now();
+    const fileName = `inkflow-nb-${nb.id}.json`;
+    const metadata = {
+      name: fileName,
+      mimeType: 'application/json',
+      appProperties: {
+        inkflowSync: '1',
+        inkflowNbId: String(nb.id),
+        inkflowHash: String(contentHash),
+        inkflowUpdatedAt: String(nb.updatedAt || Date.now())
+      }
+    };
+    if (!existingDriveFileId) {
+      metadata.parents = [folderId];
+    }
+    const boundary = '-------inkflowsync314159265';
+    const body =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
+
+    const url = existingDriveFileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingDriveFileId)}?uploadType=multipart&fields=id,name,modifiedTime,appProperties`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime,appProperties';
+    const res = await gdriveFetch(url, {
+      method: existingDriveFileId ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body
+    }, actionLabel, fetchOpts);
+    return await res.json();
+  }
+
+  async function downloadNotebookFromDrive(driveFileId, actionLabel, fetchOpts) {
+    const res = await gdriveFetch(
+      `${GDRIVE_API}/files/${encodeURIComponent(driveFileId)}?alt=media`,
+      {},
+      actionLabel,
+      fetchOpts
+    );
+    return await res.json();
+  }
+
+  async function applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy = false } = {}) {
+    if (!remotePayload || !remotePayload.notebook || !Array.isArray(remotePayload.pages)) return null;
+    const srcNb = remotePayload.notebook;
+    const targetNbId = asConflictCopy ? createUid('nb') : srcNb.id;
+    const targetTitle = asConflictCopy ? `${srcNb.title || 'Cahier'} (conflit Drive)` : (srcNb.title || 'Cahier synchronisé');
+
+    const nbRecord = {
+      id: targetNbId,
+      title: targetTitle,
+      coverColor: srcNb.coverColor || '#2563eb',
+      coverStyle: srcNb.coverStyle || 'simple',
+      defaultPaperType: srcNb.defaultPaperType || 'grid',
+      folderId: srcNb.folderId || null,
+      starred: Boolean(srcNb.starred),
+      outline: Array.isArray(srcNb.outline) ? srcNb.outline : [],
+      createdAt: srcNb.createdAt || Date.now(),
+      updatedAt: srcNb.updatedAt || Date.now()
+    };
+
+    const existingIdx = (state.notebooks || []).findIndex((n) => n.id === targetNbId);
+    if (existingIdx >= 0) {
+      state.notebooks[existingIdx] = { ...state.notebooks[existingIdx], ...nbRecord };
+    } else {
+      state.notebooks.push(nbRecord);
+    }
+
+    const mappedPages = remotePayload.pages.map((p, idx) => ({
+      ...p,
+      id: asConflictCopy ? createUid('pg') : (p.id || createUid('pg')),
+      notebookId: targetNbId,
+      order: typeof p.order === 'number' ? p.order : idx,
+      updatedAt: p.updatedAt || Date.now()
+    }));
+
+    state.pagesByNotebook.set(targetNbId, mappedPages);
+    await db.saveNotebook(nbRecord);
+    for (const pg of mappedPages) {
+      await db.savePage(pg);
+    }
+    return { notebook: nbRecord, pages: mappedPages };
+  }
+
+  function renderGdriveIncrementalSyncSummary(report = gdriveSyncState.lastReport) {
+    const el = document.getElementById('gdriveSyncSummary');
+    if (!el) return;
+    if (!report) {
+      el.textContent = `Dossier Google Drive « ${GDRIVE_SYNC_FOLDER_NAME}/ » — synchronisation incrémentale par cahier`;
+      return;
+    }
+    const parts = [];
+    if (report.uploaded.length) parts.push(`${report.uploaded.length} envoyé${report.uploaded.length > 1 ? 's' : ''}`);
+    if (report.downloaded.length) parts.push(`${report.downloaded.length} téléchargé${report.downloaded.length > 1 ? 's' : ''}`);
+    if (report.conflicts.length) parts.push(`${report.conflicts.length} conflit${report.conflicts.length > 1 ? 's' : ''} préservé${report.conflicts.length > 1 ? 's' : ''}`);
+    if (!parts.length) parts.push('Tout est déjà à jour');
+    const timeStr = new Date(report.at || Date.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    el.textContent = `${parts.join(' · ')} (${timeStr})`;
+  }
+
+  async function syncNotebooksIncrementalWithGoogleDrive(options = {}) {
+    const auto = Boolean(options.auto);
+    const strategy = options.strategy || 'keep-both'; // 'keep-both' | 'local-wins' | 'remote-wins'
+    const actionLabel = 'Synchronisation Google Drive';
+
+    if (gdriveSyncState.inFlight) return null;
+    if (!isGdriveLinked()) {
+      if (!auto) showToast('Reliez d’abord un compte Google.', 'error');
+      return null;
+    }
+    if (!isNetworkAvailable()) {
+      gdrivePendingAutoBackup = true;
+      if (!auto) notifyNetworkRequired(actionLabel);
+      return null;
+    }
+
+    loadGdriveSyncMeta();
+    gdriveSyncState.inFlight = true;
+    const fetchOpts = { quiet: auto };
+    const report = {
+      at: Date.now(),
+      folderId: null,
+      uploaded: [],
+      downloaded: [],
+      skipped: [],
+      conflicts: []
+    };
+
+    try {
+      updateGdriveStatusUi('Synchronisation incrémentale Google Drive…', true);
+      const folderId = await ensureGdriveInkflowSyncFolderId(actionLabel, fetchOpts);
+      report.folderId = folderId;
+
+      const listQ = encodeURIComponent(
+        `'${folderId}' in parents and trashed=false and mimeType='application/json'`
+      );
+      const listRes = await gdriveFetch(
+        `${GDRIVE_API}/files?q=${listQ}&pageSize=200&fields=files(id,name,modifiedTime,appProperties)`,
+        {},
+        actionLabel,
+        fetchOpts
+      );
+      const listData = await listRes.json();
+      const remoteFiles = Array.isArray(listData && listData.files) ? listData.files : [];
+      const remoteByNbId = new Map();
+      for (const rf of remoteFiles) {
+        const props = rf.appProperties || {};
+        let nbId = props.inkflowNbId || '';
+        if (!nbId && typeof rf.name === 'string') {
+          const m = rf.name.match(/^inkflow-nb-(.+)\.json$/);
+          if (m) nbId = m[1];
+        }
+        if (nbId) remoteByNbId.set(nbId, rf);
+      }
+
+      const localNotebooks = (state.notebooks || []).filter((n) => !n.trashedAt);
+      const localById = new Map(localNotebooks.map((n) => [n.id, n]));
+      let localUiChanged = false;
+
+      // 1. Parcourt les cahiers locaux (upload incrémental, pull distant ou résolution de conflit)
+      for (const nb of localNotebooks) {
+        const pages = state.pagesByNotebook.get(nb.id) || [];
+        const localHash = computeNotebookContentHash(nb, pages);
+        const prev = gdriveSyncState.notebooks[nb.id] || null;
+        const remote = remoteByNbId.get(nb.id) || null;
+        const remoteHash = (remote && remote.appProperties && remote.appProperties.inkflowHash) || null;
+        const localChanged = !prev || prev.lastSyncedHash !== localHash;
+        const remoteChanged = Boolean(remote && (!prev || (remoteHash && remoteHash !== prev.lastSyncedHash)));
+
+        if (!remote) {
+          // Jamais présent sur Drive → création
+          const created = await uploadOrUpdateNotebookOnDrive(folderId, nb, pages, localHash, null, actionLabel, fetchOpts);
+          gdriveSyncState.notebooks[nb.id] = {
+            driveFileId: created.id,
+            lastSyncedHash: localHash,
+            lastSyncedAt: Date.now(),
+            remoteModifiedTime: created.modifiedTime || null
+          };
+          report.uploaded.push(nb.id);
+        } else if (remoteHash && remoteHash === localHash) {
+          // Déjà identique des deux côtés → 0 transfert
+          gdriveSyncState.notebooks[nb.id] = {
+            driveFileId: remote.id,
+            lastSyncedHash: localHash,
+            lastSyncedAt: Date.now(),
+            remoteModifiedTime: remote.modifiedTime || null
+          };
+          report.skipped.push(nb.id);
+        } else if (localChanged && remoteChanged) {
+          // CONFLIT détecté (modifié localement ET à distance)
+          const remotePayload = await downloadNotebookFromDrive(remote.id, actionLabel, fetchOpts);
+          if (strategy === 'remote-wins') {
+            await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: false });
+            const newPages = state.pagesByNotebook.get(nb.id) || [];
+            const appliedHash = remoteHash || computeNotebookContentHash(state.notebooks.find((n) => n.id === nb.id), newPages);
+            gdriveSyncState.notebooks[nb.id] = {
+              driveFileId: remote.id,
+              lastSyncedHash: appliedHash,
+              lastSyncedAt: Date.now(),
+              remoteModifiedTime: remote.modifiedTime || null
+            };
+            report.conflicts.push({ notebookId: nb.id, resolution: 'remote-wins' });
+            localUiChanged = true;
+          } else if (strategy === 'local-wins') {
+            const updated = await uploadOrUpdateNotebookOnDrive(folderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts);
+            gdriveSyncState.notebooks[nb.id] = {
+              driveFileId: updated.id,
+              lastSyncedHash: localHash,
+              lastSyncedAt: Date.now(),
+              remoteModifiedTime: updated.modifiedTime || null
+            };
+            report.conflicts.push({ notebookId: nb.id, resolution: 'local-wins' });
+          } else {
+            // 'keep-both' par défaut : sauvegarde une copie locale du cahier distant et pousse la version locale
+            const copyRes = await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: true });
+            const updated = await uploadOrUpdateNotebookOnDrive(folderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts);
+            gdriveSyncState.notebooks[nb.id] = {
+              driveFileId: updated.id,
+              lastSyncedHash: localHash,
+              lastSyncedAt: Date.now(),
+              remoteModifiedTime: updated.modifiedTime || null
+            };
+            report.conflicts.push({
+              notebookId: nb.id,
+              conflictCopyId: copyRes && copyRes.notebook ? copyRes.notebook.id : null,
+              resolution: 'keep-both'
+            });
+            report.uploaded.push(nb.id);
+            localUiChanged = true;
+          }
+        } else if (localChanged) {
+          // Modifié localement uniquement → PATCH en place
+          const updated = await uploadOrUpdateNotebookOnDrive(folderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts);
+          gdriveSyncState.notebooks[nb.id] = {
+            driveFileId: updated.id,
+            lastSyncedHash: localHash,
+            lastSyncedAt: Date.now(),
+            remoteModifiedTime: updated.modifiedTime || null
+          };
+          report.uploaded.push(nb.id);
+        } else if (remoteChanged) {
+          // Modifié à distance uniquement → téléchargement incrémental
+          const remotePayload = await downloadNotebookFromDrive(remote.id, actionLabel, fetchOpts);
+          const applied = await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: false });
+          if (applied) {
+            const newHash = remoteHash || computeNotebookContentHash(applied.notebook, applied.pages);
+            gdriveSyncState.notebooks[nb.id] = {
+              driveFileId: remote.id,
+              lastSyncedHash: newHash,
+              lastSyncedAt: Date.now(),
+              remoteModifiedTime: remote.modifiedTime || null
+            };
+            report.downloaded.push(nb.id);
+            localUiChanged = true;
+          }
+        } else {
+          report.skipped.push(nb.id);
+        }
+      }
+
+      // 2. Télécharge les cahiers présents uniquement sur Drive
+      for (const [remoteNbId, rf] of remoteByNbId.entries()) {
+        if (localById.has(remoteNbId)) continue;
+        const remotePayload = await downloadNotebookFromDrive(rf.id, actionLabel, fetchOpts);
+        const applied = await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: false });
+        if (applied) {
+          const newHash = (rf.appProperties && rf.appProperties.inkflowHash) || computeNotebookContentHash(applied.notebook, applied.pages);
+          gdriveSyncState.notebooks[remoteNbId] = {
+            driveFileId: rf.id,
+            lastSyncedHash: newHash,
+            lastSyncedAt: Date.now(),
+            remoteModifiedTime: rf.modifiedTime || null
+          };
+          report.downloaded.push(remoteNbId);
+          localUiChanged = true;
+        }
+      }
+
+      gdriveSyncState.dirtyNotebookIds.clear();
+      gdriveSyncState.lastReport = report;
+      saveGdriveSyncMeta();
+      state.gdriveLastSyncAt = report.at;
+      gdrivePendingAutoBackup = false;
+
+      if (localUiChanged) {
+        invalidateStaticInkCache();
+        if (typeof renderNotebooksSidebar === 'function') renderNotebooksSidebar();
+        if (typeof renderPagesSidebar === 'function') renderPagesSidebar();
+        if (typeof renderDocTabsBar === 'function') renderDocTabsBar();
+        if (typeof requestRender === 'function') requestRender();
+      }
+      renderGdriveAccountUi();
+      renderGdriveIncrementalSyncSummary(report);
+
+      if (!auto) {
+        const msg = report.conflicts.length > 0
+          ? `Synchro Drive terminée (${report.uploaded.length}↑, ${report.downloaded.length}↓, ${report.conflicts.length} conflit conservé).`
+          : `Synchro Drive terminée (${report.uploaded.length} envoyé${report.uploaded.length > 1 ? 's' : ''}, ${report.downloaded.length} téléchargé${report.downloaded.length > 1 ? 's' : ''}).`;
+        showToast(msg);
+      }
+      return report;
+    } catch (err) {
+      renderGdriveAccountUi();
+      if (err && err.code === 'NETWORK') {
+        gdrivePendingAutoBackup = true;
+        return null;
+      }
+      if (!auto) reportGdriveError(err, actionLabel);
+      return null;
+    } finally {
+      gdriveSyncState.inFlight = false;
+    }
+  }
+
+  function notifyLocalNotebookMutatedForDriveSync(notebookId) {
+    if (!notebookId) return;
+    gdriveSyncState.dirtyNotebookIds.add(notebookId);
+    if (!state.gdriveAutoBackup || !isGdriveLinked() || !isNetworkAvailable()) return;
+    if (gdriveSyncState.debounceTimer) clearTimeout(gdriveSyncState.debounceTimer);
+    gdriveSyncState.debounceTimer = setTimeout(() => {
+      gdriveSyncState.debounceTimer = null;
+      if (state.gdriveAutoBackup && isGdriveLinked() && isNetworkAvailable() && !state.isDrawing) {
+        syncNotebooksIncrementalWithGoogleDrive({ auto: true });
+      }
+    }, GDRIVE_SYNC_DEBOUNCE_MS);
+  }
+
+  // >>> MODULE: src/11-detente.js
   // ==================== PAGE DÉTENTE : JEUX ET MONNAIE INTERNE (JETONS FICTIFS UNIQUEMENT) ====================
   // Aucun argent réel, aucun achat de jetons, aucun lien externe. Le solde vit dans localStorage.
   // Les jetons servent à créer (cahier, page, import PDF) et à débloquer des personnalisations.
@@ -25044,6 +26442,10 @@
     document.getElementById('btnGdriveCancelLink')?.addEventListener('click', () => gdriveCancelLink());
     document.getElementById('btnGdriveUnlink')?.addEventListener('click', () => gdriveUnlink());
     document.getElementById('btnGdriveUseManualToken')?.addEventListener('click', () => gdriveUseManualToken());
+    document.getElementById('btnGdriveSyncIncremental')?.addEventListener('click', () => {
+      if (!requireNetwork('Synchronisation Google Drive')) return;
+      syncNotebooksIncrementalWithGoogleDrive({ auto: false });
+    });
     document.getElementById('btnGdriveBackupNow')?.addEventListener('click', () => {
       if (!requireNetwork('Sauvegarde Google Drive')) return;
       backupToGoogleDriveApiNow();
@@ -25101,10 +26503,16 @@
     document.getElementById('btnDrivePickerMore')?.addEventListener('click', () => loadDrivePickerItems({ append: true }));
     document.getElementById('btnDrivePickerImport')?.addEventListener('click', () => importSelectedDriveFiles());
 
-    // Sauvegarde automatique : différée hors connexion, relancée au retour du réseau
+    // Sauvegarde automatique : synchro incrémentale différée hors connexion, relancée au retour du réseau
     const runGdriveAutoBackupTick = () => {
       if (state.gdriveLocalDirHandle) syncToLocalDriveFolderNow();
-      else if (isGdriveLinked()) backupToGoogleDriveApiNow({ auto: true });
+      else if (isGdriveLinked()) {
+        if (typeof syncNotebooksIncrementalWithGoogleDrive === 'function') {
+          syncNotebooksIncrementalWithGoogleDrive({ auto: true });
+        } else {
+          backupToGoogleDriveApiNow({ auto: true });
+        }
+      }
     };
     const applyGdriveAutoBackup = (announce) => {
       if (gdriveAutoBackupInterval) clearInterval(gdriveAutoBackupInterval);
@@ -25125,7 +26533,13 @@
 
     onNetworkChange((available) => {
       if (!available) return;
-      if (gdrivePendingAutoBackup && state.gdriveAutoBackup && isGdriveLinked()) backupToGoogleDriveApiNow({ auto: true });
+      if (gdrivePendingAutoBackup && state.gdriveAutoBackup && isGdriveLinked()) {
+        if (typeof syncNotebooksIncrementalWithGoogleDrive === 'function') {
+          syncNotebooksIncrementalWithGoogleDrive({ auto: true });
+        } else {
+          backupToGoogleDriveApiNow({ auto: true });
+        }
+      }
       if (isDrivePickerOpen() && (drivePicker.needsReload || (!drivePicker.items.length && !drivePicker.loading))) reloadDrivePicker();
     });
 
@@ -25184,6 +26598,7 @@
     requestRender();
   }
 
+  // >>> MODULE: src/12-templates-features-split.js
   // ============================================================================
   // BIBLIOTHÈQUE DE MODÈLES DE PAGE & COUVERTURES STYLE GOODNOTES 6 (ANALYSE REA)
   // ============================================================================
@@ -26424,6 +27839,10 @@
     if (splitRenderPending) return;
     splitRenderPending = true;
     const run = () => {
+      if (state.isDrawing) {
+        setTimeout(run, 60);
+        return;
+      }
       splitRenderPending = false;
       renderSplitPane();
     };
@@ -26624,32 +28043,42 @@
     ctx.rect(0, 0, pw, ph);
     ctx.clip();
 
-    drawPaperBackground(ctx, page, pw, ph, true);
     if (page.pdfId) {
       const splitPdfScale = Math.max(1.2, Math.min(4.0, dpr * sv.zoom * (pw / Math.max(1, page.pdfOriginalWidth || pw))));
       const entry = ensurePdfPageRendered(page, splitPdfScale, false);
-      drawLockedPdfBackground(ctx, page, false);
       if (entry && entry.renderingPromise) {
         entry.renderingPromise.then(() => scheduleSplitPaneRender()).catch(() => {});
       }
     }
 
     const isDark = !page.pdfId && (page.paperTone === 'dark' || page.paperTone === 'blueprint');
-    (page.images || []).forEach((imgItem) => {
-      const imgEl = getCachedThumbnailImage(imgItem);
-      if (imgEl && typeof ctx.drawImage === 'function') {
-        try { ctx.drawImage(imgEl, imgItem.x || 0, imgItem.y || 0, imgItem.width || 240, imgItem.height || 180); } catch (_) {}
-      } else if (imgItem && imgItem.src && typeof Image !== 'undefined') {
-        const loader = new Image();
-        loader.onload = () => scheduleSplitPaneRender();
-        loader.src = imgItem.src;
+    const cachedSurface = typeof ensureSplitOffscreenPageBitmap === 'function'
+      ? ensureSplitOffscreenPageBitmap(page, pw, ph, Math.max(1, dpr * sv.zoom), isDark)
+      : null;
+
+    if (cachedSurface && typeof ctx.drawImage === 'function') {
+      ctx.drawImage(cachedSurface, 0, 0, pw, ph);
+    } else {
+      drawPaperBackground(ctx, page, pw, ph, true);
+      if (page.pdfId) {
+        drawLockedPdfBackground(ctx, page, false);
       }
-    });
-    (page.strokes || []).forEach((s) => { if (s.tool === 'highlighter') drawSingleStroke(ctx, s, isDark, false); });
-    (page.shapes || []).forEach((sh) => drawGeometricShape(ctx, sh, false, isDark));
-    (page.strokes || []).forEach((s) => { if (s.tool !== 'highlighter') drawSingleStroke(ctx, s, isDark, false); });
-    (page.tapes || []).forEach((tp) => { if (!tp.revealed) drawTapeItem(ctx, tp, false); });
-    drawTextBlocksOnCanvas(ctx, page.texts);
+      (page.images || []).forEach((imgItem) => {
+        const imgEl = getCachedThumbnailImage(imgItem);
+        if (imgEl && typeof ctx.drawImage === 'function') {
+          try { ctx.drawImage(imgEl, imgItem.x || 0, imgItem.y || 0, imgItem.width || 240, imgItem.height || 180); } catch (_) {}
+        } else if (imgItem && imgItem.src && typeof Image !== 'undefined') {
+          const loader = new Image();
+          loader.onload = () => scheduleSplitPaneRender();
+          loader.src = imgItem.src;
+        }
+      });
+      (page.strokes || []).forEach((s) => { if (s.tool === 'highlighter') drawSingleStroke(ctx, s, isDark, false); });
+      (page.shapes || []).forEach((sh) => drawGeometricShape(ctx, sh, false, isDark));
+      (page.strokes || []).forEach((s) => { if (s.tool !== 'highlighter') drawSingleStroke(ctx, s, isDark, false); });
+      (page.tapes || []).forEach((tp) => { if (!tp.revealed) drawTapeItem(ctx, tp, false); });
+      drawTextBlocksOnCanvas(ctx, page.texts);
+    }
 
     ctx.restore();
     ctx.restore();
@@ -26692,6 +28121,7 @@
     state.splitView.isPanning = false;
     splitTouchPoints.clear();
     splitIsPinching = false;
+    if (typeof releaseSplitOffscreenCache === 'function') releaseSplitOffscreenCache();
     syncSplitViewUi();
     invalidateStaticInkCache();
     requestRender();
@@ -28945,6 +30375,22 @@
       // #3 Modale recadrage d'images
       initImageCropModalEvents();
 
+      // #P3.2 Limite de pages PDF configurable & bouton Retour lien interne PDF
+      const selPdfLimit = document.getElementById('selectPdfMaxPages');
+      if (selPdfLimit && typeof getPdfMaxImportPages === 'function') {
+        selPdfLimit.value = String(getPdfMaxImportPages());
+        selPdfLimit.addEventListener('change', () => {
+          setPdfMaxImportPages(Number(selPdfLimit.value));
+        });
+      }
+      const btnPdfBack = document.getElementById('pdfLinkBackPill');
+      if (btnPdfBack && typeof navigateBackFromPdfLink === 'function') {
+        btnPdfBack.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          navigateBackFromPdfLink();
+        });
+      }
+
       // #6 Bibliothèque d'éléments réutilisables
       const btnElements = document.getElementById('btnElementsLibrary');
       const popElements = document.getElementById('elementsPopover');
@@ -29664,6 +31110,33 @@
       clonePageContent,
       applyEraserAtPoint,
       detectAndApplyScribbleToErase,
+      SpatialStrokeGrid,
+      getPageSpatialIndex,
+      invalidatePageSpatialIndex,
+      queryPageStrokesInRect,
+      queryPageStrokesAtPoint,
+      queryPageShapesInRect,
+      createOffscreenRenderSurface,
+      generatePageThumbnailAsync,
+      scheduleAsyncPageThumbnail,
+      flushAsyncThumbnailQueue,
+      getAsyncThumbnailStats,
+      ensureSplitOffscreenPageBitmap,
+      releaseSplitOffscreenCache,
+      computeNotebookContentHash,
+      syncNotebooksIncrementalWithGoogleDrive,
+      resetGdriveSyncMeta,
+      gdriveSyncState,
+      getPdfMaxImportPages,
+      setPdfMaxImportPages,
+      resolvePdfDestinationToPageNumber,
+      extractPdfOutlineTree,
+      ensurePdfOutlineLoadedForNotebook,
+      extractAndCachePdfPageLinks,
+      getCachedPdfLinksForPage,
+      findPdfLinkAtWorldPoint,
+      activatePdfLink,
+      navigateBackFromPdfLink,
       getState: () => state,
       db
     };
@@ -29681,4 +31154,5 @@
   requestRender();
   initialDbLoadPromise = loadFromIndexedDB();
   registerOfflineServiceWorker();
+
 })();

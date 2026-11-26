@@ -183,13 +183,20 @@ function createRealisticAsyncIndexedDB() {
   };
 }
 
+function resolveAppTargetPath(rootDir) {
+  const arg = process.argv.find((a) => a.startsWith('--target='));
+  const rel = arg ? arg.slice('--target='.length) : (process.env.INKFLOW_TEST_TARGET || 'app.js');
+  return path.resolve(rootDir, rel);
+}
+
 function createAppSandbox() {
   const rootDir = path.resolve(__dirname, '..');
+  const appTargetPath = resolveAppTargetPath(rootDir);
   const html = fs.readFileSync(path.join(rootDir, 'index.html'), 'utf8');
   const pdfMinCode = fs.readFileSync(path.join(rootDir, 'vendor', 'pdf.min.js'), 'utf8');
   const pdfWorkerCode = fs.readFileSync(path.join(rootDir, 'vendor', 'pdf.worker.min.js'), 'utf8');
   const pdfLibCode = fs.readFileSync(path.join(rootDir, 'vendor', 'pdf-lib.min.js'), 'utf8');
-  const appCode = fs.readFileSync(path.join(rootDir, 'app.js'), 'utf8');
+  const appCode = fs.readFileSync(appTargetPath, 'utf8');
 
   const idRegex = /id="([^"]+)"/g;
   const ids = new Set();
@@ -540,8 +547,9 @@ function createServiceWorkerSandbox() {
 }
 
 async function runTests() {
+  const targetLabel = path.relative(path.resolve(__dirname, '..'), resolveAppTargetPath(path.resolve(__dirname, '..')));
   console.log('======================================================================');
-  console.log('🧪 SUITE DE TESTS UNITAIRES & AUDIT QUALITÉ — PLUME STUDIO PRO');
+  console.log(`🧪 SUITE DE TESTS UNITAIRES & AUDIT QUALITÉ — INKFLOW (${targetLabel})`);
   console.log('======================================================================');
 
   const sandbox = createAppSandbox();
@@ -1981,6 +1989,258 @@ async function runTests() {
     api.clearGdriveSession();
     delete sandbox.fetch;
     return 'PKCE RFC 7636, URL OAuth, 7 types de fichiers, 6 formes de requête Drive, raccourcis, renouvellement du jeton sur 401, déliaison sur invalid_grant, refus hors connexion sans requête et détection d’une panne réseau vérifiés.';
+  });
+
+  // ------------------------------------------------------------------------
+  // TEST 12 : Indexation spatiale 2D (5 000 traits en O(k)) & OffscreenCanvas asynchrone
+  // ------------------------------------------------------------------------
+  await runStep('Test 12 : Indexation spatiale 2D (5 000 traits en O(k)) & rendu asynchrone OffscreenCanvas (miniatures + Split View)', async () => {
+    const nbRes = await api.createNotebookProgrammatically('Test Spatial 5000', '#2563eb', 'grid');
+    const page = nbRes.firstPage;
+    // Génère 5 000 traits répartis sur une grande page infinie (50x100 grille de 120 px)
+    const strokes = [];
+    for (let i = 0; i < 5000; i++) {
+      const gx = (i % 50) * 120;
+      const gy = Math.floor(i / 50) * 120;
+      strokes.push({
+        id: `sp_${i}`,
+        tool: 'pen',
+        penStyle: 'fountain',
+        color: '#1e293b',
+        size: 3,
+        points: [
+          { x: gx + 10, y: gy + 10, pressure: 0.5 },
+          { x: gx + 55, y: gy + 45, pressure: 0.6 }
+        ]
+      });
+    }
+    page.strokes = strokes;
+    api.invalidatePageSpatialIndex(page);
+
+    // Construit l'index une fois puis mesure 200 requêtes Gomme & Viewport en O(k)
+    const grid = api.getPageSpatialIndex(page);
+    assert.ok(grid && grid.strokeCount === 5000, 'La grille spatiale doit indexer les 5 000 traits');
+
+    const t0 = performance.now();
+    let totalHits = 0;
+    for (let q = 0; q < 200; q++) {
+      const hits = api.queryPageStrokesAtPoint(page, 250 + (q % 10) * 12, 250, 24);
+      totalHits += hits.length;
+    }
+    const avgQueryMs = (performance.now() - t0) / 200;
+    assert.ok(totalHits > 0 && totalHits / 200 < 40, `Requête ponctuelle doit retourner un petit sous-ensemble (moy=${(totalHits / 200).toFixed(1)} sur 5000)`);
+    assert.ok(avgQueryMs < 2.0, `Requête spatiale O(k) trop lente : ${avgQueryMs.toFixed(3)} ms`);
+
+    // Viewport culling O(k) sur une fenêtre 400×400
+    const vpHits = api.queryPageStrokesInRect(page, 0, 0, 380, 380, true);
+    assert.ok(vpHits.length >= 9 && vpHits.length <= 36, `Viewport culling doit ne retenir que les cellules visibles (${vpHits.length})`);
+
+    // Gomme via index spatial
+    const st = api.getState();
+    st.eraserMode = 'stroke';
+    st.eraserSize = 22;
+    api.applyEraserAtPoint(30, 25);
+    assert.ok(page.strokes.length < 5000, 'La gomme doit effacer le trait ciblé via index spatial');
+
+    // Miniatures asynchrones non-bloquantes + Split View cache OffscreenCanvas
+    page.thumbnail = null;
+    const queued = api.scheduleAsyncPageThumbnail(page, { priority: 'high' });
+    assert.equal(queued, true, 'La miniature doit être mise en file asynchrone');
+    await api.flushAsyncThumbnailQueue();
+    assert.ok(typeof page.thumbnail === 'string' && page.thumbnail.startsWith('data:image/'), 'La miniature asynchrone doit être générée');
+
+    const splitSurf = api.ensureSplitOffscreenPageBitmap(page, 800, 1000, 1.0, false);
+    assert.ok(splitSurf, 'Le cache OffscreenCanvas Split View doit être prêt');
+    api.releaseSplitOffscreenCache();
+
+    await api.deleteNotebookById(nbRes.notebook.id);
+    return `5 000 traits indexés : requête gomme O(k)=${avgQueryMs.toFixed(3)}ms (${(totalHits / 200).toFixed(1)} candidats/5000), viewport=${vpHits.length} traits, file miniatures async + cache Split View OK.`;
+  });
+
+  // ------------------------------------------------------------------------
+  // TEST 13 : Synchronisation incrémentale Google Drive (hash, PATCH, pull, conflit keep-both)
+  // ------------------------------------------------------------------------
+  await runStep('Test 13 : Synchronisation incrémentale Google Drive (dossier InkFlow/, hash, conflit sans perte)', async () => {
+    const nbRes = await api.createNotebookProgrammatically('Cours Physique Sync', '#0ea5e9', 'grid');
+    const nb = nbRes.notebook;
+    const pg = nbRes.firstPage;
+    pg.strokes.push({ id: 'sync_st1', tool: 'pen', color: '#0f172a', size: 4, points: [{ x: 10, y: 10, pressure: 0.5 }, { x: 80, y: 40, pressure: 0.6 }] });
+
+    const hash1 = api.computeNotebookContentHash(nb, [pg]);
+    const hash1Repeat = api.computeNotebookContentHash(nb, [pg]);
+    assert.equal(hash1, hash1Repeat, 'Le hash de contenu doit être déterministe');
+
+    // Mock Google Drive API en mémoire
+    const mockDrive = {
+      folderId: 'fld_inkflow_01',
+      files: new Map(), // fileId -> { id, name, modifiedTime, appProperties, body }
+      nextId: 1,
+      uploads: 0,
+      patches: 0,
+      downloads: 0
+    };
+    api.resetGdriveSyncMeta();
+    api.setNetworkState({ online: true, unreachable: false });
+    api.storeGdriveTokens({ access_token: 'ya29.sync_ok', expires_in: 3600, refresh_token: '1//r' });
+
+    sandbox.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      const method = (opts.method || 'GET').toUpperCase();
+      if (u.includes('/drive/v3/files?') && method === 'GET' && u.includes('mimeType%3D%27application%2Fvnd.google-apps.folder%27')) {
+        return { ok: true, status: 200, json: async () => ({ files: [{ id: mockDrive.folderId, name: 'InkFlow' }] }) };
+      }
+      if (u.includes('/drive/v3/files?') && method === 'GET') {
+        const list = Array.from(mockDrive.files.values()).map(({ id, name, modifiedTime, appProperties }) => ({ id, name, modifiedTime, appProperties }));
+        return { ok: true, status: 200, json: async () => ({ files: list }) };
+      }
+      if (u.includes('/upload/drive/v3/files') && (method === 'POST' || method === 'PATCH')) {
+        const bodyStr = String(opts.body || '');
+        const parts = bodyStr.split('\r\n\r\n');
+        const metaPart = JSON.parse(parts[1].split('\r\n--')[0]);
+        const payloadPart = JSON.parse(parts[2].split('\r\n--')[0]);
+        let fileId;
+        if (method === 'PATCH') {
+          const m = u.match(/\/files\/([^?]+)/);
+          fileId = decodeURIComponent(m[1]);
+          mockDrive.patches++;
+        } else {
+          fileId = `drv_file_${mockDrive.nextId++}`;
+          mockDrive.uploads++;
+        }
+        const rec = {
+          id: fileId,
+          name: metaPart.name,
+          modifiedTime: new Date().toISOString(),
+          appProperties: metaPart.appProperties || {},
+          body: payloadPart
+        };
+        mockDrive.files.set(fileId, rec);
+        return { ok: true, status: 200, json: async () => rec };
+      }
+      if (u.includes('alt=media') && method === 'GET') {
+        const m = u.match(/\/files\/([^?]+)/);
+        const fileId = decodeURIComponent(m[1]);
+        const rec = mockDrive.files.get(fileId);
+        mockDrive.downloads++;
+        return { ok: true, status: 200, json: async () => rec.body };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+
+    try {
+      // 1re synchro : upload initial de tous les cahiers
+      const r1 = await api.syncNotebooksIncrementalWithGoogleDrive({ auto: true });
+      assert.ok(r1 && r1.uploaded.includes(nb.id), 'Le cahier doit être envoyé à la première synchro');
+
+      // 2e synchro sans modification : 0 upload, 0 patch (incrémental pur)
+      const upBefore = mockDrive.uploads + mockDrive.patches;
+      const r2 = await api.syncNotebooksIncrementalWithGoogleDrive({ auto: true });
+      assert.equal(mockDrive.uploads + mockDrive.patches, upBefore, 'Aucun transfert si rien n’a changé');
+      assert.ok(r2.skipped.includes(nb.id), 'Le cahier inchangé doit être ignoré');
+
+      // 3e synchro après modification locale : PATCH en place sur Drive
+      pg.strokes.push({ id: 'sync_st2', tool: 'pen', color: '#dc2626', size: 3, points: [{ x: 20, y: 20, pressure: 0.5 }, { x: 90, y: 60, pressure: 0.6 }] });
+      const r3 = await api.syncNotebooksIncrementalWithGoogleDrive({ auto: true });
+      assert.ok(r3.uploaded.includes(nb.id), 'Le cahier modifié localement doit être mis à jour');
+      assert.equal(mockDrive.patches, 1, 'La mise à jour doit utiliser PATCH en place');
+
+      // 4e synchro : CONFLIT simultané (local modifié + distant modifié) → stratégie keep-both
+      pg.strokes.push({ id: 'sync_local_only', tool: 'pen', color: '#16a34a', size: 3, points: [{ x: 30, y: 30, pressure: 0.5 }, { x: 100, y: 70, pressure: 0.6 }] });
+      const driveRec = Array.from(mockDrive.files.values()).find((f) => f.appProperties.inkflowNbId === nb.id);
+      driveRec.appProperties.inkflowHash = 'remote_diverged_hash_999';
+      driveRec.body.notebook.title = 'Cours Physique (Version Autre PC)';
+      const nbCountBeforeConflict = api.getState().notebooks.length;
+      const r4 = await api.syncNotebooksIncrementalWithGoogleDrive({ auto: true, strategy: 'keep-both' });
+      assert.equal(r4.conflicts.length, 1, 'Le conflit simultané doit être détecté');
+      assert.equal(api.getState().notebooks.length, nbCountBeforeConflict + 1, 'Une copie locale de conflit doit être préservée sans perte');
+      const conflictCopyId = r4.conflicts[0].conflictCopyId;
+      if (conflictCopyId) await api.deleteNotebookById(conflictCopyId);
+    } finally {
+      api.clearGdriveSession();
+      api.resetGdriveSyncMeta();
+      delete sandbox.fetch;
+      await api.deleteNotebookById(nb.id);
+    }
+    return 'Dossier InkFlow/, hash déterministe, 0 transfert si inchangé, PATCH incrémental et détection de conflit keep-both (zéro perte) vérifiés.';
+  });
+
+  // ------------------------------------------------------------------------
+  // TEST 14 : Sommaire PDF (getOutline), liens internes (getAnnotations) & limite de pages configurable
+  // ------------------------------------------------------------------------
+  await runStep('Test 14 : Sommaire PDF cliquable (getOutline), liens internes (getAnnotations) et limite configurable', async () => {
+    const nbRes = await api.createNotebookProgrammatically('Cours PDF Sommaire', '#dc2626', 'blank');
+    const nb = nbRes.notebook;
+    const p1 = nbRes.firstPage;
+    p1.pdfId = 'pdf_links_mock';
+    p1.pdfPageNumber = 1;
+    p1.pdfWidth = 600;
+    p1.pdfHeight = 800;
+    const p2 = await api.addNewPageToActiveNotebook({ paperType: 'blank' });
+    p2.pdfId = 'pdf_links_mock';
+    p2.pdfPageNumber = 2;
+    p2.pdfWidth = 600;
+    p2.pdfHeight = 800;
+    nb.pdfId = 'pdf_links_mock';
+
+    // Mock PDFDocumentProxy avec getOutline(), getDestination(), getPageIndex() et getAnnotations()
+    const refP1 = { num: 10, gen: 0 };
+    const refP2 = { num: 20, gen: 0 };
+    const mockPdfDoc = {
+      getOutline: async () => [
+        {
+          title: 'Chapitre 1 : Analyse',
+          dest: [refP1, { name: 'Fit' }],
+          items: [
+            { title: '1.1 Théorème (p.2)', dest: 'dest_chap_2', items: [] }
+          ]
+        }
+      ],
+      getDestination: async (name) => (name === 'dest_chap_2' ? [refP2, { name: 'Fit' }] : null),
+      getPageIndex: async (ref) => (ref === refP2 ? 1 : 0)
+    };
+
+    const outline = await api.extractPdfOutlineTree(mockPdfDoc, [p1, p2]);
+    assert.equal(outline.length, 2, 'La table des matières hiérarchique doit extraire les 2 entrées');
+    assert.equal(outline[0].level, 1);
+    assert.equal(outline[0].pageNumber, 1);
+    assert.equal(outline[1].level, 2);
+    assert.equal(outline[1].pageNumber, 2);
+    assert.equal(outline[1].pageId, p2.id);
+
+    // Extraction d'un lien interne sur la page 1 pointant vers la page 2
+    const mockPdfPage1 = {
+      getViewport: () => ({ width: 600, height: 800 }),
+      getAnnotations: async () => [
+        { subtype: 'Link', rect: [50, 700, 250, 740], dest: 'dest_chap_2' }
+      ]
+    };
+    const links = await api.extractAndCachePdfPageLinks(mockPdfDoc, mockPdfPage1, p1);
+    assert.equal(links.length, 1, 'Le lien interne PDF doit être extrait et mis en cache');
+    assert.equal(links[0].targetPageNumber, 2);
+
+    // Hit-test et navigation aller-retour
+    api.selectPage(p1.id);
+    const hit = api.findPdfLinkAtWorldPoint(p1, 120, 80); // y = 800 - 740 = 60 .. 100
+    assert.ok(hit && hit.targetPageNumber === 2, 'Le hit-test sur le rectangle du lien doit réussir');
+    assert.equal(api.activatePdfLink(hit, p1), true);
+    assert.equal(api.getActivePage().id, p2.id, 'Le clic sur le lien doit sauter à la page 2');
+    assert.equal(api.navigateBackFromPdfLink(), true);
+    assert.equal(api.getActivePage().id, p1.id, 'Le bouton retour doit revenir à la page 1');
+
+    // Limite de pages configurable : 100 par défaut → 250 accepte un PDF de 105 pages !
+    assert.equal(api.getPdfMaxImportPages(), 100);
+    api.setPdfMaxImportPages(250);
+    assert.equal(api.getPdfMaxImportPages(), 250);
+    const pdf105 = await sandbox.PDFLib.PDFDocument.create();
+    for (let i = 0; i < 105; i++) pdf105.addPage();
+    const bytes105 = await pdf105.save();
+    const imported105 = await api.importPdfFromBuffer(bytes105, 'Cours-105-Configurable.pdf', 'new-notebook');
+    assert.equal(imported105.pages.length, 105, 'Avec limite à 250, un PDF de 105 pages doit s’importer via Lazy Loading');
+
+    await api.deleteNotebookById(imported105.notebook.id);
+    await api.deleteNotebookById(nb.id);
+    api.setPdfMaxImportPages(100);
+    return 'Sommaire PDF hiérarchique (2 niveaux), liens internes (hit-test + saut + retour p.1) et limite configurable (105 pages importées à 250 max) vérifiés.';
   });
 
   console.log('======================================================================');
