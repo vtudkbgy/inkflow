@@ -14337,6 +14337,10 @@ svg.bj-card.back .card-hatch {
   color: var(--accent-primary, #0072ce);
 }
 
+.pdf-link-back-pill.hidden {
+  display: none !important;
+}
+
 .gdrive-sync-summary {
   font-size: 11.5px;
   color: var(--text-secondary);
