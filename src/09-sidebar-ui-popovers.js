@@ -742,6 +742,7 @@
           </div>
           <div class="notebook-actions">
             <button class="icon-btn-tiny${nb.starred ? ' starred' : ''}" data-action="star-nb" title="Favori">${nb.starred ? '★' : '☆'}</button>
+            <button class="icon-btn-tiny${nb.driveTarget ? ' has-drive-target' : ''}" data-action="drive-target-nb" title="${escapeHtml(typeof describeNotebookDriveTarget === 'function' ? `Google Drive : ${describeNotebookDriveTarget(nb)}` : 'Choisir le fichier Google Drive')}">☁</button>
             <button class="icon-btn-tiny" data-action="move-nb" title="Déplacer dans un dossier">📁</button>
             <button class="icon-btn-tiny" data-action="rename-nb" title="Renommer">✎</button>
             ${nonTrashedCount > 1 ? `<button class="icon-btn-tiny danger" data-action="delete-nb" title="Mettre à la corbeille">✕</button>` : ''}
@@ -773,6 +774,8 @@
             nb.updatedAt = Date.now();
             db.saveNotebook(nb);
             renderNotebooksSidebar();
+          } else if (btn.dataset.action === 'drive-target-nb') {
+            if (typeof promptNotebookDriveTarget === 'function') promptNotebookDriveTarget(nb);
           } else if (btn.dataset.action === 'move-nb') {
             openMoveNotebookModal(nb);
           } else if (btn.dataset.action === 'rename-nb') {
@@ -1223,6 +1226,9 @@
       id: nbId,
       title: cleanTitle,
       folderId: state.currentFolderId || null,
+      driveTarget: (templatePageOrOptions && templatePageOrOptions.driveTarget)
+        ? normalizeNotebookDriveTarget(templatePageOrOptions.driveTarget, cleanTitle)
+        : undefined,
       starred: false,
       coverColor: coverColor || '#1d4ed8',
       coverTemplateId: (templatePageOrOptions && templatePageOrOptions.coverTemplateId) || undefined,
@@ -5517,9 +5523,43 @@
     const openNewNotebookModal = () => {
       if (dom.inputNotebookName) dom.inputNotebookName.value = '';
       if (typeof updateNewNotebookPaperPreview === 'function') updateNewNotebookPaperPreview();
+      if (typeof prepareNewNotebookDriveTargetUi === 'function') prepareNewNotebookDriveTargetUi();
       if (dom.modalNewNotebook) dom.modalNewNotebook.classList.remove('hidden');
     };
     dom.btnNewNotebook.addEventListener('click', openNewNotebookModal);
+    if (dom.inputNotebookName) {
+      dom.inputNotebookName.addEventListener('input', () => {
+        if (typeof refreshNewNotebookDriveTargetUi === 'function') refreshNewNotebookDriveTargetUi();
+      });
+    }
+    const btnPickNewNbDrive = document.getElementById('btnPickNewNotebookDriveTarget');
+    if (btnPickNewNbDrive) {
+      btnPickNewNbDrive.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const curTitle = (dom.inputNotebookName && dom.inputNotebookName.value.trim()) || `Cahier ${state.notebooks.length + 1}`;
+        const cur = state.newNotebookDriveTarget;
+        openDriveTargetPicker({
+          pickerTitle: 'Choisir le fichier Google Drive du nouveau cahier',
+          notebookTitle: curTitle,
+          defaultFileName: (cur && !cur.autoFileName && cur.fileName) ? cur.fileName : sanitizeDriveNotebookFilename('', curTitle),
+          initialFolderId: cur ? cur.folderId : null,
+          initialFolderPath: cur ? cur.folderPath : '',
+          onSelect: (picked) => {
+            if (!picked) return;
+            state.newNotebookDriveTarget = { ...picked, autoFileName: false };
+            refreshNewNotebookDriveTargetUi();
+          }
+        });
+      });
+    }
+    const btnClearNewNbDrive = document.getElementById('btnClearNewNotebookDriveTarget');
+    if (btnClearNewNbDrive) {
+      btnClearNewNbDrive.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        state.newNotebookDriveTarget = null;
+        if (typeof refreshNewNotebookDriveTargetUi === 'function') refreshNewNotebookDriveTargetUi();
+      });
+    }
     const closeNb = () => {
       closeGnColorPopover();
       dom.modalNewNotebook.classList.add('hidden');
@@ -5588,6 +5628,10 @@
       const tpl = state.newNotebookTemplate || {};
       const paperType = (dom.selectDefaultPaper && dom.selectDefaultPaper.value) || tpl.paperType || 'grid';
       const dims = getPageDimensionsForSizeAndOrientation(tpl.sizeId || 'goodnotes_standard', tpl.orientation || 'portrait');
+      let chosenDriveTarget = state.newNotebookDriveTarget ? { ...state.newNotebookDriveTarget } : null;
+      if (chosenDriveTarget && chosenDriveTarget.mode === 'folder' && chosenDriveTarget.autoFileName) {
+        chosenDriveTarget.fileName = sanitizeDriveNotebookFilename('', title);
+      }
       const templateOptions = {
         paperType,
         paperTone: tpl.paperTone === 'all' ? 'white' : (tpl.paperTone || 'white'),
@@ -5600,10 +5644,27 @@
         templateLanguage: tpl.language || 'fr',
         customTemplateDataUrl: tpl.customTemplateDataUrl || null,
         coverTemplateId: tpl.coverTemplateId || undefined,
-        coverCustomDataUrl: tpl.coverCustomDataUrl || null
+        coverCustomDataUrl: tpl.coverCustomDataUrl || null,
+        driveTarget: chosenDriveTarget || undefined
       };
+      state.newNotebookDriveTarget = null;
       closeNb();
       const created = await paidCreateNotebook(title, paperType, state.newNotebookCover, templateOptions);
+      if (created && created.notebook) {
+        if (chosenDriveTarget && chosenDriveTarget.folderId && created.notebook.folderId) {
+          const parentFld = (state.folders || []).find((f) => f.id === created.notebook.folderId);
+          if (parentFld && !parentFld.driveDefaultFolder) {
+            parentFld.driveDefaultFolder = {
+              folderId: chosenDriveTarget.folderId,
+              folderPath: chosenDriveTarget.folderPath || 'Mon Drive'
+            };
+            db.saveFolders(state.folders).catch(() => {});
+          }
+        }
+        if (created.notebook.driveTarget && isGdriveLinked() && isNetworkAvailable() && typeof syncSingleNotebookWithGoogleDrive === 'function') {
+          syncSingleNotebookWithGoogleDrive(created.notebook.id, { auto: true }).catch(() => {});
+        }
+      }
       if (created && state.filesPageOpen && typeof closeFilesPage === 'function') {
         closeFilesPage();
       }

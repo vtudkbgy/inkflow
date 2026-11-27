@@ -2783,6 +2783,7 @@
         if (act === 'notebook') {
           if (dom.inputNotebookName) dom.inputNotebookName.value = '';
           if (typeof updateNewNotebookPaperPreview === 'function') updateNewNotebookPaperPreview();
+          if (typeof prepareNewNotebookDriveTargetUi === 'function') prepareNewNotebookDriveTargetUi();
           if (dom.modalNewNotebook) dom.modalNewNotebook.classList.remove('hidden');
         } else if (act === 'folder') {
           openFolderCustomizeModal(null);
@@ -3363,7 +3364,14 @@
       });
     }
     document.getElementById('btnDrivePickerMore')?.addEventListener('click', () => loadDrivePickerItems({ append: true }));
-    document.getElementById('btnDrivePickerImport')?.addEventListener('click', () => importSelectedDriveFiles());
+    document.getElementById('btnDrivePickerNewFolder')?.addEventListener('click', () => createNewFolderInDrivePicker());
+    document.getElementById('btnDrivePickerImport')?.addEventListener('click', () => {
+      if (drivePicker.mode === 'target' || drivePicker.mode === 'target-folder') {
+        confirmDriveTargetPickerSelection();
+      } else {
+        importSelectedDriveFiles();
+      }
+    });
 
     // Sauvegarde automatique : synchro incrémentale différée hors connexion, relancée au retour du réseau
     const runGdriveAutoBackupTick = () => {

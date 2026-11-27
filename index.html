@@ -2507,6 +2507,22 @@
           </span>
         </button>
       </div>
+      <div class="form-field" id="newNotebookDriveTargetField">
+        <label>Fichier Google Drive (synchronisation)</label>
+        <div class="new-nb-drive-target-row">
+          <button type="button" id="btnPickNewNotebookDriveTarget" class="new-nb-drive-target-btn" title="Choisir précisément le dossier ou le fichier Google Drive dans lequel ce cahier sera synchronisé">
+            <svg class="new-nb-drive-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+            </svg>
+            <span class="new-nb-drive-info">
+              <span class="new-nb-drive-title" id="newNotebookDriveTargetTitle">Emplacement automatique (InkFlow/)</span>
+              <span class="new-nb-drive-sub" id="newNotebookDriveTargetSub">Cliquez pour cibler un dossier ou un fichier Drive précis</span>
+            </span>
+            <span class="new-nb-paper-action">Choisir…</span>
+          </button>
+          <button type="button" id="btnClearNewNotebookDriveTarget" class="icon-btn-tiny hidden" title="Revenir à l'emplacement automatique" aria-label="Réinitialiser l'emplacement Drive">✕</button>
+        </div>
+      </div>
       <p class="detente-cost-hint" id="newNotebookCostHint"></p>
       <div class="modal-actions">
         <button class="btn-secondary" id="btnCancelNotebookModal">Annuler</button>
@@ -2822,13 +2838,14 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
               <input type="search" id="drivePickerSearch" placeholder="Rechercher dans Drive" aria-label="Rechercher dans Google Drive" autocomplete="off" spellcheck="false" />
             </div>
-            <div class="drive-filter-chips" role="radiogroup" aria-label="Type de fichier">
+            <div class="drive-filter-chips" id="drivePickerFilterChips" role="radiogroup" aria-label="Type de fichier">
               <button class="drive-chip active" type="button" data-drive-filter="all" role="radio" aria-checked="true">Tout</button>
               <button class="drive-chip" type="button" data-drive-filter="pdf" role="radio" aria-checked="false">PDF</button>
               <button class="drive-chip" type="button" data-drive-filter="image" role="radio" aria-checked="false">Images</button>
               <button class="drive-chip" type="button" data-drive-filter="gdoc" role="radio" aria-checked="false">Docs Google</button>
               <button class="drive-chip" type="button" data-drive-filter="backup" role="radio" aria-checked="false">Sauvegardes</button>
             </div>
+            <button class="cloud-btn-secondary cloud-btn-compact hidden" id="btnDrivePickerNewFolder" type="button" title="Créer un nouveau dossier ici sur Google Drive">+ Dossier Drive</button>
           </div>
           <div class="drive-breadcrumb" id="drivePickerBreadcrumb" aria-label="Chemin"></div>
           <div class="net-inline-banner hidden" id="drivePickerOfflineBanner" role="status">
@@ -2853,6 +2870,10 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
 
       <footer class="drive-picker-foot">
         <div class="drive-picker-selection" id="drivePickerSelection">Sélectionnez un ou plusieurs fichiers</div>
+        <div class="drive-target-filename-wrap hidden" id="driveTargetFilenameWrap">
+          <label for="driveTargetFilenameInput">Fichier :</label>
+          <input type="text" id="driveTargetFilenameInput" class="cloud-input drive-target-filename-input" placeholder="Mon-Cahier.inkflow.json" spellcheck="false" autocomplete="off" />
+        </div>
         <label class="drive-pdf-target hidden" id="drivePdfTargetWrap">
           <span>PDF vers</span>
           <select id="drivePdfTarget">

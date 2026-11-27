@@ -940,6 +940,7 @@
   };
 
   const drivePicker = {
+    mode: 'import', // 'import' | 'target' | 'target-folder'
     view: 'root',
     stack: [],
     filter: 'all',
@@ -952,8 +953,27 @@
     importing: false,
     error: '',
     needsReload: false,
-    searchTimer: null
+    searchTimer: null,
+    onTargetSelect: null,
+    defaultTargetFileName: ''
   };
+
+  function sanitizeDriveNotebookFilename(rawName, fallbackTitle = 'Cahier') {
+    let base = String(rawName || '').trim();
+    if (!base) base = String(fallbackTitle || 'Cahier').trim() || 'Cahier';
+    base = base.replace(/[<>:"/\\|?*\x00-\x1f]+/g, '-').replace(/\s+/g, ' ').trim();
+    if (!/\.json$/i.test(base)) {
+      base = `${base}.inkflow.json`;
+    }
+    return base;
+  }
+
+  function getDrivePickerBreadcrumbPath() {
+    if (!Array.isArray(drivePicker.stack) || drivePicker.stack.length === 0) {
+      return DRIVE_VIEW_LABELS[drivePicker.view] || 'Mon Drive';
+    }
+    return drivePicker.stack.map((s) => s.name).join(' / ');
+  }
 
   function getDriveImportKind(mime, name = '') {
     const m = String(mime || '').toLowerCase();
@@ -1019,7 +1039,11 @@
     }
     const name = String(raw.name || 'Sans titre');
     if (mime === DRIVE_FOLDER_MIME) return { id, name, isFolder: true, isShortcut };
-    const kind = getDriveImportKind(mime, name);
+    if (drivePicker.mode === 'target-folder') return null;
+    let kind = getDriveImportKind(mime, name);
+    if (!kind && drivePicker.mode === 'target' && (mime === 'application/json' || /\.json$/i.test(name))) {
+      kind = 'backup';
+    }
     if (!kind) return null;
     if (filter !== 'all' && filter !== kind) return null;
     return {
@@ -1050,17 +1074,43 @@
       showToast('Reliez d’abord un compte Google pour parcourir Drive.', 'error');
       return;
     }
+    drivePicker.mode = options.mode || 'import';
+    drivePicker.onTargetSelect = typeof options.onSelect === 'function' ? options.onSelect : null;
     drivePicker.view = 'root';
-    drivePicker.stack = [{ id: 'root', name: DRIVE_VIEW_LABELS.root }];
-    drivePicker.filter = options.filter || 'all';
+    if (options.initialFolderId && options.initialFolderId !== 'root') {
+      const crumbs = String(options.initialFolderPath || 'Dossier choisi').split(' / ').filter(Boolean);
+      const leafName = crumbs[crumbs.length - 1] || 'Dossier choisi';
+      drivePicker.stack = [
+        { id: 'root', name: DRIVE_VIEW_LABELS.root },
+        { id: options.initialFolderId, name: leafName }
+      ];
+    } else {
+      drivePicker.stack = [{ id: 'root', name: DRIVE_VIEW_LABELS.root }];
+    }
+    drivePicker.filter = drivePicker.mode === 'import' ? (options.filter || 'all') : 'backup';
     drivePicker.search = '';
     drivePicker.items = [];
     drivePicker.nextPageToken = null;
     drivePicker.selected.clear();
     drivePicker.error = '';
     drivePicker.openedFrom = options.from || null;
+    drivePicker.defaultTargetFileName = sanitizeDriveNotebookFilename(options.defaultFileName || '', options.notebookTitle || 'Cahier');
     const search = document.getElementById('drivePickerSearch');
     if (search) search.value = '';
+    const fnInput = document.getElementById('driveTargetFilenameInput');
+    if (fnInput) fnInput.value = drivePicker.defaultTargetFileName;
+    const titleEl = document.getElementById('drivePickerTitle');
+    if (titleEl) {
+      if (drivePicker.mode === 'target') titleEl.textContent = options.pickerTitle || 'Choisir le fichier Google Drive du cahier';
+      else if (drivePicker.mode === 'target-folder') titleEl.textContent = options.pickerTitle || 'Choisir le dossier Google Drive par défaut';
+      else titleEl.textContent = 'Importer depuis Google Drive';
+    }
+    const filterWrap = document.getElementById('drivePickerFilterChips');
+    if (filterWrap) filterWrap.classList.toggle('hidden', drivePicker.mode !== 'import');
+    const newFldBtn = document.getElementById('btnDrivePickerNewFolder');
+    if (newFldBtn) newFldBtn.classList.toggle('hidden', drivePicker.mode === 'import');
+    const fnWrap = document.getElementById('driveTargetFilenameWrap');
+    if (fnWrap) fnWrap.classList.toggle('hidden', drivePicker.mode !== 'target');
     syncDrivePickerChrome();
     modal.classList.remove('hidden');
     renderGdriveAccountUi();
@@ -1072,6 +1122,79 @@
       return;
     }
     loadDrivePickerItems();
+  }
+
+  function openDriveTargetPicker(options = {}) {
+    return openDrivePicker({
+      ...options,
+      mode: options.folderOnly ? 'target-folder' : 'target'
+    });
+  }
+
+  async function createNewFolderInDrivePicker() {
+    if (!requireNetwork('Créer un dossier Google Drive')) return null;
+    const rawName = typeof window.prompt === 'function' ? window.prompt('Nom du nouveau dossier Google Drive :', 'Mes cahiers InkFlow') : '';
+    const cleanName = String(rawName || '').trim();
+    if (!cleanName) return null;
+    const parentId = getDriveCurrentFolderId() || 'root';
+    try {
+      const body = {
+        name: cleanName,
+        mimeType: DRIVE_FOLDER_MIME
+      };
+      if (parentId && parentId !== 'root') body.parents = [parentId];
+      const res = await gdriveFetch(`${GDRIVE_API}/files?fields=id,name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }, 'Créer un dossier Google Drive');
+      const created = await res.json();
+      if (created && created.id) {
+        drivePicker.view = 'root';
+        drivePicker.stack = drivePicker.stack.concat([{ id: created.id, name: created.name || cleanName }]);
+        reloadDrivePicker();
+        showToast(`Dossier Drive « ${created.name || cleanName} » créé.`);
+        return created;
+      }
+    } catch (err) {
+      reportGdriveError(err, 'Création dossier Drive');
+    }
+    return null;
+  }
+
+  function confirmDriveTargetPickerSelection() {
+    const cb = drivePicker.onTargetSelect;
+    const folderId = getDriveCurrentFolderId() || 'root';
+    const folderPath = getDrivePickerBreadcrumbPath();
+    if (drivePicker.mode === 'target-folder') {
+      const result = { folderId, folderPath };
+      closeDrivePicker();
+      if (typeof cb === 'function') cb(result);
+      return;
+    }
+    const sel = Array.from(drivePicker.selected.values());
+    let target;
+    if (sel.length > 0 && !sel[0].isFolder) {
+      target = {
+        mode: 'file',
+        fileId: sel[0].id,
+        fileName: sel[0].name,
+        folderId,
+        folderPath
+      };
+    } else {
+      const fnInput = document.getElementById('driveTargetFilenameInput');
+      const fileName = sanitizeDriveNotebookFilename(fnInput ? fnInput.value : '', drivePicker.defaultTargetFileName);
+      target = {
+        mode: 'folder',
+        fileId: null,
+        fileName,
+        folderId,
+        folderPath
+      };
+    }
+    closeDrivePicker();
+    if (typeof cb === 'function') cb(target);
   }
 
   function closeDrivePicker() {
@@ -1356,6 +1479,23 @@
 
     card.addEventListener('click', () => {
       if (drivePicker.importing) return;
+      if (drivePicker.mode === 'target') {
+        const wasSel = drivePicker.selected.has(file.id);
+        drivePicker.selected.clear();
+        if (typeof document.querySelectorAll === 'function') {
+          document.querySelectorAll('#drivePickerGrid .drive-card.is-selected').forEach((el) => {
+            el.classList.remove('is-selected');
+            el.setAttribute('aria-selected', 'false');
+          });
+        }
+        if (!wasSel) {
+          drivePicker.selected.set(file.id, file);
+          card.classList.add('is-selected');
+          card.setAttribute('aria-selected', 'true');
+        }
+        renderDrivePickerFooter();
+        return;
+      }
       if (drivePicker.selected.has(file.id)) drivePicker.selected.delete(file.id);
       else drivePicker.selected.set(file.id, file);
       const isSel = drivePicker.selected.has(file.id);
@@ -1364,7 +1504,14 @@
       renderDrivePickerFooter();
     });
     card.addEventListener('dblclick', () => {
-      if (drivePicker.importing || file.kind === 'backup') return;
+      if (drivePicker.importing) return;
+      if (drivePicker.mode === 'target') {
+        drivePicker.selected.clear();
+        drivePicker.selected.set(file.id, file);
+        confirmDriveTargetPickerSelection();
+        return;
+      }
+      if (file.kind === 'backup') return;
       drivePicker.selected.clear();
       drivePicker.selected.set(file.id, file);
       importSelectedDriveFiles();
@@ -1377,6 +1524,38 @@
     const label = document.getElementById('drivePickerSelection');
     const btn = document.getElementById('btnDrivePickerImport');
     const targetWrap = document.getElementById('drivePdfTargetWrap');
+    const fnWrap = document.getElementById('driveTargetFilenameWrap');
+
+    if (drivePicker.mode === 'target' || drivePicker.mode === 'target-folder') {
+      const folderPath = getDrivePickerBreadcrumbPath();
+      if (targetWrap) targetWrap.classList.add('hidden');
+      if (drivePicker.mode === 'target-folder') {
+        if (fnWrap) fnWrap.classList.add('hidden');
+        if (label) label.textContent = `Dossier ciblé : ${folderPath}`;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Choisir ce dossier';
+        }
+      } else if (sel.length > 0) {
+        if (fnWrap) fnWrap.classList.add('hidden');
+        if (label) label.textContent = `Fichier Drive existant : « ${sel[0].name} »`;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Cibler ce fichier';
+        }
+      } else {
+        if (fnWrap) fnWrap.classList.remove('hidden');
+        if (label) label.textContent = `Dossier : ${folderPath}`;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Enregistrer ici';
+        }
+      }
+      syncNetworkDependentControls();
+      return;
+    }
+
+    if (fnWrap) fnWrap.classList.add('hidden');
     if (label) {
       if (progressText) label.textContent = progressText;
       else if (!sel.length) label.textContent = 'Sélectionnez un ou plusieurs fichiers';
@@ -1603,6 +1782,7 @@
         entries.push({ act: 'purge', label: 'Supprimer définitivement', danger: true });
       } else {
         entries.push({ act: 'open', label: 'Ouvrir le dossier' });
+        entries.push({ act: 'drive-folder', label: 'Dossier Google Drive par défaut…' });
         entries.push({ act: 'customize', label: 'Couleur & symbole...' });
         entries.push({ act: 'rename', label: 'Renommer' });
         entries.push({ act: 'star', label: item.starred ? 'Retirer des favoris' : 'Ajouter aux favoris' });
@@ -1617,6 +1797,7 @@
         entries.push({ act: 'purge', label: 'Supprimer définitivement', danger: true });
       } else {
         entries.push({ act: 'open', label: 'Ouvrir le cahier' });
+        entries.push({ act: 'drive-target', label: 'Fichier Google Drive…' });
         entries.push({ act: 'rename', label: 'Renommer' });
         entries.push({ act: 'duplicate', label: 'Dupliquer' });
         entries.push({ act: 'move', label: 'Déplacer vers...' });
@@ -1641,6 +1822,8 @@
             state.filesPageTab = 'all';
             state.currentFolderId = item.id;
             renderNotebooksSidebar();
+          } else if (act === 'drive-folder') {
+            if (typeof promptFolderDefaultDriveTarget === 'function') promptFolderDefaultDriveTarget(item);
           } else if (act === 'customize') {
             openFolderCustomizeModal(item);
           } else if (act === 'rename') {
@@ -1668,6 +1851,8 @@
           if (act === 'open') {
             selectNotebook(item.id);
             closeFilesPage();
+          } else if (act === 'drive-target') {
+            if (typeof promptNotebookDriveTarget === 'function') promptNotebookDriveTarget(item);
           } else if (act === 'rename') {
             openRenameModal('Renommer le cahier', item.title, (val) => {
               item.title = val;

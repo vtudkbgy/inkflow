@@ -2246,6 +2246,177 @@ async function runTests() {
     return 'Sommaire PDF hiérarchique (2 niveaux), liens internes (hit-test + saut + retour p.1) et limite configurable (105 pages importées à 250 max) vérifiés.';
   });
 
+  // ------------------------------------------------------------------------
+  // TEST 15 : Ciblage précis du fichier / dossier Google Drive par cahier (dans un dossier InkFlow)
+  // ------------------------------------------------------------------------
+  await runStep('Test 15 : Ciblage précis du fichier / dossier Google Drive par cahier créé dans un dossier', async () => {
+    const st = api.getState();
+    const savedCurrentFolderId = st.currentFolderId;
+    const mathFolder = {
+      id: 'fld_test_maths',
+      name: 'Semestre 2 — Maths',
+      parentId: null,
+      color: '#0072ce',
+      icon: 'folder',
+      starred: false,
+      createdAt: Date.now()
+    };
+    st.folders.push(mathFolder);
+    st.currentFolderId = mathFolder.id;
+
+    // Mock Google Drive avec un dossier "Cours Maths" et un fichier préexistant "Algebre-Existant.json"
+    const driveFiles = new Map();
+    driveFiles.set('drv_existing_42', {
+      id: 'drv_existing_42',
+      name: 'Algebre-Existant.json',
+      parents: ['drv_fld_maths'],
+      trashed: false,
+      modifiedTime: new Date().toISOString(),
+      appProperties: {},
+      body: { placeholder: true }
+    });
+    let nextDrvId = 100;
+    const stats = { posts: 0, patches: 0 };
+
+    api.resetGdriveSyncMeta();
+    api.setNetworkState({ online: true, unreachable: false });
+    api.storeGdriveTokens({ access_token: 'ya29.target_ok', expires_in: 3600, refresh_token: '1//r' });
+
+    sandbox.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      const method = (opts.method || 'GET').toUpperCase();
+
+      // GET métadonnées d'un fileId précis (/drive/v3/files/<id>?fields=...)
+      const directMetaMatch = method === 'GET' && !u.includes('alt=media') && u.match(/\/drive\/v3\/files\/([^/?]+)\?/);
+      if (directMetaMatch) {
+        const fid = decodeURIComponent(directMetaMatch[1]);
+        const rec = driveFiles.get(fid);
+        if (!rec) return { ok: false, status: 404, json: async () => ({ error: { message: 'File not found' } }) };
+        return { ok: true, status: 200, json: async () => ({ id: rec.id, name: rec.name, trashed: rec.trashed, modifiedTime: rec.modifiedTime, appProperties: rec.appProperties }) };
+      }
+
+      // GET recherche dans un dossier Drive (/drive/v3/files?q=...)
+      if (u.includes('/drive/v3/files?') && method === 'GET') {
+        const parsedUrl = new URL(u);
+        const q = parsedUrl.searchParams.get('q') || '';
+        if (q.includes("mimeType='application/vnd.google-apps.folder'") && q.includes("name='InkFlow'")) {
+          return { ok: true, status: 200, json: async () => ({ files: [{ id: 'drv_fld_default', name: 'InkFlow' }] }) };
+        }
+        const results = Array.from(driveFiles.values()).filter((f) => {
+          if (f.trashed) return false;
+          const nameMatch = q.match(/name='([^']+)'/);
+          if (nameMatch && f.name !== nameMatch[1]) return false;
+          const parentMatch = q.match(/'([^']+)' in parents/);
+          if (parentMatch && !(f.parents || []).includes(parentMatch[1])) return false;
+          return true;
+        });
+        return { ok: true, status: 200, json: async () => ({ files: results }) };
+      }
+
+      // POST / PATCH multipart upload
+      if (u.includes('/upload/drive/v3/files') && (method === 'POST' || method === 'PATCH')) {
+        const bodyStr = String(opts.body || '');
+        const parts = bodyStr.split('\r\n\r\n');
+        const metaPart = JSON.parse(parts[1].split('\r\n--')[0]);
+        const payloadPart = JSON.parse(parts[2].split('\r\n--')[0]);
+        if (method === 'PATCH') {
+          const m = u.match(/\/files\/([^?]+)/);
+          const fid = decodeURIComponent(m[1]);
+          const rec = driveFiles.get(fid);
+          rec.name = metaPart.name || rec.name;
+          rec.appProperties = metaPart.appProperties || {};
+          rec.body = payloadPart;
+          rec.modifiedTime = new Date().toISOString();
+          stats.patches++;
+          return { ok: true, status: 200, json: async () => rec };
+        }
+        const fid = `drv_created_${nextDrvId++}`;
+        const rec = {
+          id: fid,
+          name: metaPart.name,
+          parents: metaPart.parents || ['root'],
+          trashed: false,
+          modifiedTime: new Date().toISOString(),
+          appProperties: metaPart.appProperties || {},
+          body: payloadPart
+        };
+        driveFiles.set(fid, rec);
+        stats.posts++;
+        return { ok: true, status: 200, json: async () => rec };
+      }
+
+      if (u.includes('alt=media') && method === 'GET') {
+        const m = u.match(/\/files\/([^?]+)/);
+        const rec = driveFiles.get(decodeURIComponent(m[1]));
+        return { ok: true, status: 200, json: async () => rec.body };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+
+    let nb1 = null, nb2 = null, nb3 = null;
+    try {
+      // 1. Cahier créé dans le dossier InkFlow en ciblant un FICHIER DRIVE EXISTANT précis
+      const res1 = await api.createNotebookProgrammatically('Algèbre Linéaire', 'grid', '#2563eb', {
+        driveTarget: {
+          mode: 'file',
+          fileId: 'drv_existing_42',
+          fileName: 'Algebre-Existant.json',
+          folderId: 'drv_fld_maths',
+          folderPath: 'Mon Drive / Fac / Maths'
+        }
+      });
+      nb1 = res1.notebook;
+      res1.firstPage.strokes.push({ id: 't15_s1', tool: 'pen', color: '#111827', size: 3, points: [{ x: 10, y: 10, pressure: 0.5 }, { x: 60, y: 30, pressure: 0.6 }] });
+
+      await api.syncSingleNotebookWithGoogleDrive(nb1.id, { auto: true });
+      const updatedExisting = driveFiles.get('drv_existing_42');
+      assert.equal(stats.patches, 1, 'Le cahier doit être implémenté par PATCH directement dans le fichier Drive existant choisi');
+      assert.equal(updatedExisting.body.notebook.id, nb1.id, 'Le contenu du fichier Drive ciblé doit contenir le cahier créé');
+
+      // 2. Cahier créé dans le dossier en choisissant un DOSSIER DRIVE + NOM DE FICHIER précis
+      const res2 = await api.createNotebookProgrammatically('Analyse Complexe', 'seyes', '#0f766e', {
+        driveTarget: {
+          mode: 'folder',
+          fileId: null,
+          fileName: 'Analyse-Complexe-S2.inkflow.json',
+          folderId: 'drv_fld_maths',
+          folderPath: 'Mon Drive / Fac / Maths'
+        }
+      });
+      nb2 = res2.notebook;
+      await api.setFolderDefaultDriveTarget(mathFolder.id, { folderId: 'drv_fld_maths', folderPath: 'Mon Drive / Fac / Maths' });
+      await api.syncSingleNotebookWithGoogleDrive(nb2.id, { auto: true });
+      assert.equal(stats.posts, 1, 'Un nouveau fichier portant le nom choisi doit être créé dans le dossier Drive choisi');
+      assert.ok(nb2.driveTarget && nb2.driveTarget.fileId, 'Le fileId Drive créé doit être mémorisé sur le cahier');
+      const createdCustom = driveFiles.get(nb2.driveTarget.fileId);
+      assert.equal(createdCustom.name, 'Analyse-Complexe-S2.inkflow.json');
+      assert.deepEqual(createdCustom.parents, ['drv_fld_maths']);
+
+      // Modification ultérieure de nb2 → met à jour exactement ce même fichier (PATCH, pas de doublon)
+      res2.firstPage.strokes.push({ id: 't15_s2', tool: 'pen', color: '#dc2626', size: 4, points: [{ x: 15, y: 20, pressure: 0.5 }, { x: 80, y: 50, pressure: 0.6 }] });
+      await api.syncSingleNotebookWithGoogleDrive(nb2.id, { auto: true });
+      assert.equal(stats.posts, 1, 'Aucun fichier doublon ne doit être créé');
+      assert.equal(stats.patches, 2, 'La mise à jour suivante doit modifier le même fichier ciblé');
+
+      // 3. Héritage automatique du dossier Drive par défaut du dossier parent InkFlow
+      const res3 = await api.createNotebookProgrammatically('TD Probabilités', 'lined', '#7c3aed');
+      nb3 = res3.notebook;
+      const inherited = api.resolveEffectiveDriveTargetForNotebook(nb3);
+      assert.ok(inherited && inherited.folderId === 'drv_fld_maths', 'Un cahier créé dans ce dossier hérite du dossier Drive configuré');
+      assert.equal(inherited.fileName, 'TD Probabilités.inkflow.json');
+    } finally {
+      st.currentFolderId = savedCurrentFolderId;
+      st.folders = st.folders.filter((f) => f.id !== mathFolder.id);
+      if (nb1) await api.deleteNotebookById(nb1.id);
+      if (nb2) await api.deleteNotebookById(nb2.id);
+      if (nb3) await api.deleteNotebookById(nb3.id);
+      api.clearGdriveSession();
+      api.resetGdriveSyncMeta();
+      delete sandbox.fetch;
+    }
+    return 'Ciblage d’un fichier Drive existant (PATCH direct), création nommée dans un dossier Drive choisi, persistance du fileId et héritage par dossier vérifiés.';
+  });
+
   console.log('======================================================================');
   console.log(`🎉 TOUS LES TESTS UNITAIRES SONT PASSÉS AVEC SUCCÈS (${results.length}/${results.length})`);
   console.log('======================================================================');

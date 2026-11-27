@@ -14979,6 +14979,7 @@
           </div>
           <div class="notebook-actions">
             <button class="icon-btn-tiny${nb.starred ? ' starred' : ''}" data-action="star-nb" title="Favori">${nb.starred ? '★' : '☆'}</button>
+            <button class="icon-btn-tiny${nb.driveTarget ? ' has-drive-target' : ''}" data-action="drive-target-nb" title="${escapeHtml(typeof describeNotebookDriveTarget === 'function' ? `Google Drive : ${describeNotebookDriveTarget(nb)}` : 'Choisir le fichier Google Drive')}">☁</button>
             <button class="icon-btn-tiny" data-action="move-nb" title="Déplacer dans un dossier">📁</button>
             <button class="icon-btn-tiny" data-action="rename-nb" title="Renommer">✎</button>
             ${nonTrashedCount > 1 ? `<button class="icon-btn-tiny danger" data-action="delete-nb" title="Mettre à la corbeille">✕</button>` : ''}
@@ -15010,6 +15011,8 @@
             nb.updatedAt = Date.now();
             db.saveNotebook(nb);
             renderNotebooksSidebar();
+          } else if (btn.dataset.action === 'drive-target-nb') {
+            if (typeof promptNotebookDriveTarget === 'function') promptNotebookDriveTarget(nb);
           } else if (btn.dataset.action === 'move-nb') {
             openMoveNotebookModal(nb);
           } else if (btn.dataset.action === 'rename-nb') {
@@ -15460,6 +15463,9 @@
       id: nbId,
       title: cleanTitle,
       folderId: state.currentFolderId || null,
+      driveTarget: (templatePageOrOptions && templatePageOrOptions.driveTarget)
+        ? normalizeNotebookDriveTarget(templatePageOrOptions.driveTarget, cleanTitle)
+        : undefined,
       starred: false,
       coverColor: coverColor || '#1d4ed8',
       coverTemplateId: (templatePageOrOptions && templatePageOrOptions.coverTemplateId) || undefined,
@@ -19754,9 +19760,43 @@
     const openNewNotebookModal = () => {
       if (dom.inputNotebookName) dom.inputNotebookName.value = '';
       if (typeof updateNewNotebookPaperPreview === 'function') updateNewNotebookPaperPreview();
+      if (typeof prepareNewNotebookDriveTargetUi === 'function') prepareNewNotebookDriveTargetUi();
       if (dom.modalNewNotebook) dom.modalNewNotebook.classList.remove('hidden');
     };
     dom.btnNewNotebook.addEventListener('click', openNewNotebookModal);
+    if (dom.inputNotebookName) {
+      dom.inputNotebookName.addEventListener('input', () => {
+        if (typeof refreshNewNotebookDriveTargetUi === 'function') refreshNewNotebookDriveTargetUi();
+      });
+    }
+    const btnPickNewNbDrive = document.getElementById('btnPickNewNotebookDriveTarget');
+    if (btnPickNewNbDrive) {
+      btnPickNewNbDrive.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const curTitle = (dom.inputNotebookName && dom.inputNotebookName.value.trim()) || `Cahier ${state.notebooks.length + 1}`;
+        const cur = state.newNotebookDriveTarget;
+        openDriveTargetPicker({
+          pickerTitle: 'Choisir le fichier Google Drive du nouveau cahier',
+          notebookTitle: curTitle,
+          defaultFileName: (cur && !cur.autoFileName && cur.fileName) ? cur.fileName : sanitizeDriveNotebookFilename('', curTitle),
+          initialFolderId: cur ? cur.folderId : null,
+          initialFolderPath: cur ? cur.folderPath : '',
+          onSelect: (picked) => {
+            if (!picked) return;
+            state.newNotebookDriveTarget = { ...picked, autoFileName: false };
+            refreshNewNotebookDriveTargetUi();
+          }
+        });
+      });
+    }
+    const btnClearNewNbDrive = document.getElementById('btnClearNewNotebookDriveTarget');
+    if (btnClearNewNbDrive) {
+      btnClearNewNbDrive.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        state.newNotebookDriveTarget = null;
+        if (typeof refreshNewNotebookDriveTargetUi === 'function') refreshNewNotebookDriveTargetUi();
+      });
+    }
     const closeNb = () => {
       closeGnColorPopover();
       dom.modalNewNotebook.classList.add('hidden');
@@ -19825,6 +19865,10 @@
       const tpl = state.newNotebookTemplate || {};
       const paperType = (dom.selectDefaultPaper && dom.selectDefaultPaper.value) || tpl.paperType || 'grid';
       const dims = getPageDimensionsForSizeAndOrientation(tpl.sizeId || 'goodnotes_standard', tpl.orientation || 'portrait');
+      let chosenDriveTarget = state.newNotebookDriveTarget ? { ...state.newNotebookDriveTarget } : null;
+      if (chosenDriveTarget && chosenDriveTarget.mode === 'folder' && chosenDriveTarget.autoFileName) {
+        chosenDriveTarget.fileName = sanitizeDriveNotebookFilename('', title);
+      }
       const templateOptions = {
         paperType,
         paperTone: tpl.paperTone === 'all' ? 'white' : (tpl.paperTone || 'white'),
@@ -19837,10 +19881,27 @@
         templateLanguage: tpl.language || 'fr',
         customTemplateDataUrl: tpl.customTemplateDataUrl || null,
         coverTemplateId: tpl.coverTemplateId || undefined,
-        coverCustomDataUrl: tpl.coverCustomDataUrl || null
+        coverCustomDataUrl: tpl.coverCustomDataUrl || null,
+        driveTarget: chosenDriveTarget || undefined
       };
+      state.newNotebookDriveTarget = null;
       closeNb();
       const created = await paidCreateNotebook(title, paperType, state.newNotebookCover, templateOptions);
+      if (created && created.notebook) {
+        if (chosenDriveTarget && chosenDriveTarget.folderId && created.notebook.folderId) {
+          const parentFld = (state.folders || []).find((f) => f.id === created.notebook.folderId);
+          if (parentFld && !parentFld.driveDefaultFolder) {
+            parentFld.driveDefaultFolder = {
+              folderId: chosenDriveTarget.folderId,
+              folderPath: chosenDriveTarget.folderPath || 'Mon Drive'
+            };
+            db.saveFolders(state.folders).catch(() => {});
+          }
+        }
+        if (created.notebook.driveTarget && isGdriveLinked() && isNetworkAvailable() && typeof syncSingleNotebookWithGoogleDrive === 'function') {
+          syncSingleNotebookWithGoogleDrive(created.notebook.id, { auto: true }).catch(() => {});
+        }
+      }
       if (created && state.filesPageOpen && typeof closeFilesPage === 'function') {
         closeFilesPage();
       }
@@ -21423,6 +21484,7 @@
   };
 
   const drivePicker = {
+    mode: 'import', // 'import' | 'target' | 'target-folder'
     view: 'root',
     stack: [],
     filter: 'all',
@@ -21435,8 +21497,27 @@
     importing: false,
     error: '',
     needsReload: false,
-    searchTimer: null
+    searchTimer: null,
+    onTargetSelect: null,
+    defaultTargetFileName: ''
   };
+
+  function sanitizeDriveNotebookFilename(rawName, fallbackTitle = 'Cahier') {
+    let base = String(rawName || '').trim();
+    if (!base) base = String(fallbackTitle || 'Cahier').trim() || 'Cahier';
+    base = base.replace(/[<>:"/\\|?*\x00-\x1f]+/g, '-').replace(/\s+/g, ' ').trim();
+    if (!/\.json$/i.test(base)) {
+      base = `${base}.inkflow.json`;
+    }
+    return base;
+  }
+
+  function getDrivePickerBreadcrumbPath() {
+    if (!Array.isArray(drivePicker.stack) || drivePicker.stack.length === 0) {
+      return DRIVE_VIEW_LABELS[drivePicker.view] || 'Mon Drive';
+    }
+    return drivePicker.stack.map((s) => s.name).join(' / ');
+  }
 
   function getDriveImportKind(mime, name = '') {
     const m = String(mime || '').toLowerCase();
@@ -21502,7 +21583,11 @@
     }
     const name = String(raw.name || 'Sans titre');
     if (mime === DRIVE_FOLDER_MIME) return { id, name, isFolder: true, isShortcut };
-    const kind = getDriveImportKind(mime, name);
+    if (drivePicker.mode === 'target-folder') return null;
+    let kind = getDriveImportKind(mime, name);
+    if (!kind && drivePicker.mode === 'target' && (mime === 'application/json' || /\.json$/i.test(name))) {
+      kind = 'backup';
+    }
     if (!kind) return null;
     if (filter !== 'all' && filter !== kind) return null;
     return {
@@ -21533,17 +21618,43 @@
       showToast('Reliez d’abord un compte Google pour parcourir Drive.', 'error');
       return;
     }
+    drivePicker.mode = options.mode || 'import';
+    drivePicker.onTargetSelect = typeof options.onSelect === 'function' ? options.onSelect : null;
     drivePicker.view = 'root';
-    drivePicker.stack = [{ id: 'root', name: DRIVE_VIEW_LABELS.root }];
-    drivePicker.filter = options.filter || 'all';
+    if (options.initialFolderId && options.initialFolderId !== 'root') {
+      const crumbs = String(options.initialFolderPath || 'Dossier choisi').split(' / ').filter(Boolean);
+      const leafName = crumbs[crumbs.length - 1] || 'Dossier choisi';
+      drivePicker.stack = [
+        { id: 'root', name: DRIVE_VIEW_LABELS.root },
+        { id: options.initialFolderId, name: leafName }
+      ];
+    } else {
+      drivePicker.stack = [{ id: 'root', name: DRIVE_VIEW_LABELS.root }];
+    }
+    drivePicker.filter = drivePicker.mode === 'import' ? (options.filter || 'all') : 'backup';
     drivePicker.search = '';
     drivePicker.items = [];
     drivePicker.nextPageToken = null;
     drivePicker.selected.clear();
     drivePicker.error = '';
     drivePicker.openedFrom = options.from || null;
+    drivePicker.defaultTargetFileName = sanitizeDriveNotebookFilename(options.defaultFileName || '', options.notebookTitle || 'Cahier');
     const search = document.getElementById('drivePickerSearch');
     if (search) search.value = '';
+    const fnInput = document.getElementById('driveTargetFilenameInput');
+    if (fnInput) fnInput.value = drivePicker.defaultTargetFileName;
+    const titleEl = document.getElementById('drivePickerTitle');
+    if (titleEl) {
+      if (drivePicker.mode === 'target') titleEl.textContent = options.pickerTitle || 'Choisir le fichier Google Drive du cahier';
+      else if (drivePicker.mode === 'target-folder') titleEl.textContent = options.pickerTitle || 'Choisir le dossier Google Drive par défaut';
+      else titleEl.textContent = 'Importer depuis Google Drive';
+    }
+    const filterWrap = document.getElementById('drivePickerFilterChips');
+    if (filterWrap) filterWrap.classList.toggle('hidden', drivePicker.mode !== 'import');
+    const newFldBtn = document.getElementById('btnDrivePickerNewFolder');
+    if (newFldBtn) newFldBtn.classList.toggle('hidden', drivePicker.mode === 'import');
+    const fnWrap = document.getElementById('driveTargetFilenameWrap');
+    if (fnWrap) fnWrap.classList.toggle('hidden', drivePicker.mode !== 'target');
     syncDrivePickerChrome();
     modal.classList.remove('hidden');
     renderGdriveAccountUi();
@@ -21555,6 +21666,79 @@
       return;
     }
     loadDrivePickerItems();
+  }
+
+  function openDriveTargetPicker(options = {}) {
+    return openDrivePicker({
+      ...options,
+      mode: options.folderOnly ? 'target-folder' : 'target'
+    });
+  }
+
+  async function createNewFolderInDrivePicker() {
+    if (!requireNetwork('Créer un dossier Google Drive')) return null;
+    const rawName = typeof window.prompt === 'function' ? window.prompt('Nom du nouveau dossier Google Drive :', 'Mes cahiers InkFlow') : '';
+    const cleanName = String(rawName || '').trim();
+    if (!cleanName) return null;
+    const parentId = getDriveCurrentFolderId() || 'root';
+    try {
+      const body = {
+        name: cleanName,
+        mimeType: DRIVE_FOLDER_MIME
+      };
+      if (parentId && parentId !== 'root') body.parents = [parentId];
+      const res = await gdriveFetch(`${GDRIVE_API}/files?fields=id,name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }, 'Créer un dossier Google Drive');
+      const created = await res.json();
+      if (created && created.id) {
+        drivePicker.view = 'root';
+        drivePicker.stack = drivePicker.stack.concat([{ id: created.id, name: created.name || cleanName }]);
+        reloadDrivePicker();
+        showToast(`Dossier Drive « ${created.name || cleanName} » créé.`);
+        return created;
+      }
+    } catch (err) {
+      reportGdriveError(err, 'Création dossier Drive');
+    }
+    return null;
+  }
+
+  function confirmDriveTargetPickerSelection() {
+    const cb = drivePicker.onTargetSelect;
+    const folderId = getDriveCurrentFolderId() || 'root';
+    const folderPath = getDrivePickerBreadcrumbPath();
+    if (drivePicker.mode === 'target-folder') {
+      const result = { folderId, folderPath };
+      closeDrivePicker();
+      if (typeof cb === 'function') cb(result);
+      return;
+    }
+    const sel = Array.from(drivePicker.selected.values());
+    let target;
+    if (sel.length > 0 && !sel[0].isFolder) {
+      target = {
+        mode: 'file',
+        fileId: sel[0].id,
+        fileName: sel[0].name,
+        folderId,
+        folderPath
+      };
+    } else {
+      const fnInput = document.getElementById('driveTargetFilenameInput');
+      const fileName = sanitizeDriveNotebookFilename(fnInput ? fnInput.value : '', drivePicker.defaultTargetFileName);
+      target = {
+        mode: 'folder',
+        fileId: null,
+        fileName,
+        folderId,
+        folderPath
+      };
+    }
+    closeDrivePicker();
+    if (typeof cb === 'function') cb(target);
   }
 
   function closeDrivePicker() {
@@ -21839,6 +22023,23 @@
 
     card.addEventListener('click', () => {
       if (drivePicker.importing) return;
+      if (drivePicker.mode === 'target') {
+        const wasSel = drivePicker.selected.has(file.id);
+        drivePicker.selected.clear();
+        if (typeof document.querySelectorAll === 'function') {
+          document.querySelectorAll('#drivePickerGrid .drive-card.is-selected').forEach((el) => {
+            el.classList.remove('is-selected');
+            el.setAttribute('aria-selected', 'false');
+          });
+        }
+        if (!wasSel) {
+          drivePicker.selected.set(file.id, file);
+          card.classList.add('is-selected');
+          card.setAttribute('aria-selected', 'true');
+        }
+        renderDrivePickerFooter();
+        return;
+      }
       if (drivePicker.selected.has(file.id)) drivePicker.selected.delete(file.id);
       else drivePicker.selected.set(file.id, file);
       const isSel = drivePicker.selected.has(file.id);
@@ -21847,7 +22048,14 @@
       renderDrivePickerFooter();
     });
     card.addEventListener('dblclick', () => {
-      if (drivePicker.importing || file.kind === 'backup') return;
+      if (drivePicker.importing) return;
+      if (drivePicker.mode === 'target') {
+        drivePicker.selected.clear();
+        drivePicker.selected.set(file.id, file);
+        confirmDriveTargetPickerSelection();
+        return;
+      }
+      if (file.kind === 'backup') return;
       drivePicker.selected.clear();
       drivePicker.selected.set(file.id, file);
       importSelectedDriveFiles();
@@ -21860,6 +22068,38 @@
     const label = document.getElementById('drivePickerSelection');
     const btn = document.getElementById('btnDrivePickerImport');
     const targetWrap = document.getElementById('drivePdfTargetWrap');
+    const fnWrap = document.getElementById('driveTargetFilenameWrap');
+
+    if (drivePicker.mode === 'target' || drivePicker.mode === 'target-folder') {
+      const folderPath = getDrivePickerBreadcrumbPath();
+      if (targetWrap) targetWrap.classList.add('hidden');
+      if (drivePicker.mode === 'target-folder') {
+        if (fnWrap) fnWrap.classList.add('hidden');
+        if (label) label.textContent = `Dossier ciblé : ${folderPath}`;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Choisir ce dossier';
+        }
+      } else if (sel.length > 0) {
+        if (fnWrap) fnWrap.classList.add('hidden');
+        if (label) label.textContent = `Fichier Drive existant : « ${sel[0].name} »`;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Cibler ce fichier';
+        }
+      } else {
+        if (fnWrap) fnWrap.classList.remove('hidden');
+        if (label) label.textContent = `Dossier : ${folderPath}`;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Enregistrer ici';
+        }
+      }
+      syncNetworkDependentControls();
+      return;
+    }
+
+    if (fnWrap) fnWrap.classList.add('hidden');
     if (label) {
       if (progressText) label.textContent = progressText;
       else if (!sel.length) label.textContent = 'Sélectionnez un ou plusieurs fichiers';
@@ -22086,6 +22326,7 @@
         entries.push({ act: 'purge', label: 'Supprimer définitivement', danger: true });
       } else {
         entries.push({ act: 'open', label: 'Ouvrir le dossier' });
+        entries.push({ act: 'drive-folder', label: 'Dossier Google Drive par défaut…' });
         entries.push({ act: 'customize', label: 'Couleur & symbole...' });
         entries.push({ act: 'rename', label: 'Renommer' });
         entries.push({ act: 'star', label: item.starred ? 'Retirer des favoris' : 'Ajouter aux favoris' });
@@ -22100,6 +22341,7 @@
         entries.push({ act: 'purge', label: 'Supprimer définitivement', danger: true });
       } else {
         entries.push({ act: 'open', label: 'Ouvrir le cahier' });
+        entries.push({ act: 'drive-target', label: 'Fichier Google Drive…' });
         entries.push({ act: 'rename', label: 'Renommer' });
         entries.push({ act: 'duplicate', label: 'Dupliquer' });
         entries.push({ act: 'move', label: 'Déplacer vers...' });
@@ -22124,6 +22366,8 @@
             state.filesPageTab = 'all';
             state.currentFolderId = item.id;
             renderNotebooksSidebar();
+          } else if (act === 'drive-folder') {
+            if (typeof promptFolderDefaultDriveTarget === 'function') promptFolderDefaultDriveTarget(item);
           } else if (act === 'customize') {
             openFolderCustomizeModal(item);
           } else if (act === 'rename') {
@@ -22151,6 +22395,8 @@
           if (act === 'open') {
             selectNotebook(item.id);
             closeFilesPage();
+          } else if (act === 'drive-target') {
+            if (typeof promptNotebookDriveTarget === 'function') promptNotebookDriveTarget(item);
           } else if (act === 'rename') {
             openRenameModal('Renommer le cahier', item.title, (val) => {
               item.title = val;
@@ -22642,7 +22888,7 @@
 
   // >>> MODULE: src/10b-gdrive-incremental-sync.js
   // ============================================================================
-  // 18B. SYNCHRONISATION INCRÉMENTALE & SAUVEGARDE AUTO GOOGLE DRIVE (DOSSIER InkFlow/)
+  // 18B. SYNCHRONISATION INCRÉMENTALE & CIBLAGE PRÉCIS PAR FICHIER GOOGLE DRIVE
   // ============================================================================
 
   const GDRIVE_SYNC_FOLDER_NAME = 'InkFlow';
@@ -22692,6 +22938,181 @@
       gdriveSyncState.debounceTimer = null;
     }
     saveGdriveSyncMeta();
+  }
+
+  function normalizeNotebookDriveTarget(target, fallbackTitle = 'Cahier') {
+    if (!target || typeof target !== 'object') return null;
+    const mode = target.mode === 'file' ? 'file' : 'folder';
+    const fileId = typeof target.fileId === 'string' && target.fileId.trim() ? target.fileId.trim() : null;
+    const folderId = typeof target.folderId === 'string' && target.folderId.trim() ? target.folderId.trim() : 'root';
+    const folderPath = typeof target.folderPath === 'string' && target.folderPath.trim() ? target.folderPath.trim() : 'Mon Drive';
+    const rawName = typeof target.fileName === 'string' ? target.fileName.trim() : '';
+    const fileName = mode === 'file' && rawName
+      ? rawName
+      : sanitizeDriveNotebookFilename(rawName, fallbackTitle);
+    if (mode === 'file' && !fileId) return null;
+    return { mode, fileId, fileName, folderId, folderPath };
+  }
+
+  function resolveEffectiveDriveTargetForNotebook(nb) {
+    if (!nb) return null;
+    if (nb.driveTarget && typeof nb.driveTarget === 'object') {
+      return normalizeNotebookDriveTarget(nb.driveTarget, nb.title);
+    }
+    if (nb.folderId) {
+      const parentFolder = (state.folders || []).find((f) => f.id === nb.folderId && !f.trashedAt);
+      if (parentFolder && parentFolder.driveDefaultFolder && parentFolder.driveDefaultFolder.folderId) {
+        return {
+          mode: 'folder',
+          fileId: null,
+          fileName: sanitizeDriveNotebookFilename('', nb.title),
+          folderId: parentFolder.driveDefaultFolder.folderId,
+          folderPath: parentFolder.driveDefaultFolder.folderPath || 'Mon Drive',
+          inheritedFromFolder: true
+        };
+      }
+    }
+    return null;
+  }
+
+  function describeNotebookDriveTarget(nb) {
+    const eff = resolveEffectiveDriveTargetForNotebook(nb);
+    if (!eff) return 'Automatique (InkFlow/)';
+    if (eff.mode === 'file') {
+      return `${eff.folderPath ? `${eff.folderPath} / ` : ''}${eff.fileName}`;
+    }
+    return `${eff.folderPath || 'Mon Drive'} / ${eff.fileName}`;
+  }
+
+  async function setNotebookDriveTarget(notebookId, target, { syncNow = true } = {}) {
+    const nb = (state.notebooks || []).find((n) => n.id === notebookId);
+    if (!nb) return null;
+    loadGdriveSyncMeta();
+    const normalized = normalizeNotebookDriveTarget(target, nb.title);
+    nb.driveTarget = normalized;
+    nb.updatedAt = Date.now();
+    // Réinitialise l'état de synchro de ce cahier pour forcer l'écriture vers la nouvelle cible Drive
+    delete gdriveSyncState.notebooks[nb.id];
+    saveGdriveSyncMeta();
+    await db.saveNotebook(nb);
+
+    // Mémorise également le dossier parent Drive par défaut sur le dossier InkFlow contenant ce cahier
+    if (normalized && normalized.folderId && nb.folderId) {
+      const parentFolder = (state.folders || []).find((f) => f.id === nb.folderId);
+      if (parentFolder && !parentFolder.driveDefaultFolder) {
+        parentFolder.driveDefaultFolder = {
+          folderId: normalized.folderId,
+          folderPath: normalized.folderPath || 'Mon Drive'
+        };
+        await db.saveFolders(state.folders);
+      }
+    }
+
+    if (typeof renderNotebooksSidebar === 'function') renderNotebooksSidebar();
+    if (syncNow && normalized && isGdriveLinked() && isNetworkAvailable()) {
+      await syncSingleNotebookWithGoogleDrive(nb.id, { auto: false });
+    }
+    return normalized;
+  }
+
+  async function setFolderDefaultDriveTarget(folderId, folderTarget) {
+    const fld = (state.folders || []).find((f) => f.id === folderId);
+    if (!fld) return null;
+    fld.driveDefaultFolder = (folderTarget && folderTarget.folderId)
+      ? { folderId: folderTarget.folderId, folderPath: folderTarget.folderPath || 'Mon Drive' }
+      : null;
+    fld.updatedAt = Date.now();
+    await db.saveFolders(state.folders);
+    if (typeof renderNotebooksSidebar === 'function') renderNotebooksSidebar();
+    return fld.driveDefaultFolder;
+  }
+
+  function promptNotebookDriveTarget(nb) {
+    if (!nb) return;
+    const cur = resolveEffectiveDriveTargetForNotebook(nb);
+    openDriveTargetPicker({
+      pickerTitle: `Fichier Google Drive — « ${nb.title} »`,
+      notebookTitle: nb.title,
+      defaultFileName: cur ? cur.fileName : sanitizeDriveNotebookFilename('', nb.title),
+      initialFolderId: cur ? cur.folderId : null,
+      initialFolderPath: cur ? cur.folderPath : '',
+      onSelect: async (picked) => {
+        if (!picked) return;
+        await setNotebookDriveTarget(nb.id, picked, { syncNow: true });
+        showToast(`Cible Drive enregistrée : ${picked.folderPath} / ${picked.fileName}`);
+      }
+    });
+  }
+
+  function promptFolderDefaultDriveTarget(folder) {
+    if (!folder) return;
+    const cur = folder.driveDefaultFolder || null;
+    openDriveTargetPicker({
+      folderOnly: true,
+      pickerTitle: `Dossier Google Drive par défaut — « ${folder.name} »`,
+      initialFolderId: cur ? cur.folderId : null,
+      initialFolderPath: cur ? cur.folderPath : '',
+      onSelect: async (picked) => {
+        if (!picked) return;
+        await setFolderDefaultDriveTarget(folder.id, picked);
+        showToast(`Les nouveaux cahiers de « ${folder.name} » cibleront « ${picked.folderPath} ».`);
+      }
+    });
+  }
+
+  // interface de sélection dans la modale « Nouveau Cahier »
+  function prepareNewNotebookDriveTargetUi() {
+    const activeFolder = state.currentFolderId
+      ? (state.folders || []).find((f) => f.id === state.currentFolderId && !f.trashedAt)
+      : null;
+    if (activeFolder && activeFolder.driveDefaultFolder && activeFolder.driveDefaultFolder.folderId) {
+      state.newNotebookDriveTarget = {
+        mode: 'folder',
+        fileId: null,
+        fileName: '',
+        folderId: activeFolder.driveDefaultFolder.folderId,
+        folderPath: activeFolder.driveDefaultFolder.folderPath || 'Mon Drive',
+        autoFileName: true
+      };
+    } else {
+      state.newNotebookDriveTarget = null;
+    }
+    refreshNewNotebookDriveTargetUi();
+  }
+
+  function refreshNewNotebookDriveTargetUi() {
+    const btn = document.getElementById('btnPickNewNotebookDriveTarget');
+    const clearBtn = document.getElementById('btnClearNewNotebookDriveTarget');
+    const titleEl = document.getElementById('newNotebookDriveTargetTitle');
+    const subEl = document.getElementById('newNotebookDriveTargetSub');
+    if (!btn || !titleEl || !subEl) return;
+
+    const typedTitle = (dom.inputNotebookName && dom.inputNotebookName.value.trim()) || `Cahier ${(state.notebooks || []).length + 1}`;
+    const target = state.newNotebookDriveTarget;
+    const activeFolder = state.currentFolderId
+      ? (state.folders || []).find((f) => f.id === state.currentFolderId && !f.trashedAt)
+      : null;
+
+    if (target) {
+      const dispName = target.mode === 'file'
+        ? target.fileName
+        : (target.autoFileName ? sanitizeDriveNotebookFilename('', typedTitle) : sanitizeDriveNotebookFilename(target.fileName, typedTitle));
+      btn.classList.add('is-custom');
+      if (clearBtn) clearBtn.classList.remove('hidden');
+      titleEl.textContent = dispName;
+      subEl.textContent = target.mode === 'file'
+        ? `Fichier existant dans ${target.folderPath || 'Mon Drive'}`
+        : `Dossier Drive : ${target.folderPath || 'Mon Drive'}`;
+    } else {
+      btn.classList.remove('is-custom');
+      if (clearBtn) clearBtn.classList.add('hidden');
+      titleEl.textContent = activeFolder
+        ? `Automatique (dossier « ${activeFolder.name} » → InkFlow/)`
+        : 'Emplacement automatique (InkFlow/)';
+      subEl.textContent = isGdriveLinked()
+        ? 'Cliquez pour choisir précisément le dossier ou le fichier Drive'
+        : 'Reliez Google Drive ou cliquez pour configurer l’emplacement';
+    }
   }
 
   // Empreinte déterministe rapide (double FNV-1a 32 bits → 16 hex) sur le contenu utile d'un cahier
@@ -22774,7 +23195,6 @@
   function computeNotebookContentHash(nb, pagesList) {
     if (!nb) return '';
     const payload = serializeNotebookForDriveSync(nb, pagesList);
-    // updatedAt exclu du hash pour que deux états au contenu strictement identique produisent le même hash
     const canonical = {
       ...payload,
       notebook: { ...payload.notebook, updatedAt: 0 }
@@ -22806,11 +23226,62 @@
     return gdriveSyncState.folderId;
   }
 
-  async function uploadOrUpdateNotebookOnDrive(folderId, nb, pages, contentHash, existingDriveFileId, actionLabel, fetchOpts) {
+  async function resolveTargetedDriveFileForNotebook(nb, effTarget, fallbackFolderId, actionLabel, fetchOpts) {
+    const desiredName = effTarget.fileName || `inkflow-nb-${nb.id}.json`;
+    const parentFolderId = (effTarget.folderId && effTarget.folderId !== 'root')
+      ? effTarget.folderId
+      : (effTarget.folderId === 'root' ? 'root' : fallbackFolderId);
+
+    // 1. Si un fileId précis est déjà connu (fichier existant choisi ou créé lors d'une synchro précédente)
+    if (effTarget.fileId) {
+      try {
+        const res = await gdriveFetch(
+          `${GDRIVE_API}/files/${encodeURIComponent(effTarget.fileId)}?supportsAllDrives=true&fields=id,name,trashed,modifiedTime,appProperties`,
+          {},
+          actionLabel,
+          fetchOpts
+        );
+        const fileMeta = await res.json();
+        if (fileMeta && fileMeta.id && !fileMeta.trashed) {
+          return {
+            remote: fileMeta,
+            parentFolderId,
+            fileName: fileMeta.name || desiredName
+          };
+        }
+      } catch (err) {
+        if (err && (err.code === 'NETWORK' || err.code === 'GDRIVE_AUTH')) throw err;
+        // 404 / fichier supprimé sur Drive → on recréera un nouveau fichier dans parentFolderId
+      }
+    }
+
+    // 2. Recherche s'il existe déjà un fichier portant exactement ce nom dans le dossier Drive ciblé
+    const parentClause = parentFolderId === 'root'
+      ? "'root' in parents"
+      : `'${escapeDriveQueryValue(parentFolderId)}' in parents`;
+    const q = encodeURIComponent(
+      `name='${escapeDriveQueryValue(desiredName)}' and ${parentClause} and trashed=false`
+    );
+    const listRes = await gdriveFetch(
+      `${GDRIVE_API}/files?q=${q}&pageSize=5&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,modifiedTime,appProperties)`,
+      {},
+      actionLabel,
+      fetchOpts
+    );
+    const listData = await listRes.json();
+    const existing = (listData && Array.isArray(listData.files) && listData.files.length > 0) ? listData.files[0] : null;
+    return {
+      remote: existing,
+      parentFolderId,
+      fileName: desiredName
+    };
+  }
+
+  async function uploadOrUpdateNotebookOnDrive(folderId, nb, pages, contentHash, existingDriveFileId, actionLabel, fetchOpts, customFileName = null) {
     const payload = serializeNotebookForDriveSync(nb, pages);
     payload.contentHash = contentHash;
     payload.syncedAt = Date.now();
-    const fileName = `inkflow-nb-${nb.id}.json`;
+    const fileName = customFileName || `inkflow-nb-${nb.id}.json`;
     const metadata = {
       name: fileName,
       mimeType: 'application/json',
@@ -22821,7 +23292,7 @@
         inkflowUpdatedAt: String(nb.updatedAt || Date.now())
       }
     };
-    if (!existingDriveFileId) {
+    if (!existingDriveFileId && folderId && folderId !== 'root') {
       metadata.parents = [folderId];
     }
     const boundary = '-------inkflowsync314159265';
@@ -22830,8 +23301,8 @@
       `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
 
     const url = existingDriveFileId
-      ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingDriveFileId)}?uploadType=multipart&fields=id,name,modifiedTime,appProperties`
-      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime,appProperties';
+      ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingDriveFileId)}?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime,appProperties`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime,appProperties';
     const res = await gdriveFetch(url, {
       method: existingDriveFileId ? 'PATCH' : 'POST',
       headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
@@ -22842,7 +23313,7 @@
 
   async function downloadNotebookFromDrive(driveFileId, actionLabel, fetchOpts) {
     const res = await gdriveFetch(
-      `${GDRIVE_API}/files/${encodeURIComponent(driveFileId)}?alt=media`,
+      `${GDRIVE_API}/files/${encodeURIComponent(driveFileId)}?alt=media&supportsAllDrives=true`,
       {},
       actionLabel,
       fetchOpts
@@ -22856,13 +23327,15 @@
     const targetNbId = asConflictCopy ? createUid('nb') : srcNb.id;
     const targetTitle = asConflictCopy ? `${srcNb.title || 'Cahier'} (conflit Drive)` : (srcNb.title || 'Cahier synchronisé');
 
+    const existingNb = !asConflictCopy ? (state.notebooks || []).find((n) => n.id === targetNbId) : null;
     const nbRecord = {
       id: targetNbId,
       title: targetTitle,
       coverColor: srcNb.coverColor || '#2563eb',
       coverStyle: srcNb.coverStyle || 'simple',
       defaultPaperType: srcNb.defaultPaperType || 'grid',
-      folderId: srcNb.folderId || null,
+      folderId: srcNb.folderId || (existingNb ? existingNb.folderId : null) || null,
+      driveTarget: (!asConflictCopy && existingNb && existingNb.driveTarget) ? existingNb.driveTarget : undefined,
       starred: Boolean(srcNb.starred),
       outline: Array.isArray(srcNb.outline) ? srcNb.outline : [],
       createdAt: srcNb.createdAt || Date.now(),
@@ -22896,7 +23369,7 @@
     const el = document.getElementById('gdriveSyncSummary');
     if (!el) return;
     if (!report) {
-      el.textContent = `Dossier Google Drive « ${GDRIVE_SYNC_FOLDER_NAME}/ » — synchronisation incrémentale par cahier`;
+      el.textContent = `Dossier Google Drive « ${GDRIVE_SYNC_FOLDER_NAME}/ » (ou fichier Drive ciblé par cahier)`;
       return;
     }
     const parts = [];
@@ -22908,9 +23381,29 @@
     el.textContent = `${parts.join(' · ')} (${timeStr})`;
   }
 
+  async function persistResolvedDriveFileIdOnNotebook(nb, effTarget, driveFileId, driveFileName) {
+    if (!nb || !effTarget || !driveFileId) return;
+    const nextTarget = {
+      mode: effTarget.mode || 'file',
+      fileId: driveFileId,
+      fileName: driveFileName || effTarget.fileName,
+      folderId: effTarget.folderId || 'root',
+      folderPath: effTarget.folderPath || 'Mon Drive'
+    };
+    if (
+      !nb.driveTarget ||
+      nb.driveTarget.fileId !== nextTarget.fileId ||
+      nb.driveTarget.fileName !== nextTarget.fileName
+    ) {
+      nb.driveTarget = nextTarget;
+      await db.saveNotebook(nb);
+    }
+  }
+
   async function syncNotebooksIncrementalWithGoogleDrive(options = {}) {
     const auto = Boolean(options.auto);
     const strategy = options.strategy || 'keep-both'; // 'keep-both' | 'local-wins' | 'remote-wins'
+    const onlyNotebookId = options.onlyNotebookId || null;
     const actionLabel = 'Synchronisation Google Drive';
 
     if (gdriveSyncState.inFlight) return null;
@@ -22938,66 +23431,103 @@
 
     try {
       updateGdriveStatusUi('Synchronisation incrémentale Google Drive…', true);
-      const folderId = await ensureGdriveInkflowSyncFolderId(actionLabel, fetchOpts);
-      report.folderId = folderId;
+      let defaultFolderId = null;
+      const allLocalNotebooks = (state.notebooks || []).filter((n) => !n.trashedAt);
+      const localNotebooks = onlyNotebookId
+        ? allLocalNotebooks.filter((n) => n.id === onlyNotebookId)
+        : allLocalNotebooks;
 
-      const listQ = encodeURIComponent(
-        `'${folderId}' in parents and trashed=false and mimeType='application/json'`
-      );
-      const listRes = await gdriveFetch(
-        `${GDRIVE_API}/files?q=${listQ}&pageSize=200&fields=files(id,name,modifiedTime,appProperties)`,
-        {},
-        actionLabel,
-        fetchOpts
-      );
-      const listData = await listRes.json();
-      const remoteFiles = Array.isArray(listData && listData.files) ? listData.files : [];
+      const needsDefaultFolder = !onlyNotebookId || localNotebooks.some((nb) => !resolveEffectiveDriveTargetForNotebook(nb));
       const remoteByNbId = new Map();
-      for (const rf of remoteFiles) {
-        const props = rf.appProperties || {};
-        let nbId = props.inkflowNbId || '';
-        if (!nbId && typeof rf.name === 'string') {
-          const m = rf.name.match(/^inkflow-nb-(.+)\.json$/);
-          if (m) nbId = m[1];
+
+      if (needsDefaultFolder) {
+        defaultFolderId = await ensureGdriveInkflowSyncFolderId(actionLabel, fetchOpts);
+        report.folderId = defaultFolderId;
+        const listQ = encodeURIComponent(
+          `'${defaultFolderId}' in parents and trashed=false and mimeType='application/json'`
+        );
+        const listRes = await gdriveFetch(
+          `${GDRIVE_API}/files?q=${listQ}&pageSize=200&fields=files(id,name,modifiedTime,appProperties)`,
+          {},
+          actionLabel,
+          fetchOpts
+        );
+        const listData = await listRes.json();
+        const remoteFiles = Array.isArray(listData && listData.files) ? listData.files : [];
+        for (const rf of remoteFiles) {
+          const props = rf.appProperties || {};
+          let nbId = props.inkflowNbId || '';
+          if (!nbId && typeof rf.name === 'string') {
+            const m = rf.name.match(/^inkflow-nb-(.+)\.json$/);
+            if (m) nbId = m[1];
+          }
+          if (nbId) remoteByNbId.set(nbId, rf);
         }
-        if (nbId) remoteByNbId.set(nbId, rf);
       }
 
-      const localNotebooks = (state.notebooks || []).filter((n) => !n.trashedAt);
-      const localById = new Map(localNotebooks.map((n) => [n.id, n]));
+      const localById = new Map(allLocalNotebooks.map((n) => [n.id, n]));
       let localUiChanged = false;
 
-      // 1. Parcourt les cahiers locaux (upload incrémental, pull distant ou résolution de conflit)
+      // 1. Synchronise chaque cahier local vers sa cible précise (ou vers InkFlow/ par défaut)
       for (const nb of localNotebooks) {
         const pages = state.pagesByNotebook.get(nb.id) || [];
         const localHash = computeNotebookContentHash(nb, pages);
         const prev = gdriveSyncState.notebooks[nb.id] || null;
-        const remote = remoteByNbId.get(nb.id) || null;
+        const effTarget = resolveEffectiveDriveTargetForNotebook(nb);
+
+        let remote = null;
+        let targetParentFolderId = defaultFolderId;
+        let targetFileName = null;
+
+        if (effTarget) {
+          const resolvedTarget = await resolveTargetedDriveFileForNotebook(nb, effTarget, defaultFolderId, actionLabel, fetchOpts);
+          remote = resolvedTarget.remote;
+          targetParentFolderId = resolvedTarget.parentFolderId;
+          targetFileName = resolvedTarget.fileName;
+        } else {
+          remote = remoteByNbId.get(nb.id) || null;
+        }
+
         const remoteHash = (remote && remote.appProperties && remote.appProperties.inkflowHash) || null;
+        const isFirstExplicitTargetBind = Boolean(effTarget && !prev && remote);
         const localChanged = !prev || prev.lastSyncedHash !== localHash;
-        const remoteChanged = Boolean(remote && (!prev || (remoteHash && remoteHash !== prev.lastSyncedHash)));
+        const remoteChanged = Boolean(remote && !isFirstExplicitTargetBind && (!prev || (remoteHash && remoteHash !== prev.lastSyncedHash)));
 
         if (!remote) {
-          // Jamais présent sur Drive → création
-          const created = await uploadOrUpdateNotebookOnDrive(folderId, nb, pages, localHash, null, actionLabel, fetchOpts);
+          const created = await uploadOrUpdateNotebookOnDrive(
+            targetParentFolderId, nb, pages, localHash, null, actionLabel, fetchOpts, targetFileName
+          );
           gdriveSyncState.notebooks[nb.id] = {
             driveFileId: created.id,
             lastSyncedHash: localHash,
             lastSyncedAt: Date.now(),
             remoteModifiedTime: created.modifiedTime || null
           };
+          if (effTarget) await persistResolvedDriveFileIdOnNotebook(nb, effTarget, created.id, created.name || targetFileName);
           report.uploaded.push(nb.id);
         } else if (remoteHash && remoteHash === localHash) {
-          // Déjà identique des deux côtés → 0 transfert
           gdriveSyncState.notebooks[nb.id] = {
             driveFileId: remote.id,
             lastSyncedHash: localHash,
             lastSyncedAt: Date.now(),
             remoteModifiedTime: remote.modifiedTime || null
           };
+          if (effTarget) await persistResolvedDriveFileIdOnNotebook(nb, effTarget, remote.id, remote.name || targetFileName);
           report.skipped.push(nb.id);
+        } else if (isFirstExplicitTargetBind) {
+          // Première liaison explicite d'un cahier vers un fichier Drive choisi : écrit le cahier directement dans ce fichier Drive
+          const updated = await uploadOrUpdateNotebookOnDrive(
+            targetParentFolderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts, targetFileName
+          );
+          gdriveSyncState.notebooks[nb.id] = {
+            driveFileId: updated.id,
+            lastSyncedHash: localHash,
+            lastSyncedAt: Date.now(),
+            remoteModifiedTime: updated.modifiedTime || null
+          };
+          await persistResolvedDriveFileIdOnNotebook(nb, effTarget, updated.id, updated.name || targetFileName);
+          report.uploaded.push(nb.id);
         } else if (localChanged && remoteChanged) {
-          // CONFLIT détecté (modifié localement ET à distance)
           const remotePayload = await downloadNotebookFromDrive(remote.id, actionLabel, fetchOpts);
           if (strategy === 'remote-wins') {
             await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: false });
@@ -23012,7 +23542,9 @@
             report.conflicts.push({ notebookId: nb.id, resolution: 'remote-wins' });
             localUiChanged = true;
           } else if (strategy === 'local-wins') {
-            const updated = await uploadOrUpdateNotebookOnDrive(folderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts);
+            const updated = await uploadOrUpdateNotebookOnDrive(
+              targetParentFolderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts, targetFileName
+            );
             gdriveSyncState.notebooks[nb.id] = {
               driveFileId: updated.id,
               lastSyncedHash: localHash,
@@ -23021,9 +23553,10 @@
             };
             report.conflicts.push({ notebookId: nb.id, resolution: 'local-wins' });
           } else {
-            // 'keep-both' par défaut : sauvegarde une copie locale du cahier distant et pousse la version locale
             const copyRes = await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: true });
-            const updated = await uploadOrUpdateNotebookOnDrive(folderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts);
+            const updated = await uploadOrUpdateNotebookOnDrive(
+              targetParentFolderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts, targetFileName
+            );
             gdriveSyncState.notebooks[nb.id] = {
               driveFileId: updated.id,
               lastSyncedHash: localHash,
@@ -23039,17 +23572,18 @@
             localUiChanged = true;
           }
         } else if (localChanged) {
-          // Modifié localement uniquement → PATCH en place
-          const updated = await uploadOrUpdateNotebookOnDrive(folderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts);
+          const updated = await uploadOrUpdateNotebookOnDrive(
+            targetParentFolderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts, targetFileName
+          );
           gdriveSyncState.notebooks[nb.id] = {
             driveFileId: updated.id,
             lastSyncedHash: localHash,
             lastSyncedAt: Date.now(),
             remoteModifiedTime: updated.modifiedTime || null
           };
+          if (effTarget) await persistResolvedDriveFileIdOnNotebook(nb, effTarget, updated.id, updated.name || targetFileName);
           report.uploaded.push(nb.id);
         } else if (remoteChanged) {
-          // Modifié à distance uniquement → téléchargement incrémental
           const remotePayload = await downloadNotebookFromDrive(remote.id, actionLabel, fetchOpts);
           const applied = await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: false });
           if (applied) {
@@ -23068,25 +23602,28 @@
         }
       }
 
-      // 2. Télécharge les cahiers présents uniquement sur Drive
-      for (const [remoteNbId, rf] of remoteByNbId.entries()) {
-        if (localById.has(remoteNbId)) continue;
-        const remotePayload = await downloadNotebookFromDrive(rf.id, actionLabel, fetchOpts);
-        const applied = await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: false });
-        if (applied) {
-          const newHash = (rf.appProperties && rf.appProperties.inkflowHash) || computeNotebookContentHash(applied.notebook, applied.pages);
-          gdriveSyncState.notebooks[remoteNbId] = {
-            driveFileId: rf.id,
-            lastSyncedHash: newHash,
-            lastSyncedAt: Date.now(),
-            remoteModifiedTime: rf.modifiedTime || null
-          };
-          report.downloaded.push(remoteNbId);
-          localUiChanged = true;
+      // 2. Télécharge les cahiers présents uniquement dans InkFlow/ sur Drive (hors synchro unitaire)
+      if (!onlyNotebookId) {
+        for (const [remoteNbId, rf] of remoteByNbId.entries()) {
+          if (localById.has(remoteNbId)) continue;
+          const remotePayload = await downloadNotebookFromDrive(rf.id, actionLabel, fetchOpts);
+          const applied = await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: false });
+          if (applied) {
+            const newHash = (rf.appProperties && rf.appProperties.inkflowHash) || computeNotebookContentHash(applied.notebook, applied.pages);
+            gdriveSyncState.notebooks[remoteNbId] = {
+              driveFileId: rf.id,
+              lastSyncedHash: newHash,
+              lastSyncedAt: Date.now(),
+              remoteModifiedTime: rf.modifiedTime || null
+            };
+            report.downloaded.push(remoteNbId);
+            localUiChanged = true;
+          }
         }
       }
 
-      gdriveSyncState.dirtyNotebookIds.clear();
+      if (onlyNotebookId) gdriveSyncState.dirtyNotebookIds.delete(onlyNotebookId);
+      else gdriveSyncState.dirtyNotebookIds.clear();
       gdriveSyncState.lastReport = report;
       saveGdriveSyncMeta();
       state.gdriveLastSyncAt = report.at;
@@ -23122,14 +23659,25 @@
     }
   }
 
+  async function syncSingleNotebookWithGoogleDrive(notebookId, options = {}) {
+    if (!notebookId) return null;
+    return syncNotebooksIncrementalWithGoogleDrive({
+      auto: options.auto !== undefined ? Boolean(options.auto) : true,
+      strategy: options.strategy || 'keep-both',
+      onlyNotebookId: notebookId
+    });
+  }
+
   function notifyLocalNotebookMutatedForDriveSync(notebookId) {
     if (!notebookId) return;
     gdriveSyncState.dirtyNotebookIds.add(notebookId);
-    if (!state.gdriveAutoBackup || !isGdriveLinked() || !isNetworkAvailable()) return;
+    const nb = (state.notebooks || []).find((n) => n.id === notebookId);
+    const hasExplicitTarget = Boolean(nb && nb.driveTarget);
+    if ((!state.gdriveAutoBackup && !hasExplicitTarget) || !isGdriveLinked() || !isNetworkAvailable()) return;
     if (gdriveSyncState.debounceTimer) clearTimeout(gdriveSyncState.debounceTimer);
     gdriveSyncState.debounceTimer = setTimeout(() => {
       gdriveSyncState.debounceTimer = null;
-      if (state.gdriveAutoBackup && isGdriveLinked() && isNetworkAvailable() && !state.isDrawing) {
+      if (isGdriveLinked() && isNetworkAvailable() && !state.isDrawing) {
         syncNotebooksIncrementalWithGoogleDrive({ auto: true });
       }
     }, GDRIVE_SYNC_DEBOUNCE_MS);
@@ -25921,6 +26469,7 @@
         if (act === 'notebook') {
           if (dom.inputNotebookName) dom.inputNotebookName.value = '';
           if (typeof updateNewNotebookPaperPreview === 'function') updateNewNotebookPaperPreview();
+          if (typeof prepareNewNotebookDriveTargetUi === 'function') prepareNewNotebookDriveTargetUi();
           if (dom.modalNewNotebook) dom.modalNewNotebook.classList.remove('hidden');
         } else if (act === 'folder') {
           openFolderCustomizeModal(null);
@@ -26501,7 +27050,14 @@
       });
     }
     document.getElementById('btnDrivePickerMore')?.addEventListener('click', () => loadDrivePickerItems({ append: true }));
-    document.getElementById('btnDrivePickerImport')?.addEventListener('click', () => importSelectedDriveFiles());
+    document.getElementById('btnDrivePickerNewFolder')?.addEventListener('click', () => createNewFolderInDrivePicker());
+    document.getElementById('btnDrivePickerImport')?.addEventListener('click', () => {
+      if (drivePicker.mode === 'target' || drivePicker.mode === 'target-folder') {
+        confirmDriveTargetPickerSelection();
+      } else {
+        importSelectedDriveFiles();
+      }
+    });
 
     // Sauvegarde automatique : synchro incrémentale différée hors connexion, relancée au retour du réseau
     const runGdriveAutoBackupTick = () => {
@@ -31133,6 +31689,12 @@
       releaseSplitOffscreenCache,
       computeNotebookContentHash,
       syncNotebooksIncrementalWithGoogleDrive,
+      syncSingleNotebookWithGoogleDrive,
+      setNotebookDriveTarget,
+      setFolderDefaultDriveTarget,
+      resolveEffectiveDriveTargetForNotebook,
+      describeNotebookDriveTarget,
+      openDriveTargetPicker,
       resetGdriveSyncMeta,
       gdriveSyncState,
       getPdfMaxImportPages,
