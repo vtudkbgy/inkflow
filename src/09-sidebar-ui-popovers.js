@@ -5466,6 +5466,11 @@
         requestRender();
       });
     }
+    // L'exe Tauri démarre en plein écran : le script d'initialisation Rust pose ce drapeau avant
+    // le premier rendu pour que le bouton et la mise en page soient justes dès le boot.
+    if (typeof window !== 'undefined' && window.__TAURI__ && window.__INKFLOW_BOOT_FULLSCREEN__) {
+      updateFullscreenUi(true);
+    }
     syncFullscreenState();
 
     if (dom.palmRejectionToggle) {

@@ -1,3 +1,4 @@
+mod fullscreen;
 mod gdrive_oauth;
 
 use std::fs;
@@ -41,32 +42,39 @@ fn get_local_storage_paths(app: tauri::AppHandle) -> Result<serde_json::Value, S
     }))
 }
 
-/// Active ou désactive le vrai plein écran natif sans bordure (masque la barre de titre Windows)
+/// Active ou quitte le plein écran (plein écran fenêtré composé, voir `fullscreen.rs`)
 #[tauri::command]
 fn set_window_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Result<bool, String> {
-    window
-        .set_fullscreen(fullscreen)
-        .map_err(|e| format!("Impossible de modifier le mode plein écran : {}", e))?;
-    Ok(window.is_fullscreen().unwrap_or(fullscreen))
+    fullscreen::set_fullscreen(&window, fullscreen)
 }
 
-/// Bascule le vrai plein écran natif sans bordure et retourne le nouvel état
+/// Bascule le plein écran et retourne le nouvel état
 #[tauri::command]
 fn toggle_window_fullscreen(window: tauri::WebviewWindow) -> Result<bool, String> {
-    let next = !window.is_fullscreen().unwrap_or(false);
-    window
-        .set_fullscreen(next)
-        .map_err(|e| format!("Impossible de basculer le mode plein écran : {}", e))?;
-    Ok(window.is_fullscreen().unwrap_or(next))
+    let next = !fullscreen::is_fullscreen(&window);
+    fullscreen::set_fullscreen(&window, next)
 }
 
-/// Retourne l'état actuel du plein écran natif de la fenêtre
+/// Retourne l'état actuel du plein écran de la fenêtre
 #[tauri::command]
 fn get_window_fullscreen(window: tauri::WebviewWindow) -> Result<bool, String> {
-    window
-        .is_fullscreen()
-        .map_err(|e| format!("Impossible de lire l'état plein écran : {}", e))
+    Ok(fullscreen::is_fullscreen(&window))
 }
+
+/// Synchronise l'interface (classe `is-fullscreen`, bouton) avant le premier rendu de la page.
+const BOOT_FULLSCREEN_SCRIPT: &str = r#"(function () {
+  try {
+    window.__INKFLOW_BOOT_FULLSCREEN__ = true;
+    var apply = function () {
+      var d = document.documentElement;
+      if (!d) return false;
+      d.classList.add('is-fullscreen');
+      d.setAttribute('data-fullscreen', 'true');
+      return true;
+    };
+    if (!apply()) document.addEventListener('readystatechange', apply, { once: true });
+  } catch (_) {}
+})();"#;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -74,10 +82,14 @@ pub fn run() {
     // - Désactive la navigation latérale par balayage (OverscrollHistoryNavigation)
     // - Désactive les régions déplaçables parasites (msWebView2EnableDraggableRegions)
     // - Laisse la gestion du zoom pincement et du stylet à 100 % au moteur vectoriel de Plume Studio Pro
-    std::env::set_var(
-        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-        "--disable-features=msWebView2EnableDraggableRegions,OverscrollHistoryNavigation --disable-pinch --touch-events=enabled",
-    );
+    // Des arguments déjà présents dans l'environnement (diagnostic, ex. --remote-debugging-port) sont conservés
+    const BASE_WEBVIEW2_ARGS: &str =
+        "--disable-features=msWebView2EnableDraggableRegions,OverscrollHistoryNavigation --disable-pinch --touch-events=enabled";
+    let webview2_args = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+        Ok(extra) if !extra.trim().is_empty() => format!("{} {}", BASE_WEBVIEW2_ARGS, extra.trim()),
+        _ => BASE_WEBVIEW2_ARGS.to_string(),
+    };
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", webview2_args);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
@@ -87,6 +99,27 @@ pub fn run() {
             if let Ok(local_dir) = app.path().app_local_data_dir() {
                 let _ = fs::create_dir_all(&local_dir);
             }
+
+            // Fenêtre principale créée cachée (`create: false` dans tauri.conf.json), passée en plein
+            // écran puis seulement montrée : aucun flash de fenêtre normale au lancement.
+            app.manage(fullscreen::FullscreenState::default());
+            let config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .ok_or("Configuration de la fenêtre principale introuvable")?;
+            let window = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
+                .visible(false)
+                .initialization_script(BOOT_FULLSCREEN_SCRIPT)
+                .build()?;
+            if let Err(e) = fullscreen::set_fullscreen(&window, true) {
+                eprintln!("[InkFlow] plein écran au démarrage impossible : {}", e);
+            }
+            let _ = window.show();
+            let _ = window.set_focus();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
