@@ -14749,7 +14749,8 @@ html.is-canvas-interacting[data-theme="dark"] .sidebar:not(.collapsed) {
   .fc-mode-toggle, .fc-preview-grid { grid-template-columns: 1fr; }
   .fc-grade-row { grid-template-columns: repeat(2, 1fr); }
   .fc-review kbd { display: none; }
-/^>>>>>>> feat/boutique-perso$/d
+}
+
 /* ===== BOUTIQUE, PERSONNALISATION ET ANIMATIONS ===== */
 /* Boutique Détente : nouvelles catégories (motifs de papier, encres, polices, barre d'outils, cahiers prêts à
    l'emploi), aperçus, habillages de la barre d'outils et animations discrètes. Les animations n'utilisent que
