@@ -130,6 +130,52 @@
     { id: 'tone-peche', kind: 'tone', tone: 'peche', label: 'Pêche', price: 120, swatch: '#fdf0e6' },
     { id: 'cover-foret', kind: 'cover', label: 'Forêt', price: 250, coverColor: '#14532d', accent: '#a3e635', style: 'pat-waves' },
     { id: 'cover-lagon', kind: 'cover', label: 'Lagon', price: 250, coverColor: '#155e75', accent: '#67e8f9', style: 'pat-fluid' },
+    { id: 'theme-turquoise', kind: 'theme', label: 'Turquoise', price: 200, light: '#0e7490', lightDark: '#155e75', dark: '#5fd3ea', darkDark: '#0e8aa8' },
+    { id: 'theme-rouille', kind: 'theme', label: 'Rouille', price: 200, light: '#b4452a', lightDark: '#923620', dark: '#f08a6b', darkDark: '#c9573a' },
+    { id: 'theme-olive', kind: 'theme', label: 'Olive', price: 200, light: '#5f6f1e', lightDark: '#4b5818', dark: '#b4c95a', darkDark: '#7d9130' },
+    { id: 'theme-indigo', kind: 'theme', label: 'Indigo', price: 250, light: '#4338ca', lightDark: '#3730a3', dark: '#a5a0ff', darkDark: '#6d63e8' },
+    { id: 'tone-citron', kind: 'tone', tone: 'citron', label: 'Citron', price: 120, swatch: '#fbf8dd' },
+    { id: 'tone-pistache', kind: 'tone', tone: 'pistache', label: 'Pistache', price: 120, swatch: '#eef3df' },
+    { id: 'tone-brume', kind: 'tone', tone: 'brume', label: 'Brume', price: 100, swatch: '#eceff3' },
+    { id: 'tone-perle', kind: 'tone', tone: 'perle', label: 'Perle', price: 100, swatch: '#f2f1ef' },
+    { id: 'cover-corail', kind: 'cover', label: 'Corail', price: 250, coverColor: '#c2410c', accent: '#fdba74', style: 'pat-soft' },
+    { id: 'cover-marine', kind: 'cover', label: 'Marine et sable', price: 250, coverColor: '#1e3a5f', accent: '#e7d3a8', style: 'simple' },
+    { id: 'cover-ruche', kind: 'cover', label: 'Ruche', price: 300, coverColor: '#92400e', accent: '#fbbf24', style: 'pat-hex' },
+    { id: 'cover-rayures', kind: 'cover', label: 'Rayures encre', price: 300, coverColor: '#1e3a8a', accent: '#bfdbfe', style: 'pat-stripes' },
+    // Motifs de papier : fonds supplémentaires dessinés par drawPaperBackground (06-text-paper.js)
+    { id: 'paper-hexagonal', kind: 'paper', paper: 'hexagonal', label: 'Hexagonal', price: 200 },
+    { id: 'paper-calligraphy', kind: 'paper', paper: 'calligraphy', label: 'Calligraphie', price: 250 },
+    { id: 'paper-crosses', kind: 'paper', paper: 'crosses', label: 'Points de croix', price: 150 },
+    { id: 'paper-diamond', kind: 'paper', paper: 'diamond', label: 'Losanges', price: 150 },
+    { id: 'paper-scallops', kind: 'paper', paper: 'scallops', label: 'Écailles', price: 200 },
+    // Encres : séries de couleurs nommées, ajoutées aux palettes du stylo, du crayon et du texte
+    { id: 'ink-anciennes', kind: 'ink', label: 'Encres anciennes', price: 180, colors: [
+      { hex: '#6b4423', name: 'Sépia' }, { hex: '#26262b', name: 'Noir de fumée' }, { hex: '#1c2a4a', name: 'Bleu-noir' }, { hex: '#8a4b1c', name: 'Brun roux' }] },
+    { id: 'ink-jardin', kind: 'ink', label: 'Encres de jardin', price: 180, colors: [
+      { hex: '#1f5f46', name: 'Vert sapin' }, { hex: '#5b9a3c', name: 'Prairie' }, { hex: '#6b6b1f', name: 'Olive' }, { hex: '#2fb98a', name: 'Menthe' }] },
+    { id: 'ink-nuit', kind: 'ink', label: 'Encres de nuit', price: 220, colors: [
+      { hex: '#3730a3', name: 'Indigo' }, { hex: '#4c1d95', name: 'Violet nuit' }, { hex: '#7a2761', name: 'Prune' }, { hex: '#172554', name: 'Bleu minuit' }] },
+    { id: 'ink-cuivre', kind: 'ink', label: 'Encres cuivrées', price: 260, colors: [
+      { hex: '#b4642f', name: 'Cuivre' }, { hex: '#b8892b', name: 'Or ancien' }, { hex: '#8a6a3b', name: 'Bronze' }, { hex: '#9a3412', name: 'Rouille' }] },
+    // Polices de texte : piles de polices système (aucune police chargée à distance)
+    { id: 'font-ecriture', kind: 'font', label: 'Écriture à l’encre', fontLabel: 'Encre', price: 100, stack: "'Ink Free', 'Segoe Script', 'Bradley Hand', cursive" },
+    { id: 'font-palatin', kind: 'font', label: 'Palatin', fontLabel: 'Palatin', price: 100, stack: "'Palatino Linotype', 'Book Antiqua', Palatino, serif" },
+    { id: 'font-machine', kind: 'font', label: 'Machine à écrire', fontLabel: 'Machine', price: 100, stack: "'Courier New', 'American Typewriter', monospace" },
+    { id: 'font-humaniste', kind: 'font', label: 'Humaniste', fontLabel: 'Humaniste', price: 100, stack: "Candara, 'Gill Sans', 'Segoe UI', sans-serif" },
+    { id: 'font-affiche', kind: 'font', label: 'Affiche', fontLabel: 'Affiche', price: 120, stack: "Bahnschrift, 'Arial Narrow', 'Franklin Gothic Medium', sans-serif" },
+    { id: 'font-calligraphique', kind: 'font', label: 'Calligraphique', fontLabel: 'Calligraphique', price: 150, stack: "Gabriola, 'Segoe Script', 'Brush Script MT', cursive" },
+    // Barre d'outils : habillages du bandeau du haut (attribut data-detente-skin sur <html>, voir styles.css)
+    { id: 'bar-filet', kind: 'bar', label: 'Filet d’accent', price: 150, bar: 'filet' },
+    { id: 'bar-papier', kind: 'bar', label: 'Barre papier', price: 200, bar: 'papier' },
+    { id: 'bar-ardoise', kind: 'bar', label: 'Barre ardoise', price: 250, bar: 'ardoise' },
+    { id: 'bar-ronds', kind: 'bar', label: 'Boutons ronds', price: 150, bar: 'ronds' },
+    // Cahiers prêts à l'emploi : raccourcis dans « Nouveau cahier » (papier, teinte et couverture déjà réglés)
+    { id: 'nb-cours', kind: 'notebook', label: 'Cahier de cours', price: 150, title: 'Cours', paper: 'seyes', tone: 'white', coverColor: '#1d4ed8', accent: '#bfdbfe' },
+    { id: 'nb-chimie', kind: 'notebook', label: 'Cahier de chimie', price: 200, title: 'Chimie', paper: 'hexagonal', tone: 'mint', coverColor: '#0f766e', accent: '#99f6e4' },
+    { id: 'nb-calligraphie', kind: 'notebook', label: 'Carnet de calligraphie', price: 200, title: 'Calligraphie', paper: 'calligraphy', tone: 'sable', coverColor: '#7c2d12', accent: '#fdba74' },
+    { id: 'nb-musique', kind: 'notebook', label: 'Carnet de musique', price: 150, title: 'Musique', paper: 'music', tone: 'ivory', coverColor: '#1e1b4b', accent: '#c4b5fd' },
+    { id: 'nb-croquis', kind: 'notebook', label: 'Carnet de croquis', price: 150, title: 'Croquis', paper: 'dotted', tone: 'kraft', coverColor: '#78350f', accent: '#fcd34d' },
+    { id: 'nb-atelier', kind: 'notebook', label: 'Atelier isométrique', price: 200, title: 'Atelier', paper: 'isometric', tone: 'blueprint', coverColor: '#0d2847', accent: '#7dd3fc' },
     // Fournitures : achats répétables, mis en stock et consommés avant le solde lors d'une création
     { id: 'pack-pages', kind: 'pack', stock: 'page', qty: 12, label: 'Bloc de 12 pages', price: 10 },
     { id: 'pack-ramette', kind: 'pack', stock: 'page', qty: 50, label: 'Ramette de 50 pages', price: 35 },
@@ -137,10 +183,23 @@
     { id: 'pack-pdf', kind: 'pack', stock: 'pdf', qty: 3, label: 'Lot de 3 imports PDF', price: 25 }
   ];
   const DETENTE_SHOP_GROUPS = [
-    { kind: 'pack', title: 'Fournitures', note: 'Achats en lot, moins chers qu’à l’unité. Le stock sert avant le solde quand tu crées une page, un cahier ou importes un PDF.' },
-    { kind: 'theme', title: 'Thèmes de couleur', note: 'Couleur d’accent de toute l’application.' },
-    { kind: 'tone', title: 'Fonds de page', note: 'Nouvelles teintes dans le menu Papier de la page.' },
-    { kind: 'cover', title: 'Couvertures de cahier', note: 'Dans la création de cahier et la bibliothèque de couvertures.' }
+    { kind: 'pack', filter: 'pack', title: 'Fournitures', note: 'Achats en lot, moins chers qu’à l’unité. Le stock sert avant le solde quand tu crées une page, un cahier ou importes un PDF.' },
+    { kind: 'theme', filter: 'look', title: 'Thèmes de couleur', note: 'Couleur d’accent de toute l’application.' },
+    { kind: 'bar', filter: 'look', title: 'Barre d’outils', note: 'Habillage du bandeau du haut, à activer ou changer quand tu veux.' },
+    { kind: 'tone', filter: 'paper', title: 'Fonds de page', note: 'Nouvelles teintes dans le menu Papier de la page.' },
+    { kind: 'paper', filter: 'paper', title: 'Motifs de papier', note: 'Nouveaux motifs dans le menu Papier et dans la bibliothèque de modèles.' },
+    { kind: 'ink', filter: 'write', title: 'Encres', note: 'Couleurs nommées ajoutées aux palettes du stylo, du crayon et du texte.' },
+    { kind: 'font', filter: 'write', title: 'Polices de texte', note: 'Dans le sélecteur de police des cartes de texte.' },
+    { kind: 'cover', filter: 'notebook', title: 'Couvertures de cahier', note: 'Dans la création de cahier et la bibliothèque de couvertures.' },
+    { kind: 'notebook', filter: 'notebook', title: 'Cahiers prêts à l’emploi', note: 'Un raccourci dans « Nouveau cahier » : papier, teinte et couverture déjà réglés.' }
+  ];
+  const DETENTE_SHOP_FILTERS = [
+    { id: 'all', label: 'Tout' },
+    { id: 'pack', label: 'Fournitures' },
+    { id: 'look', label: 'Apparence' },
+    { id: 'paper', label: 'Papier' },
+    { id: 'write', label: 'Écriture' },
+    { id: 'notebook', label: 'Cahiers' }
   ];
   const DETENTE_STOCK_KINDS = ['notebook', 'page', 'pdf'];
   const DETENTE_STOCK_LABELS = { notebook: ['cahier', 'cahiers'], page: ['page', 'pages'], pdf: ['import PDF', 'imports PDF'] };
@@ -155,6 +214,9 @@
     stock: { notebook: 0, page: 0, pdf: 0 },
     ledger: [], // relevé : { t, label, delta, balance, count }
     theme: 'default',
+    bar: 'default', // habillage de la barre d'outils (boutique)
+    seeded: [], // encres déjà ajoutées aux palettes (une seule fois par série)
+    shopFilter: 'all',
     tab: 'slot',
     betIndex: 3,
     bjBetIndex: 2,
@@ -203,6 +265,8 @@
           .slice(0, DETENTE_LEDGER_MAX);
       }
       if (typeof data.theme === 'string' && (data.theme === 'default' || detenteState.unlocked.includes(data.theme))) detenteState.theme = data.theme;
+      if (typeof data.bar === 'string' && (data.bar === 'default' || detenteState.unlocked.includes(data.bar))) detenteState.bar = data.bar;
+      if (Array.isArray(data.seeded)) detenteState.seeded = data.seeded.filter((id) => typeof id === 'string').slice(0, 60);
       if (typeof data.tab === 'string' && DETENTE_TABS.includes(data.tab)) detenteState.tab = data.tab;
       if (Number.isInteger(data.betIndex) && data.betIndex >= 0 && data.betIndex < DETENTE_BETS.length) detenteState.betIndex = data.betIndex;
       if (Number.isInteger(data.bjBetIndex) && data.bjBetIndex >= 0 && data.bjBetIndex < DETENTE_BJ_BETS.length) detenteState.bjBetIndex = data.bjBetIndex;
@@ -231,6 +295,8 @@
         stock: detenteState.stock,
         ledger: detenteState.ledger,
         theme: detenteState.theme,
+        bar: detenteState.bar,
+        seeded: detenteState.seeded,
         tab: detenteState.tab,
         betIndex: detenteState.betIndex,
         bjBetIndex: detenteState.bjBetIndex,
@@ -1087,18 +1153,52 @@
       detenteLog(`Boutique : ${item.label}`, -item.price);
       setDetenteMessage('detenteShopMsg', `« ${item.label} » ajouté au stock : ${formatDetenteStock(item.stock, detenteState.stock[item.stock])} disponibles.`, 'win');
       playDetenteChime(false);
-      renderDetenteShop();
+      renderDetenteShop(item.id);
+      playDetenteSpendFx(item);
       return true;
     }
     detenteState.unlocked.push(id);
     if (item.kind === 'theme') detenteState.theme = id;
+    if (item.kind === 'bar') detenteState.bar = id;
     detenteAddBalance(-item.price);
     detenteLog(`Boutique : ${item.label}`, -item.price);
     applyDetenteUnlocks();
-    setDetenteMessage('detenteShopMsg', `« ${item.label} » débloqué.`, 'win');
+    setDetenteMessage('detenteShopMsg', `« ${item.label} » débloqué${DETENTE_UNLOCK_HINTS[item.kind] ? ` : ${DETENTE_UNLOCK_HINTS[item.kind]}` : ''}.`, 'win');
     playDetenteChime(false);
-    renderDetenteShop();
+    renderDetenteShop(item.id);
+    playDetenteSpendFx(item);
     return true;
+  }
+
+  // Où retrouver l'achat dans l'application (affiché après l'achat)
+  const DETENTE_UNLOCK_HINTS = {
+    tone: 'dans le menu Papier de la page',
+    paper: 'dans le menu Papier de la page et la bibliothèque de modèles',
+    ink: 'dans les palettes de couleurs du stylo, du crayon et du texte',
+    font: 'dans le sélecteur de police des cartes de texte',
+    bar: 'barre d’outils habillée',
+    cover: 'dans « Nouveau cahier » et la bibliothèque de couvertures',
+    notebook: 'dans « Nouveau cahier »'
+  };
+
+  // Animation d'achat : « −prix » qui s'envole depuis le solde, légère impulsion du solde
+  function playDetenteSpendFx(item) {
+    if (isDetenteReducedMotion() || !state.detentePageOpen) return;
+    const bal = document.getElementById('detenteBalance');
+    if (!bal) return;
+    bal.classList.remove('spent');
+    void bal.offsetWidth; // relance l'animation CSS
+    bal.classList.add('spent');
+    const host = bal.parentElement;
+    if (host && typeof host.appendChild === 'function') {
+      const fly = document.createElement('span');
+      fly.className = 'detente-spend-float';
+      fly.setAttribute('aria-hidden', 'true');
+      fly.textContent = `−${formatJetons(item.price)}`;
+      host.appendChild(fly);
+      setTimeout(() => { if (fly.parentNode) fly.remove(); }, 1100);
+    }
+    setTimeout(() => bal.classList.remove('spent'), 700);
   }
 
   function setDetenteTheme(id) {
@@ -1107,6 +1207,22 @@
     saveDetenteState();
     applyDetenteTheme();
     renderDetenteShop();
+  }
+
+  function setDetenteBar(id) {
+    if (id !== 'default' && !isDetenteUnlocked(id)) return;
+    detenteState.bar = id;
+    saveDetenteState();
+    applyDetenteBar();
+    renderDetenteShop();
+  }
+
+  function applyDetenteBar() {
+    const root = typeof document !== 'undefined' ? document.documentElement : null;
+    if (!root || !root.dataset) return;
+    const item = DETENTE_SHOP.find((it) => it.id === detenteState.bar && it.kind === 'bar');
+    if (item && isDetenteUnlocked(item.id)) root.dataset.detenteSkin = item.bar;
+    else delete root.dataset.detenteSkin;
   }
 
   function hexToRgba(hex, alpha) {
@@ -1131,12 +1247,98 @@
       + `:root:root[data-theme="dark"]{--accent-primary:${item.dark};--accent-primary-dark:${item.darkDark};--accent-primary-soft:${hexToRgba(item.dark, 0.2)};}`;
   }
 
+  // Séries d'encres : ajoutées une seule fois aux préréglages des palettes (l'utilisateur peut ensuite les retirer)
+  function seedDetenteInks() {
+    const owned = DETENTE_SHOP.filter((it) => it.kind === 'ink' && isDetenteUnlocked(it.id) && !detenteState.seeded.includes(it.id));
+    if (!owned.length) return;
+    try {
+      ['pen', 'pencil', 'text'].forEach((scope) => {
+        const presets = getToolColorPresets(scope);
+        owned.forEach((it) => it.colors.forEach((c) => {
+          if (presets.length < GN_MAX_COLOR_PRESETS && !presets.some((p) => String(p).toLowerCase() === c.hex)) presets.push(c.hex);
+        }));
+      });
+      saveToolMemoryToStorage();
+      owned.forEach((it) => detenteState.seeded.push(it.id));
+      saveDetenteState();
+    } catch (_) { /* palettes pas encore initialisées : réessayé au prochain démarrage */ }
+  }
+
+  // Raccourcis « cahiers prêts à l'emploi » dans la fenêtre Nouveau cahier
+  function renderDetenteNotebookPresets() {
+    const wrap = document.getElementById('detenteNbPresets');
+    if (!wrap) return;
+    const items = DETENTE_SHOP.filter((it) => it.kind === 'notebook' && isDetenteUnlocked(it.id));
+    const field = wrap.closest('.form-field');
+    if (field) field.classList.toggle('hidden', !items.length);
+    wrap.innerHTML = '';
+    items.forEach((it) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'detente-nb-preset';
+      b.dataset.detenteNb = it.id;
+      b.style.setProperty('--nb-cover', it.coverColor);
+      b.innerHTML = `<span class="detente-nb-preset-cover" aria-hidden="true"></span><span>${escapeHtml(it.label)}</span>`;
+      b.addEventListener('click', () => applyDetenteNotebookPreset(it, wrap, b));
+      wrap.appendChild(b);
+    });
+  }
+
+  function applyDetenteNotebookPreset(it, wrap, btn) {
+    const prev = state.newNotebookTemplate || {};
+    state.newNotebookTemplate = {
+      paperType: it.paper,
+      paperTone: it.tone,
+      gridSize: 28,
+      language: prev.language || 'fr',
+      sizeId: prev.sizeId || 'goodnotes_standard',
+      orientation: prev.orientation || 'portrait',
+      customTemplateDataUrl: null,
+      coverTemplateId: null,
+      coverCustomDataUrl: null
+    };
+    state.newNotebookCover = it.coverColor;
+    const covers = document.getElementById('notebookCoverSwatches');
+    if (covers) {
+      covers.querySelectorAll('[data-cover]').forEach((s) => s.classList.toggle('active', String(s.dataset.cover || '').toLowerCase() === it.coverColor));
+    }
+    wrap.querySelectorAll('.detente-nb-preset').forEach((b) => b.classList.toggle('active', b === btn));
+    const nameInput = document.getElementById('inputNotebookName');
+    if (nameInput && !nameInput.value.trim()) nameInput.value = it.title;
+    if (typeof updateNewNotebookPaperPreview === 'function') updateNewNotebookPaperPreview();
+  }
+
   function applyDetenteUnlocks() {
     applyDetenteTheme();
-    // Teintes de papier : boutons cachés du menu Papier
+    applyDetenteBar();
+    // Teintes de papier, motifs de papier et polices : boutons cachés des menus Papier et Police
     document.querySelectorAll('[data-detente-item]').forEach((el) => {
       el.classList.toggle('hidden', !isDetenteUnlocked(el.dataset.detenteItem));
     });
+    seedDetenteInks();
+    renderDetenteNotebookPresets();
+    // Étiquettes de motifs dans la bibliothèque (badge des cahiers) : motifs de la boutique
+    try {
+      DETENTE_SHOP.filter((it) => it.kind === 'paper').forEach((it) => { PAPER_TYPE_LABELS[it.paper] = it.label; });
+    } catch (_) { /* tables pas encore initialisées */ }
+    // Teintes débloquées : disponibles aussi dans le menu des couleurs de la bibliothèque de modèles
+    try {
+      DETENTE_SHOP.filter((it) => it.kind === 'tone').forEach((it) => {
+        const idx = GN_PAPER_TONE_OPTIONS.findIndex((t) => t.id === it.tone);
+        if (isDetenteUnlocked(it.id) && idx < 0) {
+          const allIdx = GN_PAPER_TONE_OPTIONS.findIndex((t) => t.id === 'all');
+          GN_PAPER_TONE_OPTIONS.splice(allIdx >= 0 ? allIdx : GN_PAPER_TONE_OPTIONS.length, 0, { id: it.tone, label: it.label, swatch: it.swatch });
+        }
+      });
+    } catch (_) { /* bibliothèque pas encore initialisée */ }
+    // Motifs de papier : groupe de la bibliothèque de modèles
+    try {
+      const paperItems = DETENTE_SHOP.filter((it) => it.kind === 'paper' && isDetenteUnlocked(it.id))
+        .map((it) => ({ id: it.paper, label: it.label }));
+      const pIdx = GN_PAPER_TEMPLATE_GROUPS.findIndex((g) => g.id === 'detente-shop');
+      if (pIdx >= 0) GN_PAPER_TEMPLATE_GROUPS.splice(pIdx, 1);
+      if (paperItems.length) GN_PAPER_TEMPLATE_GROUPS.push({ id: 'detente-shop', title: 'Boutique Détente', items: paperItems });
+    } catch (_) { /* bibliothèque pas encore initialisée */ }
     // Couvertures : pastilles dans « Nouveau cahier »
     const wrap = document.getElementById('notebookCoverSwatches');
     if (wrap) {
@@ -1168,6 +1370,55 @@
     } catch (_) { /* bibliothèque pas encore initialisée */ }
   }
 
+  // Tracé SVG (viewBox 120 × 54) d'un motif de papier, pour l'aperçu de la boutique.
+  // Un « | » sépare le tracé principal du tracé appuyé.
+  function detentePaperPreviewPath(paper, w = 120, h = 54) {
+    let d = '';
+    const f = (n) => Math.round(n * 10) / 10;
+    if (paper === 'hexagonal') {
+      const r = 8.5;
+      const hh = Math.sqrt(3) / 2 * r;
+      for (let i = -1; i * r * 1.5 <= w + r; i++) {
+        const cx = i * r * 1.5;
+        const off = (((i % 2) + 2) % 2) * hh;
+        for (let cy = off - 2 * hh; cy <= h + hh; cy += 2 * hh) d += `M${f(cx - r)} ${f(cy)}L${f(cx - r / 2)} ${f(cy - hh)}L${f(cx + r / 2)} ${f(cy - hh)}L${f(cx + r)} ${f(cy)}`;
+      }
+    } else if (paper === 'calligraphy') {
+      for (let x = -40; x <= w; x += 11) d += `M${x} ${h}L${f(x + h * 0.7)} 0`;
+      d += '|';
+      for (let by = 3; by < h; by += 26) d += `M0 ${by}H${w}M0 ${by + 6}H${w}M0 ${by + 18}H${w}`;
+    } else if (paper === 'crosses') {
+      for (let x = 8; x < w; x += 14) for (let y = 8; y < h; y += 14) d += `M${x - 2.6} ${y}h5.2M${x} ${y - 2.6}v5.2`;
+    } else if (paper === 'diamond') {
+      for (let k = -6; k <= 14; k++) { const c = k * 12; d += `M${c} 0L${c + h} ${h}M${c + h} 0L${c} ${h}`; }
+    } else if (paper === 'scallops') {
+      const r = 8;
+      for (let j = 0; j * r <= h + r; j++) {
+        const cy = j * r;
+        const off = (j % 2) * r;
+        for (let cx = off - 2 * r; cx <= w + r; cx += 2 * r) d += `M${f(cx + r)} ${f(cy)}A${r} ${r} 0 0 0 ${f(cx - r)} ${f(cy)}`;
+      }
+    } else if (paper === 'seyes') {
+      for (let x = 8; x < w; x += 15) d += `M${x} 0V${h}`;
+      for (let y = 6; y < h; y += 15) d += `M0 ${y}H${w}`;
+    } else if (paper === 'music') {
+      for (let s = 6; s < h; s += 22) for (let l = 0; l < 5; l++) d += `M0 ${f(s + l * 3.2)}H${w}`;
+    } else if (paper === 'dotted') {
+      for (let x = 7; x < w; x += 12) for (let y = 7; y < h; y += 12) d += `M${x} ${y}h.1`;
+    } else if (paper === 'isometric') {
+      for (let x = 0; x <= w; x += 12) d += `M${x} 0V${h}`;
+      for (let y = -w * 0.58; y <= h; y += 14) d += `M0 ${f(y)}L${w} ${f(y + w * 0.58)}M0 ${f(y + w * 0.58)}L${w} ${f(y)}`;
+    }
+    return d;
+  }
+
+  function detentePaperSvg(paper, { w = 120, h = 54 } = {}) {
+    const [main, strong] = detentePaperPreviewPath(paper, w, h).split('|');
+    const dots = paper === 'dotted';
+    return `<svg class="detente-paper-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid slice" fill="none" stroke="currentColor" stroke-width="${dots ? 2.4 : 0.9}" stroke-linecap="round" aria-hidden="true">`
+      + `<path d="${main}" opacity="${paper === 'calligraphy' ? 0.28 : 0.85}"/>${strong ? `<path d="${strong}" stroke-width="1.1"/>` : ''}</svg>`;
+  }
+
   function detenteShopPreview(item) {
     if (item.kind === 'theme') {
       return `<span class="detente-shop-preview theme" style="--prev-a:${item.light};--prev-b:${item.dark}"><span></span><span></span></span>`;
@@ -1178,25 +1429,72 @@
     if (item.kind === 'pack') {
       return `<span class="detente-shop-preview pack"><strong>×${item.qty}</strong><span>${escapeHtml(DETENTE_STOCK_LABELS[item.stock][1])}</span></span>`;
     }
-    return `<span class="detente-shop-preview cover" style="background:linear-gradient(135deg, ${item.coverColor}, ${item.accent})"></span>`;
+    if (item.kind === 'paper') {
+      return `<span class="detente-shop-preview paper">${detentePaperSvg(item.paper)}</span>`;
+    }
+    if (item.kind === 'ink') {
+      return `<span class="detente-shop-preview ink">${item.colors.map((c) => `<i style="background:${c.hex}" title="${escapeHtml(c.name)}"></i>`).join('')}</span>`;
+    }
+    if (item.kind === 'font') {
+      return `<span class="detente-shop-preview font" style="font-family:${item.stack.replace(/"/g, '&quot;')}">Aa<small>Écrire, noter</small></span>`;
+    }
+    if (item.kind === 'bar') {
+      return `<span class="detente-shop-preview bar" data-bar-preview="${item.bar}"><i></i><i></i><i></i><i></i></span>`;
+    }
+    if (item.kind === 'notebook') {
+      const tone = (DETENTE_PAPER_TONES[item.tone] && DETENTE_PAPER_TONES[item.tone].bg) || ({ white: '#ffffff', ivory: '#fbfaf5', blueprint: '#0d2847', sepia: '#f5eedc' })[item.tone] || '#ffffff';
+      const dark = item.tone === 'blueprint' || item.tone === 'dark';
+      return `<span class="detente-shop-preview nbk" style="--nb-cover:${item.coverColor};--nb-accent:${item.accent};--nb-page:${tone};--nb-ink:${dark ? '#7dd3fc' : '#64748b'}">`
+        + `<span class="nbk-cover"></span><span class="nbk-page">${detentePaperSvg(item.paper, { w: 80, h: 54 })}</span></span>`;
+    }
+    let motif = '';
+    if (item.style === 'pat-hex') {
+      motif = `<svg class="detente-cover-motif" viewBox="0 0 44 58" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="1.1" aria-hidden="true"><path d="${detentePaperPreviewPath('hexagonal', 44, 58)}"/></svg>`;
+    } else if (item.style === 'pat-stripes') {
+      let d = '';
+      for (let x = -58; x < 44; x += 11) d += `M${x} 58L${x + 58} 0`;
+      motif = `<svg class="detente-cover-motif" viewBox="0 0 44 58" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="3.5" aria-hidden="true"><path d="${d}"/></svg>`;
+    }
+    return `<span class="detente-shop-preview cover" data-cover-style="${item.style}" style="background:linear-gradient(135deg, ${item.coverColor}, ${item.accent})">${motif}</span>`;
   }
 
-  function renderDetenteShop() {
+  function setDetenteShopFilter(id) {
+    if (!DETENTE_SHOP_FILTERS.some((f) => f.id === id)) return;
+    detenteState.shopFilter = id;
+    renderDetenteShop();
+    const root = document.getElementById('detenteShopGroups');
+    if (root && !isDetenteReducedMotion()) {
+      root.classList.remove('entering');
+      void root.offsetWidth;
+      root.classList.add('entering');
+      setTimeout(() => root.classList.remove('entering'), 600);
+    }
+  }
+
+  // justBought : id d'un achat à mettre en valeur (animation de la carte)
+  function renderDetenteShop(justBought) {
     const root = document.getElementById('detenteShopGroups');
     if (!root) return;
-    let html = '';
+    const filter = detenteState.shopFilter || 'all';
+    let html = `<div class="detente-shop-filters" role="group" aria-label="Catégories de la boutique">${DETENTE_SHOP_FILTERS.map((f) => `<button type="button" class="detente-filter-chip${f.id === filter ? ' active' : ''}" data-detente-filter="${f.id}" aria-pressed="${f.id === filter ? 'true' : 'false'}">${escapeHtml(f.label)}</button>`).join('')}</div>`;
     DETENTE_SHOP_GROUPS.forEach((g) => {
+      if (filter !== 'all' && g.filter !== filter) return;
       html += `<section class="detente-card detente-shop-group"><h3 class="detente-card-title">${escapeHtml(g.title)}</h3><p class="detente-note detente-note-top">${escapeHtml(g.note)}</p><div class="detente-shop-grid">`;
-      if (g.kind === 'theme') {
-        const active = detenteState.theme === 'default';
-        html += `<div class="detente-shop-item${active ? ' active' : ''}"><span class="detente-shop-preview theme" style="--prev-a:#0072ce;--prev-b:#0c8cf3"><span></span><span></span></span><span class="detente-shop-name">Bleu InkFlow</span><button type="button" class="detente-chip-btn" data-detente-theme="default"${active ? ' disabled' : ''}>${active ? 'Actif' : 'Activer'}</button></div>`;
+      if (g.kind === 'theme' || g.kind === 'bar') {
+        const cur = g.kind === 'theme' ? detenteState.theme : detenteState.bar;
+        const active = cur === 'default';
+        const prev = g.kind === 'theme'
+          ? '<span class="detente-shop-preview theme" style="--prev-a:#0072ce;--prev-b:#0c8cf3"><span></span><span></span></span>'
+          : '<span class="detente-shop-preview bar" data-bar-preview="default"><i></i><i></i><i></i><i></i></span>';
+        html += `<div class="detente-shop-item${active ? ' active' : ''}">${prev}<span class="detente-shop-name">${g.kind === 'theme' ? 'Bleu InkFlow' : 'Barre d’origine'}</span><button type="button" class="detente-chip-btn" data-detente-${g.kind}="default"${active ? ' disabled' : ''}>${active ? 'Actif' : 'Activer'}</button></div>`;
       }
       DETENTE_SHOP.filter((it) => it.kind === g.kind).forEach((it) => {
+        const pop = justBought === it.id ? ' just-bought' : '';
         if (it.kind === 'pack') {
           const unit = DETENTE_COSTS[it.stock] * it.qty;
           const saving = unit > it.price ? `<span class="detente-shop-meta">au lieu de ${formatJetons(unit)} à l’unité</span>` : '';
           const have = detenteState.stock[it.stock];
-          html += `<div class="detente-shop-item pack">${detenteShopPreview(it)}<span class="detente-shop-name">${escapeHtml(it.label)}</span>${saving}`
+          html += `<div class="detente-shop-item pack${pop}" data-shop-id="${it.id}">${detenteShopPreview(it)}<span class="detente-shop-name">${escapeHtml(it.label)}</span>${saving}`
             + `<span class="detente-shop-meta">En stock : ${formatDetenteStock(it.stock, have)}</span>`
             + `<button type="button" class="detente-chip-btn buy" data-detente-buy="${it.id}"${detenteState.balance < it.price ? ' data-short="1"' : ''}>${formatJetons(it.price)} jetons</button></div>`;
           return;
@@ -1205,14 +1503,15 @@
         let btn;
         if (!owned) {
           btn = `<button type="button" class="detente-chip-btn buy" data-detente-buy="${it.id}"${detenteState.balance < it.price ? ' data-short="1"' : ''}>${formatJetons(it.price)} jetons</button>`;
-        } else if (it.kind === 'theme') {
-          const active = detenteState.theme === it.id;
-          btn = `<button type="button" class="detente-chip-btn" data-detente-theme="${it.id}"${active ? ' disabled' : ''}>${active ? 'Actif' : 'Activer'}</button>`;
+        } else if (it.kind === 'theme' || it.kind === 'bar') {
+          const act = (it.kind === 'theme' ? detenteState.theme : detenteState.bar) === it.id;
+          btn = `<button type="button" class="detente-chip-btn" data-detente-${it.kind}="${it.id}"${act ? ' disabled' : ''}>${act ? 'Actif' : 'Activer'}</button>`;
         } else {
           btn = '<span class="detente-shop-owned">Débloqué</span>';
         }
-        const active = it.kind === 'theme' && owned && detenteState.theme === it.id;
-        html += `<div class="detente-shop-item${owned ? ' owned' : ''}${active ? ' active' : ''}">${detenteShopPreview(it)}<span class="detente-shop-name">${escapeHtml(it.label)}</span>${btn}</div>`;
+        const active = owned && ((it.kind === 'theme' && detenteState.theme === it.id) || (it.kind === 'bar' && detenteState.bar === it.id));
+        const meta = it.kind === 'ink' ? `<span class="detente-shop-meta">${escapeHtml(it.colors.map((c) => c.name).join(', '))}</span>` : '';
+        html += `<div class="detente-shop-item${owned ? ' owned' : ''}${active ? ' active' : ''}${pop}" data-shop-id="${it.id}">${detenteShopPreview(it)}<span class="detente-shop-name">${escapeHtml(it.label)}</span>${meta}${btn}</div>`;
       });
       html += '</div></section>';
     });
@@ -2451,11 +2750,32 @@
     }
   }
 
+  // Changement de page : la vignette de la nouvelle page active fait un petit rebond dans le panneau
+  // des pages (transform / opacity seulement, jamais pendant un tracé ni sur les canvas)
+  function initDetenteMotion() {
+    if (typeof MutationObserver === 'undefined') return;
+    const grid = document.getElementById('pagesGrid');
+    if (!grid || grid.dataset.motionBound) return;
+    grid.dataset.motionBound = '1';
+    let lastActive = state.activePageId;
+    new MutationObserver(() => {
+      const current = state.activePageId;
+      if (current === lastActive) return;
+      lastActive = current;
+      if (isDetenteReducedMotion() || document.documentElement.classList.contains('is-canvas-interacting')) return;
+      const card = grid.querySelector('.page-thumb-card.active');
+      if (!card) return;
+      card.classList.add('page-activated');
+      setTimeout(() => card.classList.remove('page-activated'), 460);
+    }).observe(grid, { childList: true });
+  }
+
   function initDetentePage() {
     if (detenteState.eventsBound) return;
     const pageEl = document.getElementById('detentePage');
     loadDetenteState();
     applyDetenteUnlocks();
+    initDetenteMotion();
     refreshDetenteWalletUi();
     bindDetenteFundsModal();
     if (!pageEl) return;
@@ -2527,7 +2847,11 @@
       const buy = e.target.closest('[data-detente-buy]');
       if (buy) { buyDetenteItem(buy.dataset.detenteBuy); return; }
       const th = e.target.closest('[data-detente-theme]');
-      if (th) setDetenteTheme(th.dataset.detenteTheme);
+      if (th) { setDetenteTheme(th.dataset.detenteTheme); return; }
+      const bar = e.target.closest('[data-detente-bar]');
+      if (bar) { setDetenteBar(bar.dataset.detenteBar); return; }
+      const flt = e.target.closest('[data-detente-filter]');
+      if (flt) setDetenteShopFilter(flt.dataset.detenteFilter);
     });
 
     // Banque
@@ -2601,6 +2925,8 @@
     }
   }
 
+  let detentePageCloseTimer = null;
+
   function openDetentePage() {
     const pageEl = document.getElementById('detentePage');
     if (!pageEl) return false;
@@ -2611,6 +2937,8 @@
     if (state.colorWheelOpen) closeRadialColorWheel(true);
     if (gnColorPopoverState.open) closeGnColorPopover();
     state.detentePageOpen = true;
+    clearTimeout(detentePageCloseTimer);
+    pageEl.classList.remove('closing');
     pageEl.classList.remove('hidden');
     document.getElementById('btnOpenDetente')?.classList.add('active');
     setDetenteTab(detenteState.tab);
@@ -2625,7 +2953,18 @@
     const pageEl = document.getElementById('detentePage');
     state.detentePageOpen = false;
     detenteState.leverDrag = null;
-    if (pageEl) pageEl.classList.add('hidden');
+    if (pageEl) {
+      clearTimeout(detentePageCloseTimer);
+      if (isDetenteReducedMotion() || pageEl.classList.contains('hidden')) {
+        pageEl.classList.add('hidden');
+      } else {
+        pageEl.classList.add('closing');
+        detentePageCloseTimer = setTimeout(() => {
+          pageEl.classList.add('hidden');
+          pageEl.classList.remove('closing');
+        }, 160);
+      }
+    }
     document.getElementById('btnOpenDetente')?.classList.remove('active');
     if (detenteState.audioCtx && detenteState.audioCtx.state === 'running') {
       detenteState.audioCtx.suspend().catch(() => {});

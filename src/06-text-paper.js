@@ -801,7 +801,11 @@
     kraft: { bg: '#ecdfc6', line: '120, 83, 45', seyes: '87, 60, 30' },
     lavande: { bg: '#f3effa', line: '91, 33, 182', seyes: '109, 40, 217' },
     sable: { bg: '#f6efe0', line: '146, 100, 40', seyes: '120, 80, 30' },
-    peche: { bg: '#fdf0e6', line: '194, 65, 12', seyes: '180, 70, 30' }
+    peche: { bg: '#fdf0e6', line: '194, 65, 12', seyes: '180, 70, 30' },
+    citron: { bg: '#fbf8dd', line: '133, 100, 4', seyes: '161, 98, 7' },
+    pistache: { bg: '#eef3df', line: '77, 124, 15', seyes: '63, 98, 18' },
+    brume: { bg: '#eceff3', line: '71, 85, 105', seyes: '51, 65, 85' },
+    perle: { bg: '#f2f1ef', line: '87, 83, 78', seyes: '68, 64, 60' }
   };
 
   function getPaperPalette(tone = 'ivory') {
@@ -1144,6 +1148,108 @@
         }
         targetCtx.fill();
       }
+    } else if (paperType === 'hexagonal') {
+      // Boutique Détente : nid d'abeilles (chimie organique, jeux de plateau), hexagones à sommet plat
+      const r = spacing * 0.62;
+      const hh = Math.sqrt(3) / 2 * r;
+      const colStep = r * 1.5;
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      for (let i = Math.floor(minX / colStep) - 1; i * colStep <= maxX + r; i++) {
+        const cx = i * colStep;
+        const off = (((i % 2) + 2) % 2) * hh;
+        for (let cy = Math.floor((minY - off) / (2 * hh)) * 2 * hh + off - 2 * hh; cy <= maxY + hh; cy += 2 * hh) {
+          targetCtx.moveTo(cx - r, cy);
+          targetCtx.lineTo(cx - r / 2, cy - hh);
+          targetCtx.lineTo(cx + r / 2, cy - hh);
+          targetCtx.lineTo(cx + r, cy);
+        }
+      }
+      targetCtx.stroke();
+    } else if (paperType === 'calligraphy') {
+      // Boutique Détente : calligraphie (ascendante, hauteur de x, ligne de base, descendante) + obliques à 55°
+      const band = spacing * 3.2;
+      const xh = spacing * 0.8;
+      targetCtx.lineWidth = 0.8 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      const slant = 0.7;
+      const slantStep = spacing * 1.1;
+      const slantRun = (maxY - minY) * slant;
+      for (let x = Math.floor((minX - slantRun) / slantStep) * slantStep; x <= maxX; x += slantStep) {
+        targetCtx.moveTo(x, maxY);
+        targetCtx.lineTo(x + slantRun, minY);
+      }
+      targetCtx.stroke();
+      const firstBand = isInfinite ? Math.floor(minY / band) * band : Math.round(pageH * 0.05);
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      for (let by = firstBand; by <= maxY; by += band) {
+        targetCtx.moveTo(minX, by);
+        targetCtx.lineTo(maxX, by);
+        targetCtx.moveTo(minX, by + xh);
+        targetCtx.lineTo(maxX, by + xh);
+        targetCtx.moveTo(minX, by + xh * 3);
+        targetCtx.lineTo(maxX, by + xh * 3);
+      }
+      targetCtx.stroke();
+      targetCtx.lineWidth = 1.3 * invZoom;
+      targetCtx.strokeStyle = strongLine;
+      targetCtx.beginPath();
+      for (let by = firstBand; by <= maxY; by += band) {
+        targetCtx.moveTo(minX, by + xh * 2);
+        targetCtx.lineTo(maxX, by + xh * 2);
+      }
+      targetCtx.stroke();
+    } else if (paperType === 'crosses') {
+      // Boutique Détente : points de croix aux nœuds d'une grille
+      const arm = Math.max(2.2, 2.6 * invZoom);
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.dotColor;
+      targetCtx.beginPath();
+      for (let x = Math.floor(minX / spacing) * spacing; x <= maxX; x += spacing) {
+        for (let y = Math.floor(minY / spacing) * spacing; y <= maxY; y += spacing) {
+          targetCtx.moveTo(x - arm, y);
+          targetCtx.lineTo(x + arm, y);
+          targetCtx.moveTo(x, y - arm);
+          targetCtx.lineTo(x, y + arm);
+        }
+      }
+      targetCtx.stroke();
+    } else if (paperType === 'diamond') {
+      // Boutique Détente : losanges (diagonales croisées à 45°)
+      const s = spacing * 1.1;
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      for (let k = Math.floor((minX - maxY) / s); k * s <= maxX - minY; k++) {
+        const c = k * s;
+        targetCtx.moveTo(c + minY, minY);
+        targetCtx.lineTo(c + maxY, maxY);
+      }
+      for (let k = Math.floor((minX + minY) / s); k * s <= maxX + maxY; k++) {
+        const c = k * s;
+        targetCtx.moveTo(c - minY, minY);
+        targetCtx.lineTo(c - maxY, maxY);
+      }
+      targetCtx.stroke();
+    } else if (paperType === 'scallops') {
+      // Boutique Détente : écailles (demi-cercles jointifs, rangées décalées)
+      const r = spacing * 0.7;
+      targetCtx.lineWidth = 1 * invZoom;
+      targetCtx.strokeStyle = palette.gridLine;
+      targetCtx.beginPath();
+      for (let j = Math.floor(minY / r); j * r <= maxY + r; j++) {
+        const cy = j * r;
+        const off = (((j % 2) + 2) % 2) * r;
+        for (let cx = Math.floor((minX - off) / (2 * r)) * 2 * r + off - 2 * r; cx <= maxX + r; cx += 2 * r) {
+          targetCtx.moveTo(cx + r, cy);
+          targetCtx.arc(cx, cy, r, 0, Math.PI, true);
+        }
+      }
+      targetCtx.stroke();
     } else if (paperType === 'cornell') {
       // Notes Cornell GoodNotes : en-tête + colonne indices à gauche + zone notes lignée + résumé en bas
       const headerY = Math.round(pageH * 0.12);
