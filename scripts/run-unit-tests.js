@@ -2417,6 +2417,119 @@ async function runTests() {
     return 'Ciblage d’un fichier Drive existant (PATCH direct), création nommée dans un dossier Drive choisi, persistance du fileId et héritage par dossier vérifiés.';
   });
 
+  // ------------------------------------------------------------------------
+  // TEST 16 : Optimisations Plein écran (DPR adaptatif + pad cache) & Gomme (Undo paresseux + O(k) sans clonage inutile)
+  // ------------------------------------------------------------------------
+  await runStep('Test 16 : Optimisations Plein écran (DPR adaptatif HiDPI) & Gomme (Undo paresseux, 0 snapshot à vide, interpolation)', async () => {
+    // 1. Vérification du plafond DPR adaptatif sur grands écrans HiDPI (plein écran)
+    const prevDpr = sandbox.devicePixelRatio;
+    sandbox.devicePixelRatio = 2.0;
+    try {
+      const dprWindowed = api.getEffectiveCanvasDpr({ width: 1200, height: 800 });
+      assert.equal(dprWindowed, 2.0, 'Une fenêtre 1200×800 @ 2x (3,84 MPx) conserve 100 % du DPR natif 2.0');
+      assert.equal(api.getEffectiveStaticCachePad({ width: 1200, height: 800 }), 240);
+
+      const dpr1080pFs = api.getEffectiveCanvasDpr({ width: 1920, height: 1080 });
+      assert.ok(dpr1080pFs >= 1.25 && dpr1080pFs < 2.0, `En 1920×1080 @ 2x, le DPR effectif doit être plafonné en douceur (${dpr1080pFs})`);
+      assert.ok(1920 * 1080 * dpr1080pFs * dpr1080pFs <= 4250000, 'Le nombre de pixels physiques par canvas reste sous le budget GPU');
+      assert.equal(api.getEffectiveStaticCachePad({ width: 1920, height: 1080 }), 160, 'Le pad du cache hors-écran est réduit à 160 px sur grand écran / plein écran');
+
+      const dpr4kFs = api.getEffectiveCanvasDpr({ width: 3840, height: 2160 });
+      assert.equal(dpr4kFs, 1.25, 'Sur écran 4K @ 2x, le DPR conserve un plancher net de 1.25');
+
+      await api.setFullscreenMode(true);
+      assert.equal(sandbox.document.documentElement.classList.contains('is-fullscreen'), true, 'La classe is-fullscreen doit être posée sur html');
+      await api.setFullscreenMode(false);
+      assert.equal(sandbox.document.documentElement.classList.contains('is-fullscreen'), false, 'La classe is-fullscreen doit être retirée à la sortie');
+    } finally {
+      sandbox.devicePixelRatio = prevDpr;
+    }
+
+    // 2. Vérification de la gomme sans latence : 0 snapshot Undo à vide, exactement 1 snapshot lors d'un effacement multi-traits
+    const nbRes = await api.createNotebookProgrammatically('Perf Gomme', 'grid', '#0072ce');
+    const nb = nbRes.notebook;
+    const pg = nbRes.firstPage;
+    try {
+      const st = api.getState();
+      st.panX = 0;
+      st.panY = 0;
+      st.zoom = 1;
+      st.eraserMode = 'stroke';
+      st.eraserSize = 18;
+      st.eraserAutoDeselect = false;
+      st.tool = 'eraser';
+
+      pg.strokes = [
+        { id: 'er_1', tool: 'pen', color: '#111827', size: 3, points: [{ x: 100, y: 80, pressure: 0.5 }, { x: 100, y: 120, pressure: 0.5 }] },
+        { id: 'er_2', tool: 'pen', color: '#111827', size: 3, points: [{ x: 160, y: 80, pressure: 0.5 }, { x: 160, y: 120, pressure: 0.5 }] },
+        { id: 'er_3', tool: 'pen', color: '#111827', size: 3, points: [{ x: 220, y: 80, pressure: 0.5 }, { x: 220, y: 120, pressure: 0.5 }] }
+      ];
+      api.invalidatePageSpatialIndex(pg);
+      api.cancelPendingPageSave(pg.id);
+
+      const hist = st.historyByPage.get(pg.id) || { undoStack: [], redoStack: [] };
+      const undoBeforeBlank = hist.undoStack.length;
+
+      // Geste gomme dans le vide (y = 320, loin des traits) -> 0 snapshot Undo, 0 sauvegarde inutile
+      api.handlePointerDown({ pointerId: 960, pointerType: 'pen', button: 0, buttons: 1, clientX: 60, clientY: 320, pressure: 0.5, preventDefault() {} });
+      assert.equal(sandbox.document.documentElement.classList.contains('is-canvas-interacting'), true, 'is-canvas-interacting actif pendant le geste');
+      api.handlePointerMove({
+        pointerId: 960,
+        pointerType: 'pen',
+        button: 0,
+        buttons: 1,
+        clientX: 260,
+        clientY: 320,
+        pressure: 0.5,
+        getCoalescedEvents: () => [
+          { clientX: 120, clientY: 320 },
+          { clientX: 190, clientY: 320 },
+          { clientX: 260, clientY: 320 }
+        ],
+        preventDefault() {}
+      });
+      api.handlePointerUpOrCancel({ pointerId: 960, pointerType: 'pen', button: 0, buttons: 0, clientX: 260, clientY: 320, pressure: 0, preventDefault() {} });
+
+      assert.equal(sandbox.document.documentElement.classList.contains('is-canvas-interacting'), false, 'is-canvas-interacting retiré dès la fin du geste');
+      const histAfterBlank = st.historyByPage.get(pg.id) || { undoStack: [], redoStack: [] };
+      assert.equal(histAfterBlank.undoStack.length, undoBeforeBlank, 'Gommer dans le vide ne doit cloner aucun snapshot Undo');
+      assert.equal(api.hasPendingPageSave(pg.id), false, 'Gommer dans le vide ne doit pas planifier de sauvegarde IndexedDB');
+      assert.equal(pg.strokes.length, 3, 'Les 3 traits restent intacts');
+
+      // Geste gomme rapide traversant d'un coup les 3 traits (x = 70 -> 250 à y = 100) :
+      // vérifie aussi l'interpolation anti-trou sur grands sauts + 1 seul snapshot Undo paresseux !
+      api.handlePointerDown({ pointerId: 961, pointerType: 'pen', button: 0, buttons: 1, clientX: 70, clientY: 100, pressure: 0.5, preventDefault() {} });
+      const histAtDown = st.historyByPage.get(pg.id) || { undoStack: [], redoStack: [] };
+      assert.equal(histAtDown.undoStack.length, undoBeforeBlank, 'Au poser initial à x=70 (avant le 1er trait), aucun snapshot n’est encore poussé');
+
+      api.handlePointerMove({
+        pointerId: 961,
+        pointerType: 'pen',
+        button: 0,
+        buttons: 1,
+        clientX: 250,
+        clientY: 100,
+        pressure: 0.5,
+        getCoalescedEvents: () => [{ clientX: 250, clientY: 100 }],
+        preventDefault() {}
+      });
+      api.handlePointerUpOrCancel({ pointerId: 961, pointerType: 'pen', button: 0, buttons: 0, clientX: 250, clientY: 100, pressure: 0, preventDefault() {} });
+
+      const histAfterSwipe = st.historyByPage.get(pg.id);
+      assert.equal(pg.strokes.length, 0, 'Le balayage rapide interpolé doit effacer les 3 traits sans en sauter');
+      assert.equal(histAfterSwipe.undoStack.length, undoBeforeBlank + 1, 'Exactement 1 snapshot Undo doit être créé pour tout le geste multi-traits');
+      assert.equal(api.hasPendingPageSave(pg.id), true, 'Une sauvegarde différée doit être planifiée après un effacement réel');
+
+      api.performUndo();
+      assert.equal(pg.strokes.length, 3, 'Un seul Undo restaure intégralement les 3 traits d’avant le geste de gomme');
+      st.tool = 'pen';
+    } finally {
+      await api.deleteNotebookById(nb.id);
+    }
+
+    return 'DPR adaptatif HiDPI plein écran, classe is-canvas-interacting, 0 snapshot à vide, interpolation rapide et Undo unique multi-traits vérifiés.';
+  });
+
   console.log('======================================================================');
   console.log(`🎉 TOUS LES TESTS UNITAIRES SONT PASSÉS AVEC SUCCÈS (${results.length}/${results.length})`);
   console.log('======================================================================');

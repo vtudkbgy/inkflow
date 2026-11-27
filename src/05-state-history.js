@@ -190,6 +190,9 @@
     currentShape: null,
     temporaryEraserOverride: false,
     previousToolBeforeEraser: null,
+    eraserGestureActive: false,
+    eraserHistoryPushed: false,
+    lastEraserWorldPt: null,
     temporaryLassoOverride: false,
     previousToolBeforeLasso: null,
     waitBarrelReleaseBeforeHoverTrigger: false,
@@ -1166,6 +1169,10 @@
     state.shapeEditDrag = null;
     state.pendingShapeTapCandidateId = null;
     state.pendingShapeTapStartScreen = null;
+    state.eraserGestureActive = false;
+    state.eraserHistoryPushed = false;
+    state.lastEraserWorldPt = null;
+    setCanvasInteractingClass(false);
     if (dom.shapeEditFloatingBar) dom.shapeEditFloatingBar.classList.add('hidden');
     if (state.temporaryEraserOverride) {
       state.temporaryEraserOverride = false;
@@ -1174,6 +1181,13 @@
     if (state.temporaryLassoOverride) {
       state.temporaryLassoOverride = false;
       state.tool = state.previousToolBeforeLasso || 'pen';
+    }
+  }
+
+  function setCanvasInteractingClass(active) {
+    const on = Boolean(active);
+    if (typeof document !== 'undefined' && document.documentElement && document.documentElement.classList) {
+      document.documentElement.classList.toggle('is-canvas-interacting', on);
     }
   }
 

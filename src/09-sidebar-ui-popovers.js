@@ -5868,12 +5868,17 @@
 
   function updateFullscreenUi(isFs) {
     isWindowFullscreen = Boolean(isFs);
-    if (typeof document !== 'undefined' && document.documentElement) {
-      if (typeof document.documentElement.setAttribute === 'function') {
-        document.documentElement.setAttribute('data-fullscreen', isWindowFullscreen ? 'true' : 'false');
+    if (typeof document !== 'undefined') {
+      if (document.documentElement) {
+        if (typeof document.documentElement.setAttribute === 'function') {
+          document.documentElement.setAttribute('data-fullscreen', isWindowFullscreen ? 'true' : 'false');
+        }
+        if (document.documentElement.classList) {
+          document.documentElement.classList.toggle('is-fullscreen', isWindowFullscreen);
+        }
       }
-      if (document.documentElement.classList) {
-        document.documentElement.classList.toggle('is-fullscreen', isWindowFullscreen);
+      if (document.body && document.body.classList) {
+        document.body.classList.toggle('is-fullscreen', isWindowFullscreen);
       }
     }
     if (dom.btnFullscreenToggle) {
@@ -5930,9 +5935,6 @@
         if (handled) {
           updateFullscreenUi(actual);
           requestRender();
-          if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(() => requestRender());
-          }
           return actual;
         }
       }

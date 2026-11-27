@@ -66,7 +66,27 @@ function buildAppBundle({ silent = false, checkOnly = false } = {}) {
   });
 
   if (!checkOnly) {
-    fs.writeFileSync(outputPath, assembled, 'utf8');
+    let alreadyUpToDate = false;
+    try {
+      if (fs.existsSync(outputPath) && fs.readFileSync(outputPath, 'utf8') === assembled) {
+        alreadyUpToDate = true;
+      }
+    } catch (_) {}
+    if (!alreadyUpToDate) {
+      let lastErr = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          fs.writeFileSync(outputPath, assembled, 'utf8');
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          const waitUntil = Date.now() + 80 * (attempt + 1);
+          while (Date.now() < waitUntil) { /* attente brève si Windows Defender verrouille app.js */ }
+        }
+      }
+      if (lastErr) throw lastErr;
+    }
   }
 
   if (!silent) {

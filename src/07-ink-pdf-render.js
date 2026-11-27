@@ -977,9 +977,34 @@
     return true;
   }
 
+  // Plafond adaptatif de pixels physiques par calque canvas (~4,2 MPx) :
+  // - conserve 100 % du DPR natif sur les fenêtres standards (ex. 1200×800 @ 2x = 3,84 MPx → DPR 2.0 intact)
+  // - évite d'allouer et de recompositer 4 surfaces 4K–5K simultanées en plein écran HiDPI (1080p/1440p/4K @ 200-250 %)
+  //   tout en garantissant un plancher >= 1.25 sur écran HiDPI pour une netteté d'encre irréprochable.
+  const MAX_CANVAS_DEVICE_PIXELS = 4200000;
+
+  function getEffectiveCanvasDpr(rect) {
+    const rawDpr = Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1);
+    if (!rect || !(rect.width > 0) || !(rect.height > 0) || rawDpr <= 1) return rawDpr;
+    const cssArea = rect.width * rect.height;
+    const rawDevicePixels = cssArea * rawDpr * rawDpr;
+    if (rawDevicePixels <= MAX_CANVAS_DEVICE_PIXELS) return rawDpr;
+    const capped = Math.sqrt(MAX_CANVAS_DEVICE_PIXELS / cssArea);
+    const minHiDpi = Math.min(rawDpr, 1.25);
+    return Math.max(minHiDpi, Math.min(rawDpr, Math.round(capped * 100) / 100));
+  }
+
+  function getEffectiveStaticCachePad(rect) {
+    const isFs = typeof document !== 'undefined' && document.documentElement &&
+      document.documentElement.classList && document.documentElement.classList.contains('is-fullscreen');
+    const area = rect && rect.width > 0 && rect.height > 0 ? rect.width * rect.height : 0;
+    if (isFs || area >= 1800000) return 160;
+    return 240;
+  }
+
   function ensureCanvasDimensionsSynced() {
-    const dpr = window.devicePixelRatio || 1;
     const rect = dom.canvasViewport.getBoundingClientRect();
+    const dpr = getEffectiveCanvasDpr(rect);
     const targetW = Math.max(1, Math.floor(rect.width * dpr));
     const targetH = Math.max(1, Math.floor(rect.height * dpr));
 
@@ -1890,8 +1915,8 @@
     const t0 = performance.now();
     const page = getActivePage();
     if (!page) return;
-    const dpr = window.devicePixelRatio || 1;
     const rect = dom.canvasViewport.getBoundingClientRect();
+    const dpr = getEffectiveCanvasDpr(rect);
     const targetW = Math.max(1, Math.floor(rect.width * dpr));
     const targetH = Math.max(1, Math.floor(rect.height * dpr));
     if (dom.activeInkCanvas.width !== targetW || dom.activeInkCanvas.height !== targetH) {
@@ -2249,7 +2274,7 @@
   }
 
   function ensureStaticInkBitmapCacheReady(page, rect, dpr, effectiveDark) {
-    const pad = staticInkCache.pad;
+    const pad = getEffectiveStaticCachePad(rect);
     const cacheW = Math.max(1, Math.floor((rect.width + pad * 2) * dpr));
     const cacheH = Math.max(1, Math.floor((rect.height + pad * 2) * dpr));
 
@@ -2259,6 +2284,7 @@
       staticInkCache.pageId === page.id &&
       staticInkCache.zoom === state.zoom &&
       staticInkCache.dpr === dpr &&
+      staticInkCache.pad === pad &&
       staticInkCache.viewW === rect.width &&
       staticInkCache.viewH === rect.height &&
       staticInkCache.effectiveDark === effectiveDark &&
@@ -2267,6 +2293,8 @@
     ) {
       return true;
     }
+
+    staticInkCache.pad = pad;
 
     if (!staticInkCache.canvas) {
       staticInkCache.canvas = document.createElement('canvas');
@@ -2429,7 +2457,7 @@
 
     const isDark = page.paperTone === 'dark' || page.paperTone === 'blueprint';
     const effectiveDark = page.pdfId ? false : isDark;
-    const dpr = window.devicePixelRatio || 1;
+    const { dpr } = ensureCanvasDimensionsSynced();
 
     // Si un surligneur est tracé par-dessus des traits de stylo déjà présents, rafraîchit le calque statique pour respecter l'ordre Z (surligneur sous l'encre)
     const needsZOrderRefresh = itemType === 'stroke' && item.tool === 'highlighter' &&

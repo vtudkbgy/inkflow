@@ -737,6 +737,7 @@
   // ============================================================================
 
   let renderPending = false;
+  let staticRenderPending = false;
   let activeRenderPending = false;
 
   function requestRender() {
@@ -744,10 +745,35 @@
       renderPending = true;
       requestAnimationFrame(() => {
         renderPending = false;
+        staticRenderPending = false;
         activeRenderPending = false;
         renderScene();
       });
     }
+  }
+
+  function requestStaticInkRender() {
+    if (!bgCtx) {
+      requestRender();
+      return;
+    }
+    if (renderPending || staticRenderPending) return;
+    staticRenderPending = true;
+    requestAnimationFrame(() => {
+      staticRenderPending = false;
+      if (renderPending) return;
+      renderStaticInkLayerOnly();
+      const page = getActivePage();
+      if (page) {
+        const total = (page.strokes?.length || 0) + (page.shapes?.length || 0) + (page.texts?.length || 0);
+        if (dom.strokeCountBadge) {
+          dom.strokeCountBadge.textContent = `${total} élément${total > 1 ? 's' : ''}`;
+        }
+        if (state.splitView && state.splitView.open && state.splitView.pageId === page.id) {
+          scheduleSplitPaneRender();
+        }
+      }
+    });
   }
 
   function requestActiveRender() {

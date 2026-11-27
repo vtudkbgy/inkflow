@@ -978,6 +978,9 @@
           state.currentStroke = null;
           state.currentShape = null;
           state.currentStrokeSnappedFromAutoShape = false;
+          state.eraserGestureActive = false;
+          state.eraserHistoryPushed = false;
+          state.lastEraserWorldPt = null;
           state.activePointerId = null;
           clearActiveCanvas();
         }
@@ -988,6 +991,7 @@
           dom.canvasViewport.classList.remove('panning');
         }
         state.isPinching = true;
+        setCanvasInteractingClass(true);
         const pts = Array.from(state.touchPoints.values());
         state.pinchLastDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
         state.pinchLastCenter = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
@@ -1011,6 +1015,7 @@
     if (isMiddleOrMouseRight || state.isSpacePressed || state.tool === 'pan' || isTouchPan) {
       resetPullToAddState();
       state.isPanning = true;
+      setCanvasInteractingClass(true);
       state.activePointerId = e.pointerId;
       state.panStartScreen = { x: e.clientX, y: e.clientY };
       state.panStartOffset = { x: state.panX, y: state.panY };
@@ -1118,6 +1123,7 @@
       }
       state.activePointerId = e.pointerId;
       state.isDrawing = true;
+      setCanvasInteractingClass(true);
       try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
       updateLassoFloatingBarPosition();
       renderActiveCanvasOnly();
@@ -1233,6 +1239,7 @@
 
     state.activePointerId = e.pointerId;
     state.isDrawing = true;
+    setCanvasInteractingClass(true);
     state.drawingPausedOutsidePage = false;
     state.lastOutsideRawPt = null;
     state.strokeStartTime = performance.now();
@@ -1344,11 +1351,15 @@
       else renderActiveCanvasOnly();
     } else if (state.tool === 'eraser') {
       clearLassoSelection();
-      pushHistorySnapshot();
+      // Snapshot Undo paresseux : aucun clonage de page tant que la gomme n'a pas réellement touché un trait/forme/tape
+      state.eraserGestureActive = true;
+      state.eraserHistoryPushed = false;
+      state.lastEraserWorldPt = { x: worldPt.x, y: worldPt.y };
       updateEraserCursor(e.clientX, e.clientY, true);
       updateColorDotCursor(e.clientX, e.clientY, false);
-      applyEraserAtPoint(worldPt.x, worldPt.y);
-      requestRender();
+      const erasedOnDown = applyEraserAtPoint(worldPt.x, worldPt.y);
+      if (hadLassoSelection) requestRender();
+      else if (erasedOnDown) requestStaticInkRender();
     } else if (state.tool === 'lasso') {
       handleLassoPointerDown(worldPt);
       if (state.lassoAction === 'draw' && !hadLassoSelection) renderActiveCanvasOnly();
@@ -1788,11 +1799,34 @@
       }
       renderActiveCanvasOnly();
     } else if (state.tool === 'eraser') {
-      for (const ce of coalesced) {
+      const minStep = Math.max(0.8, state.eraserSize * 0.2);
+      const minStepSq = minStep * minStep;
+      const maxGap = Math.max(2, state.eraserSize * 0.65);
+      let anyErased = false;
+      for (let ci = 0; ci < coalesced.length; ci++) {
+        const ce = coalesced[ci];
         const wPt = clampPointToPage(activePageForMove, screenToWorld(ce.clientX, ce.clientY));
-        applyEraserAtPoint(wPt.x, wPt.y);
+        const isLast = ci === coalesced.length - 1;
+        if (state.lastEraserWorldPt) {
+          const dx = wPt.x - state.lastEraserWorldPt.x;
+          const dy = wPt.y - state.lastEraserWorldPt.y;
+          const distSq = dx * dx + dy * dy;
+          if (!isLast && distSq < minStepSq) continue;
+          const jumpDist = Math.sqrt(distSq);
+          if (jumpDist > maxGap) {
+            const steps = Math.min(16, Math.ceil(jumpDist / maxGap));
+            for (let s = 1; s < steps; s++) {
+              const t = s / steps;
+              if (applyEraserAtPoint(state.lastEraserWorldPt.x + dx * t, state.lastEraserWorldPt.y + dy * t)) {
+                anyErased = true;
+              }
+            }
+          }
+        }
+        state.lastEraserWorldPt = wPt;
+        if (applyEraserAtPoint(wPt.x, wPt.y)) anyErased = true;
       }
-      requestRender();
+      if (anyErased) requestStaticInkRender();
     } else if (state.tool === 'lasso') {
       if (state.temporaryLassoOverride && state.lassoButtonDownPos) {
         const travel = Math.hypot(e.clientX - state.lassoButtonDownPos.x, e.clientY - state.lassoButtonDownPos.y);
@@ -1834,7 +1868,11 @@
             state.panStartOffset = { x: state.panX, y: state.panY };
             panVelocitySamples.length = 0;
             dom.canvasViewport.classList.add('panning');
+          } else {
+            setCanvasInteractingClass(false);
           }
+        } else if (!state.isDrawing && !state.isPanning) {
+          setCanvasInteractingClass(false);
         }
       } else if (wasPinching) {
         // Encore 2 doigts ou plus : on ré-ancre le pincement sur les deux premiers pour éviter un saut de zoom
@@ -1848,6 +1886,7 @@
     if (state.isPanning && (e.pointerId === state.activePointerId || state.activePointerId === null)) {
       state.isPanning = false;
       state.activePointerId = null;
+      setCanvasInteractingClass(false);
       dom.canvasViewport.classList.remove('panning');
       try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
       if (commitOrResetPullToAdd()) return;
@@ -1860,6 +1899,7 @@
       if (!state.colorWheelTapMode) {
         state.isDrawing = false;
         state.activePointerId = null;
+        setCanvasInteractingClass(false);
         try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
 
         const hovered = updateRadialColorWheelHover(e.clientX, e.clientY);
@@ -1880,7 +1920,10 @@
       return;
     }
 
-    if (!state.isDrawing) return;
+    if (!state.isDrawing) {
+      if (!state.isPanning && !state.isPinching) setCanvasInteractingClass(false);
+      return;
+    }
     if (state.activePointerId !== null && e.pointerId !== undefined && e.pointerId !== state.activePointerId) return;
 
     if (state.textBoxCreateDrag) {
@@ -1888,6 +1931,7 @@
       state.textBoxCreateDrag = null;
       state.isDrawing = false;
       state.activePointerId = null;
+      setCanvasInteractingClass(false);
       try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
       clearActiveCanvas();
       const dragScreenDist = Math.hypot((e.clientX ?? td.startScreen.x) - td.startScreen.x, (e.clientY ?? td.startScreen.y) - td.startScreen.y);
@@ -1908,6 +1952,7 @@
       state.shapeHoverConnection = null;
       state.isDrawing = false;
       state.activePointerId = null;
+      setCanvasInteractingClass(false);
       try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
       if (pageForEdit) {
         invalidateStaticInkCache();
@@ -1920,6 +1965,7 @@
     }
 
     state.isDrawing = false;
+    setCanvasInteractingClass(false);
     state.drawingPausedOutsidePage = false;
     state.lastOutsideRawPt = null;
     state.activePointerId = null;
@@ -2119,7 +2165,15 @@
           mergedDirectlyIntoStatic = true;
         }
       } else if (state.tool === 'eraser') {
-        scheduleSaveActivePage(page);
+        const didErase = Boolean(state.eraserHistoryPushed);
+        state.eraserGestureActive = false;
+        state.eraserHistoryPushed = false;
+        state.lastEraserWorldPt = null;
+        if (didErase) {
+          scheduleSaveActivePage(page);
+          requestStaticInkRender();
+        }
+        mergedDirectlyIntoStatic = true;
         if (state.eraserAutoDeselect && !state.temporaryEraserOverride) {
           state.tool = state.previousWritingTool || 'pen';
           updateToolbarActiveState();
@@ -2207,9 +2261,15 @@
     return f.pen !== false;
   }
 
+  function ensureEraserHistorySnapshot(page) {
+    if (!state.eraserGestureActive || state.eraserHistoryPushed) return;
+    state.eraserHistoryPushed = true;
+    pushHistorySnapshot(page);
+  }
+
   function applyEraserAtPoint(wx, wy) {
     const page = getActivePage();
-    if (!page) return;
+    if (!page) return false;
     const radius = state.eraserSize;
     const rSq = radius * radius;
     const hlOnly = Boolean(state.eraserHighlighterOnly);
@@ -2218,47 +2278,48 @@
     const spatialCandidates = (typeof queryPageStrokesAtPoint === 'function')
       ? queryPageStrokesAtPoint(page, wx, wy, radius)
       : (page.strokes || []);
-    const candidateStrokeSet = spatialCandidates === page.strokes ? null : new Set(spatialCandidates);
 
     if (state.eraserMode === 'stroke') {
-      const beforeLen = (page.strokes || []).length;
-      if (!candidateStrokeSet || candidateStrokeSet.size > 0) {
-        page.strokes = (page.strokes || []).filter((s) => {
-          if (candidateStrokeSet && !candidateStrokeSet.has(s)) return true;
-          if (!canEraserEraseStroke(s)) return true;
+      if (spatialCandidates && spatialCandidates.length > 0) {
+        let erasedSet = null;
+        for (let ci = 0; ci < spatialCandidates.length; ci++) {
+          const s = spatialCandidates[ci];
+          if (!canEraserEraseStroke(s)) continue;
           const b = getCachedStrokeBounds(s);
           if (b && (wx < b.minX - radius || wx > b.maxX + radius || wy < b.minY - radius || wy > b.maxY + radius)) {
-            return true;
+            continue;
           }
           const pts = s.points || [];
+          let hit = false;
           for (let i = 0; i < pts.length; i++) {
             const pt = pts[i];
-            if ((pt.x - wx) ** 2 + (pt.y - wy) ** 2 <= rSq) return false;
-            if (i > 0 && pointToSegmentDist({ x: wx, y: wy }, pts[i - 1], pt) <= radius) return false;
+            if ((pt.x - wx) ** 2 + (pt.y - wy) ** 2 <= rSq) { hit = true; break; }
+            if (i > 0 && pointToSegmentDist({ x: wx, y: wy }, pts[i - 1], pt) <= radius) { hit = true; break; }
           }
-          return true;
-        });
+          if (hit) {
+            if (!erasedSet) erasedSet = new Set();
+            erasedSet.add(s);
+          }
+        }
+        if (erasedSet && erasedSet.size > 0) {
+          ensureEraserHistorySnapshot(page);
+          page.strokes = (page.strokes || []).filter((s) => !erasedSet.has(s));
+          changed = true;
+        }
       }
-      if (page.strokes.length !== beforeLen) changed = true;
-    } else if (!candidateStrokeSet || candidateStrokeSet.size > 0) {
-      const next = [];
-      for (const s of page.strokes || []) {
-        if (candidateStrokeSet && !candidateStrokeSet.has(s)) {
-          next.push(s);
-          continue;
-        }
-        if (!canEraserEraseStroke(s)) {
-          next.push(s);
-          continue;
-        }
+    } else if (spatialCandidates && spatialCandidates.length > 0) {
+      let replacements = null;
+      for (let ci = 0; ci < spatialCandidates.length; ci++) {
+        const s = spatialCandidates[ci];
+        if (!canEraserEraseStroke(s)) continue;
         const b = getCachedStrokeBounds(s);
         if (b && (wx < b.minX - radius || wx > b.maxX + radius || wy < b.minY - radius || wy > b.maxY + radius)) {
-          next.push(s);
           continue;
         }
         const pts = s.points || [];
         let seg = [];
         let mod = false;
+        const subStrokes = [];
         const pushSubStroke = (pointsArr) => {
           if (pointsArr.length < 2) return;
           const sub = cloneStrokeFast(s);
@@ -2266,7 +2327,7 @@
           sub.points = pointsArr;
           sub._bounds = null;
           invalidateStrokeCache(sub);
-          next.push(sub);
+          subStrokes.push(sub);
         };
 
         for (let i = 0; i < pts.length; i++) {
@@ -2325,36 +2386,65 @@
           }
         }
 
-        if (!mod) {
-          next.push(s);
-        } else {
-          changed = true;
+        if (mod) {
           if (seg.length >= 2) pushSubStroke(seg);
+          if (!replacements) replacements = new Map();
+          replacements.set(s, subStrokes);
         }
       }
-      page.strokes = next;
+
+      if (replacements && replacements.size > 0) {
+        ensureEraserHistorySnapshot(page);
+        const next = [];
+        for (const s of page.strokes || []) {
+          const subs = replacements.get(s);
+          if (subs !== undefined) {
+            for (let k = 0; k < subs.length; k++) next.push(subs[k]);
+          } else {
+            next.push(s);
+          }
+        }
+        page.strokes = next;
+        changed = true;
+      }
     }
 
-    const prevShapesLen = (page.shapes || []).length;
-    page.shapes = (page.shapes || []).filter((sh) => {
-      if (!canEraserEraseShape(sh)) return true;
-      return !isPointNearShape(sh, wx, wy, radius);
-    });
-    if (page.shapes.length !== prevShapesLen) {
-      changed = true;
-      updateConnectedShapesForPage(page);
+    const shapesArr = page.shapes || [];
+    if (shapesArr.length > 0) {
+      let hitShape = false;
+      for (let i = 0; i < shapesArr.length; i++) {
+        const sh = shapesArr[i];
+        if (canEraserEraseShape(sh) && isPointNearShape(sh, wx, wy, radius)) {
+          hitShape = true;
+          break;
+        }
+      }
+      if (hitShape) {
+        ensureEraserHistorySnapshot(page);
+        page.shapes = shapesArr.filter((sh) => !canEraserEraseShape(sh) || !isPointNearShape(sh, wx, wy, radius));
+        changed = true;
+        updateConnectedShapesForPage(page);
+      }
     }
 
     const canEraseTape = !hlOnly && (!state.eraserFilters || state.eraserFilters.tape !== false);
-    if (canEraseTape) {
-      const prevTapesLen = (page.tapes || []).length;
-      if (prevTapesLen > 0) {
+    if (canEraseTape && Array.isArray(page.tapes) && page.tapes.length > 0) {
+      let hitTape = false;
+      for (let i = 0; i < page.tapes.length; i++) {
+        if (isPointOnTape(page.tapes[i], wx, wy, radius)) {
+          hitTape = true;
+          break;
+        }
+      }
+      if (hitTape) {
+        ensureEraserHistorySnapshot(page);
         page.tapes = page.tapes.filter((tp) => !isPointOnTape(tp, wx, wy, radius));
-        if (page.tapes.length !== prevTapesLen) changed = true;
+        changed = true;
       }
     }
 
     if (changed) invalidateStaticInkCache();
+    return changed;
   }
 
   function isPointOnTape(tp, wx, wy, pad = 4) {
