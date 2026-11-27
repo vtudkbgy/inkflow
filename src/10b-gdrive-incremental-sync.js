@@ -4,7 +4,57 @@
 
   const GDRIVE_SYNC_FOLDER_NAME = 'InkFlow';
   const GDRIVE_SYNC_META_KEY = 'inkflow.gdrive.incrementalSync.v1';
+  const GDRIVE_SAVE_FORMAT_KEY = 'inkflow.gdrive.saveFormat.v1';
   const GDRIVE_SYNC_DEBOUNCE_MS = 15000;
+
+  let gdriveDefaultSaveFormatCache = null;
+
+  function getGdriveDefaultSaveFormat() {
+    if (gdriveDefaultSaveFormatCache === 'pdf' || gdriveDefaultSaveFormatCache === 'json') {
+      return gdriveDefaultSaveFormatCache;
+    }
+    const raw = readLocalSetting(GDRIVE_SAVE_FORMAT_KEY, 'json');
+    gdriveDefaultSaveFormatCache = String(raw || '').toLowerCase() === 'pdf' ? 'pdf' : 'json';
+    return gdriveDefaultSaveFormatCache;
+  }
+
+  function setGdriveDefaultSaveFormat(format) {
+    const next = String(format || '').toLowerCase() === 'pdf' ? 'pdf' : 'json';
+    gdriveDefaultSaveFormatCache = next;
+    writeLocalSetting(GDRIVE_SAVE_FORMAT_KEY, next);
+    renderGdriveSaveFormatUi();
+    refreshNewNotebookDriveTargetUi();
+    return next;
+  }
+
+  function renderGdriveSaveFormatUi() {
+    const fmt = getGdriveDefaultSaveFormat();
+    if (typeof document !== 'undefined' && typeof document.querySelectorAll === 'function') {
+      document.querySelectorAll('#gdriveSaveFormatRow [data-gdrive-global-format]').forEach((btn) => {
+        const active = btn.dataset.gdriveGlobalFormat === fmt;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-checked', active ? 'true' : 'false');
+      });
+    }
+    const hint = typeof document !== 'undefined' ? document.getElementById('gdriveSaveFormatHint') : null;
+    if (hint) {
+      hint.textContent = fmt === 'pdf'
+        ? 'Lisible sur téléphone et ordinateur sans l’application (.pdf)'
+        : 'Synchronisable et modifiable dans InkFlow (.inkflow.json)';
+    }
+  }
+
+  function uint8ArrayToBase64(bytes) {
+    if (!bytes || !bytes.length) return '';
+    const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    const chunkSize = 0x8000;
+    const chunks = [];
+    for (let i = 0; i < arr.length; i += chunkSize) {
+      const slice = arr.subarray(i, Math.min(i + chunkSize, arr.length));
+      chunks.push(String.fromCharCode.apply(null, slice));
+    }
+    return btoa(chunks.join(''));
+  }
 
   const gdriveSyncState = {
     folderId: null,
@@ -58,11 +108,14 @@
     const folderId = typeof target.folderId === 'string' && target.folderId.trim() ? target.folderId.trim() : 'root';
     const folderPath = typeof target.folderPath === 'string' && target.folderPath.trim() ? target.folderPath.trim() : 'Mon Drive';
     const rawName = typeof target.fileName === 'string' ? target.fileName.trim() : '';
+    const format = target.format
+      ? (String(target.format).toLowerCase() === 'pdf' ? 'pdf' : 'json')
+      : (/\.pdf$/i.test(rawName) ? 'pdf' : 'json');
     const fileName = mode === 'file' && rawName
       ? rawName
-      : sanitizeDriveNotebookFilename(rawName, fallbackTitle);
+      : sanitizeDriveNotebookFilename(rawName, fallbackTitle, format);
     if (mode === 'file' && !fileId) return null;
-    return { mode, fileId, fileName, folderId, folderPath };
+    return { mode, fileId, fileName, folderId, folderPath, format };
   }
 
   function resolveEffectiveDriveTargetForNotebook(nb) {
@@ -73,12 +126,16 @@
     if (nb.folderId) {
       const parentFolder = (state.folders || []).find((f) => f.id === nb.folderId && !f.trashedAt);
       if (parentFolder && parentFolder.driveDefaultFolder && parentFolder.driveDefaultFolder.folderId) {
+        const inheritedFmt = parentFolder.driveDefaultFolder.format
+          ? (String(parentFolder.driveDefaultFolder.format).toLowerCase() === 'pdf' ? 'pdf' : 'json')
+          : getGdriveDefaultSaveFormat();
         return {
           mode: 'folder',
           fileId: null,
-          fileName: sanitizeDriveNotebookFilename('', nb.title),
+          fileName: sanitizeDriveNotebookFilename('', nb.title, inheritedFmt),
           folderId: parentFolder.driveDefaultFolder.folderId,
           folderPath: parentFolder.driveDefaultFolder.folderPath || 'Mon Drive',
+          format: inheritedFmt,
           inheritedFromFolder: true
         };
       }
@@ -88,11 +145,15 @@
 
   function describeNotebookDriveTarget(nb) {
     const eff = resolveEffectiveDriveTargetForNotebook(nb);
-    if (!eff) return 'Automatique (InkFlow/)';
-    if (eff.mode === 'file') {
-      return `${eff.folderPath ? `${eff.folderPath} / ` : ''}${eff.fileName}`;
+    if (!eff) {
+      const defFmt = getGdriveDefaultSaveFormat();
+      return defFmt === 'pdf' ? 'Automatique (InkFlow/ · PDF)' : 'Automatique (InkFlow/)';
     }
-    return `${eff.folderPath || 'Mon Drive'} / ${eff.fileName}`;
+    const fmtSuffix = eff.format === 'pdf' ? ' · PDF' : '';
+    if (eff.mode === 'file') {
+      return `${eff.folderPath ? `${eff.folderPath} / ` : ''}${eff.fileName}${fmtSuffix}`;
+    }
+    return `${eff.folderPath || 'Mon Drive'} / ${eff.fileName}${fmtSuffix}`;
   }
 
   async function setNotebookDriveTarget(notebookId, target, { syncNow = true } = {}) {
@@ -138,19 +199,22 @@
     return fld.driveDefaultFolder;
   }
 
-  function promptNotebookDriveTarget(nb) {
+  function promptNotebookDriveTarget(nb, extraOptions = {}) {
     if (!nb) return;
     const cur = resolveEffectiveDriveTargetForNotebook(nb);
+    const defaultFmt = extraOptions.defaultFormat || (cur && cur.format) || getGdriveDefaultSaveFormat();
     openDriveTargetPicker({
-      pickerTitle: `Fichier Google Drive — « ${nb.title} »`,
+      pickerTitle: extraOptions.pickerTitle || `Fichier Google Drive — « ${nb.title} »`,
       notebookTitle: nb.title,
-      defaultFileName: cur ? cur.fileName : sanitizeDriveNotebookFilename('', nb.title),
+      defaultFormat: defaultFmt,
+      defaultFileName: cur ? sanitizeDriveNotebookFilename(cur.fileName, nb.title, defaultFmt) : sanitizeDriveNotebookFilename('', nb.title, defaultFmt),
       initialFolderId: cur ? cur.folderId : null,
       initialFolderPath: cur ? cur.folderPath : '',
       onSelect: async (picked) => {
         if (!picked) return;
         await setNotebookDriveTarget(nb.id, picked, { syncNow: true });
-        showToast(`Cible Drive enregistrée : ${picked.folderPath} / ${picked.fileName}`);
+        const fmtLabel = picked.format === 'pdf' ? ' (PDF lisible partout)' : ' (InkFlow)';
+        showToast(`Cible Drive enregistrée : ${picked.folderPath} / ${picked.fileName}${fmtLabel}`);
       }
     });
   }
@@ -183,6 +247,7 @@
         fileName: '',
         folderId: activeFolder.driveDefaultFolder.folderId,
         folderPath: activeFolder.driveDefaultFolder.folderPath || 'Mon Drive',
+        format: activeFolder.driveDefaultFolder.format || getGdriveDefaultSaveFormat(),
         autoFileName: true
       };
     } else {
@@ -205,24 +270,28 @@
       : null;
 
     if (target) {
+      const fmt = target.format === 'pdf' ? 'pdf' : 'json';
+      const fmtBadge = fmt === 'pdf' ? 'PDF (lisible mobile/PC)' : 'Format InkFlow (.json)';
       const dispName = target.mode === 'file'
         ? target.fileName
-        : (target.autoFileName ? sanitizeDriveNotebookFilename('', typedTitle) : sanitizeDriveNotebookFilename(target.fileName, typedTitle));
+        : (target.autoFileName ? sanitizeDriveNotebookFilename('', typedTitle, fmt) : sanitizeDriveNotebookFilename(target.fileName, typedTitle, fmt));
       btn.classList.add('is-custom');
       if (clearBtn) clearBtn.classList.remove('hidden');
       titleEl.textContent = dispName;
       subEl.textContent = target.mode === 'file'
-        ? `Fichier existant dans ${target.folderPath || 'Mon Drive'}`
-        : `Dossier Drive : ${target.folderPath || 'Mon Drive'}`;
+        ? `Fichier existant (${fmtBadge}) · ${target.folderPath || 'Mon Drive'}`
+        : `${fmtBadge} · ${target.folderPath || 'Mon Drive'}`;
     } else {
+      const defFmt = getGdriveDefaultSaveFormat();
+      const fmtLabel = defFmt === 'pdf' ? 'PDF' : 'InkFlow';
       btn.classList.remove('is-custom');
       if (clearBtn) clearBtn.classList.add('hidden');
       titleEl.textContent = activeFolder
-        ? `Automatique (dossier « ${activeFolder.name} » → InkFlow/)`
-        : 'Emplacement automatique (InkFlow/)';
+        ? `Automatique (${fmtLabel} · « ${activeFolder.name} » → InkFlow/)`
+        : `Emplacement automatique (InkFlow/ · ${fmtLabel})`;
       subEl.textContent = isGdriveLinked()
-        ? 'Cliquez pour choisir précisément le dossier ou le fichier Drive'
-        : 'Reliez Google Drive ou cliquez pour configurer l’emplacement';
+        ? 'Cliquez pour choisir le dossier, le fichier et le format (.json ou .pdf)'
+        : 'Reliez Google Drive ou cliquez pour configurer l’emplacement et le format';
     }
   }
 
@@ -398,6 +467,7 @@
       mimeType: 'application/json',
       appProperties: {
         inkflowSync: '1',
+        inkflowFormat: 'json',
         inkflowNbId: String(nb.id),
         inkflowHash: String(contentHash),
         inkflowUpdatedAt: String(nb.updatedAt || Date.now())
@@ -412,8 +482,48 @@
       `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
 
     const url = existingDriveFileId
-      ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingDriveFileId)}?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime,appProperties`
-      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime,appProperties';
+      ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingDriveFileId)}?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,modifiedTime,appProperties`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,modifiedTime,appProperties';
+    const res = await gdriveFetch(url, {
+      method: existingDriveFileId ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body
+    }, actionLabel, fetchOpts);
+    return await res.json();
+  }
+
+  async function uploadOrUpdateNotebookPdfOnDrive(folderId, nb, pages, contentHash, existingDriveFileId, actionLabel, fetchOpts, customFileName = null) {
+    const orderedPages = (Array.isArray(pages) ? pages : (state.pagesByNotebook.get(nb.id) || []))
+      .slice()
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const pdfBytes = await buildPdfBytesForPages(orderedPages, { silent: true });
+    if (!pdfBytes || !pdfBytes.length) {
+      throw new Error('Impossible de générer le PDF du cahier.');
+    }
+    const fileName = customFileName || sanitizeDriveNotebookFilename('', nb.title || 'Cahier', 'pdf');
+    const metadata = {
+      name: fileName,
+      mimeType: 'application/pdf',
+      appProperties: {
+        inkflowSync: '1',
+        inkflowFormat: 'pdf',
+        inkflowNbId: String(nb.id),
+        inkflowHash: String(contentHash),
+        inkflowUpdatedAt: String(nb.updatedAt || Date.now())
+      }
+    };
+    if (!existingDriveFileId && folderId && folderId !== 'root') {
+      metadata.parents = [folderId];
+    }
+    const boundary = '-------inkflowpdfsync314159265';
+    const base64Pdf = uint8ArrayToBase64(pdfBytes);
+    const body =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\nContent-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64Pdf}\r\n--${boundary}--`;
+
+    const url = existingDriveFileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingDriveFileId)}?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,modifiedTime,appProperties`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,modifiedTime,appProperties';
     const res = await gdriveFetch(url, {
       method: existingDriveFileId ? 'PATCH' : 'POST',
       headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
@@ -494,17 +604,20 @@
 
   async function persistResolvedDriveFileIdOnNotebook(nb, effTarget, driveFileId, driveFileName) {
     if (!nb || !effTarget || !driveFileId) return;
+    const nextFormat = effTarget.format === 'pdf' || /\.pdf$/i.test(String(driveFileName || effTarget.fileName || '')) ? 'pdf' : 'json';
     const nextTarget = {
       mode: effTarget.mode || 'file',
       fileId: driveFileId,
       fileName: driveFileName || effTarget.fileName,
       folderId: effTarget.folderId || 'root',
-      folderPath: effTarget.folderPath || 'Mon Drive'
+      folderPath: effTarget.folderPath || 'Mon Drive',
+      format: nextFormat
     };
     if (
       !nb.driveTarget ||
       nb.driveTarget.fileId !== nextTarget.fileId ||
-      nb.driveTarget.fileName !== nextTarget.fileName
+      nb.driveTarget.fileName !== nextTarget.fileName ||
+      nb.driveTarget.format !== nextTarget.format
     ) {
       nb.driveTarget = nextTarget;
       await db.saveNotebook(nb);
@@ -549,16 +662,20 @@
         : allLocalNotebooks;
 
       const needsDefaultFolder = !onlyNotebookId || localNotebooks.some((nb) => !resolveEffectiveDriveTargetForNotebook(nb));
-      const remoteByNbId = new Map();
+      const remoteJsonByNbId = new Map();
+      const remotePdfByNbId = new Map();
+      const globalDefaultFormat = options.format
+        ? (String(options.format).toLowerCase() === 'pdf' ? 'pdf' : 'json')
+        : getGdriveDefaultSaveFormat();
 
       if (needsDefaultFolder) {
         defaultFolderId = await ensureGdriveInkflowSyncFolderId(actionLabel, fetchOpts);
         report.folderId = defaultFolderId;
         const listQ = encodeURIComponent(
-          `'${defaultFolderId}' in parents and trashed=false and mimeType='application/json'`
+          `'${defaultFolderId}' in parents and trashed=false and (mimeType='application/json' or mimeType='application/pdf')`
         );
         const listRes = await gdriveFetch(
-          `${GDRIVE_API}/files?q=${listQ}&pageSize=200&fields=files(id,name,modifiedTime,appProperties)`,
+          `${GDRIVE_API}/files?q=${listQ}&pageSize=200&fields=files(id,name,mimeType,modifiedTime,appProperties)`,
           {},
           actionLabel,
           fetchOpts
@@ -567,24 +684,32 @@
         const remoteFiles = Array.isArray(listData && listData.files) ? listData.files : [];
         for (const rf of remoteFiles) {
           const props = rf.appProperties || {};
+          const isPdfRemote = props.inkflowFormat === 'pdf' ||
+            String(rf.mimeType || '').toLowerCase() === 'application/pdf' ||
+            /\.pdf$/i.test(String(rf.name || ''));
           let nbId = props.inkflowNbId || '';
-          if (!nbId && typeof rf.name === 'string') {
+          if (!nbId && !isPdfRemote && typeof rf.name === 'string') {
             const m = rf.name.match(/^inkflow-nb-(.+)\.json$/);
             if (m) nbId = m[1];
           }
-          if (nbId) remoteByNbId.set(nbId, rf);
+          if (nbId) {
+            if (isPdfRemote) remotePdfByNbId.set(nbId, rf);
+            else remoteJsonByNbId.set(nbId, rf);
+          }
         }
       }
 
       const localById = new Map(allLocalNotebooks.map((n) => [n.id, n]));
       let localUiChanged = false;
 
-      // 1. Synchronise chaque cahier local vers sa cible précise (ou vers InkFlow/ par défaut)
+      // 1. Synchronise chaque cahier local vers sa cible précise (ou vers InkFlow/ par défaut) au format choisi (.json ou .pdf)
       for (const nb of localNotebooks) {
         const pages = state.pagesByNotebook.get(nb.id) || [];
         const localHash = computeNotebookContentHash(nb, pages);
-        const prev = gdriveSyncState.notebooks[nb.id] || null;
         const effTarget = resolveEffectiveDriveTargetForNotebook(nb);
+        const targetFormat = (effTarget && effTarget.format) ? effTarget.format : globalDefaultFormat;
+        const syncKey = targetFormat === 'pdf' ? `${nb.id}::pdf` : nb.id;
+        const prev = gdriveSyncState.notebooks[syncKey] || null;
 
         let remote = null;
         let targetParentFolderId = defaultFolderId;
@@ -596,10 +721,46 @@
           targetParentFolderId = resolvedTarget.parentFolderId;
           targetFileName = resolvedTarget.fileName;
         } else {
-          remote = remoteByNbId.get(nb.id) || null;
+          remote = targetFormat === 'pdf'
+            ? (remotePdfByNbId.get(nb.id) || null)
+            : (remoteJsonByNbId.get(nb.id) || null);
+          if (targetFormat === 'pdf') {
+            targetFileName = sanitizeDriveNotebookFilename('', nb.title || 'Cahier', 'pdf');
+          }
         }
 
         const remoteHash = (remote && remote.appProperties && remote.appProperties.inkflowHash) || null;
+
+        // Mode PDF : export lisible sur téléphone/PC (flux unidirectionnel local → Drive avec mise à jour en place PATCH)
+        if (targetFormat === 'pdf') {
+          const needsPdfUpload = !remote || !remoteHash || remoteHash !== localHash || !prev || prev.lastSyncedHash !== localHash;
+          if (!needsPdfUpload) {
+            gdriveSyncState.notebooks[syncKey] = {
+              driveFileId: remote.id,
+              format: 'pdf',
+              lastSyncedHash: localHash,
+              lastSyncedAt: Date.now(),
+              remoteModifiedTime: remote.modifiedTime || null
+            };
+            if (effTarget) await persistResolvedDriveFileIdOnNotebook(nb, effTarget, remote.id, remote.name || targetFileName);
+            report.skipped.push(nb.id);
+          } else {
+            const uploadedPdf = await uploadOrUpdateNotebookPdfOnDrive(
+              targetParentFolderId, nb, pages, localHash, remote ? remote.id : null, actionLabel, fetchOpts, targetFileName
+            );
+            gdriveSyncState.notebooks[syncKey] = {
+              driveFileId: uploadedPdf.id,
+              format: 'pdf',
+              lastSyncedHash: localHash,
+              lastSyncedAt: Date.now(),
+              remoteModifiedTime: uploadedPdf.modifiedTime || null
+            };
+            if (effTarget) await persistResolvedDriveFileIdOnNotebook(nb, effTarget, uploadedPdf.id, uploadedPdf.name || targetFileName);
+            report.uploaded.push(nb.id);
+          }
+          continue;
+        }
+
         const isFirstExplicitTargetBind = Boolean(effTarget && !prev && remote);
         const localChanged = !prev || prev.lastSyncedHash !== localHash;
         const remoteChanged = Boolean(remote && !isFirstExplicitTargetBind && (!prev || (remoteHash && remoteHash !== prev.lastSyncedHash)));
@@ -608,8 +769,9 @@
           const created = await uploadOrUpdateNotebookOnDrive(
             targetParentFolderId, nb, pages, localHash, null, actionLabel, fetchOpts, targetFileName
           );
-          gdriveSyncState.notebooks[nb.id] = {
+          gdriveSyncState.notebooks[syncKey] = {
             driveFileId: created.id,
+            format: 'json',
             lastSyncedHash: localHash,
             lastSyncedAt: Date.now(),
             remoteModifiedTime: created.modifiedTime || null
@@ -617,8 +779,9 @@
           if (effTarget) await persistResolvedDriveFileIdOnNotebook(nb, effTarget, created.id, created.name || targetFileName);
           report.uploaded.push(nb.id);
         } else if (remoteHash && remoteHash === localHash) {
-          gdriveSyncState.notebooks[nb.id] = {
+          gdriveSyncState.notebooks[syncKey] = {
             driveFileId: remote.id,
+            format: 'json',
             lastSyncedHash: localHash,
             lastSyncedAt: Date.now(),
             remoteModifiedTime: remote.modifiedTime || null
@@ -630,8 +793,9 @@
           const updated = await uploadOrUpdateNotebookOnDrive(
             targetParentFolderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts, targetFileName
           );
-          gdriveSyncState.notebooks[nb.id] = {
+          gdriveSyncState.notebooks[syncKey] = {
             driveFileId: updated.id,
+            format: 'json',
             lastSyncedHash: localHash,
             lastSyncedAt: Date.now(),
             remoteModifiedTime: updated.modifiedTime || null
@@ -644,8 +808,9 @@
             await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: false });
             const newPages = state.pagesByNotebook.get(nb.id) || [];
             const appliedHash = remoteHash || computeNotebookContentHash(state.notebooks.find((n) => n.id === nb.id), newPages);
-            gdriveSyncState.notebooks[nb.id] = {
+            gdriveSyncState.notebooks[syncKey] = {
               driveFileId: remote.id,
+              format: 'json',
               lastSyncedHash: appliedHash,
               lastSyncedAt: Date.now(),
               remoteModifiedTime: remote.modifiedTime || null
@@ -656,8 +821,9 @@
             const updated = await uploadOrUpdateNotebookOnDrive(
               targetParentFolderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts, targetFileName
             );
-            gdriveSyncState.notebooks[nb.id] = {
+            gdriveSyncState.notebooks[syncKey] = {
               driveFileId: updated.id,
+              format: 'json',
               lastSyncedHash: localHash,
               lastSyncedAt: Date.now(),
               remoteModifiedTime: updated.modifiedTime || null
@@ -668,8 +834,9 @@
             const updated = await uploadOrUpdateNotebookOnDrive(
               targetParentFolderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts, targetFileName
             );
-            gdriveSyncState.notebooks[nb.id] = {
+            gdriveSyncState.notebooks[syncKey] = {
               driveFileId: updated.id,
+              format: 'json',
               lastSyncedHash: localHash,
               lastSyncedAt: Date.now(),
               remoteModifiedTime: updated.modifiedTime || null
@@ -686,8 +853,9 @@
           const updated = await uploadOrUpdateNotebookOnDrive(
             targetParentFolderId, nb, pages, localHash, remote.id, actionLabel, fetchOpts, targetFileName
           );
-          gdriveSyncState.notebooks[nb.id] = {
+          gdriveSyncState.notebooks[syncKey] = {
             driveFileId: updated.id,
+            format: 'json',
             lastSyncedHash: localHash,
             lastSyncedAt: Date.now(),
             remoteModifiedTime: updated.modifiedTime || null
@@ -699,8 +867,9 @@
           const applied = await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: false });
           if (applied) {
             const newHash = remoteHash || computeNotebookContentHash(applied.notebook, applied.pages);
-            gdriveSyncState.notebooks[nb.id] = {
+            gdriveSyncState.notebooks[syncKey] = {
               driveFileId: remote.id,
+              format: 'json',
               lastSyncedHash: newHash,
               lastSyncedAt: Date.now(),
               remoteModifiedTime: remote.modifiedTime || null
@@ -713,9 +882,9 @@
         }
       }
 
-      // 2. Télécharge les cahiers présents uniquement dans InkFlow/ sur Drive (hors synchro unitaire)
+      // 2. Télécharge les cahiers .json présents uniquement dans InkFlow/ sur Drive (hors synchro unitaire et hors fichiers PDF)
       if (!onlyNotebookId) {
-        for (const [remoteNbId, rf] of remoteByNbId.entries()) {
+        for (const [remoteNbId, rf] of remoteJsonByNbId.entries()) {
           if (localById.has(remoteNbId)) continue;
           const remotePayload = await downloadNotebookFromDrive(rf.id, actionLabel, fetchOpts);
           const applied = await applyRemoteNotebookPayloadLocally(remotePayload, { asConflictCopy: false });
@@ -723,6 +892,7 @@
             const newHash = (rf.appProperties && rf.appProperties.inkflowHash) || computeNotebookContentHash(applied.notebook, applied.pages);
             gdriveSyncState.notebooks[remoteNbId] = {
               driveFileId: rf.id,
+              format: 'json',
               lastSyncedHash: newHash,
               lastSyncedAt: Date.now(),
               remoteModifiedTime: rf.modifiedTime || null
@@ -775,8 +945,28 @@
     return syncNotebooksIncrementalWithGoogleDrive({
       auto: options.auto !== undefined ? Boolean(options.auto) : true,
       strategy: options.strategy || 'keep-both',
+      format: options.format || undefined,
       onlyNotebookId: notebookId
     });
+  }
+
+  async function saveNotebookToGoogleDriveAsPdf(notebookId = null, targetOverride = null) {
+    const nb = notebookId
+      ? (state.notebooks || []).find((n) => n.id === notebookId)
+      : getActiveNotebook();
+    if (!nb) return null;
+    if (!isGdriveLinked()) {
+      openCloudBackupModal('api');
+      showToast('Reliez d’abord un compte Google pour sauvegarder en PDF sur Drive.', 'error');
+      return null;
+    }
+    if (!requireNetwork('Sauvegarder en PDF sur Google Drive')) return null;
+
+    if (targetOverride) {
+      await setNotebookDriveTarget(nb.id, { ...targetOverride, format: 'pdf' }, { syncNow: false });
+      return await syncSingleNotebookWithGoogleDrive(nb.id, { auto: false, format: 'pdf' });
+    }
+    return await syncSingleNotebookWithGoogleDrive(nb.id, { auto: false, format: 'pdf' });
   }
 
   function notifyLocalNotebookMutatedForDriveSync(notebookId) {

@@ -2681,6 +2681,164 @@ async function runTests() {
     return 'SM-2 (1 min / 10 min / 1 j / 4 j, Difficile < Bien < Facile, plancher 1,3, plafond 10 ans), fiches dues triées, création au lasso, refus sans réponse, séance, persistance et suppression IndexedDB vérifiés.';
   });
 
+  // ------------------------------------------------------------------------
+  // TEST 18 : Choix du format Google Drive (InkFlow .json vs PDF .pdf lisible sur mobile/PC)
+  // ------------------------------------------------------------------------
+  await runStep('Test 18 : Sauvegarde Google Drive au choix en format InkFlow (.json) ou PDF (.pdf lisible partout)', async () => {
+    assert.equal(api.sanitizeDriveNotebookFilename('Cours Chimie', 'Cahier', 'pdf'), 'Cours Chimie.pdf');
+    assert.equal(api.sanitizeDriveNotebookFilename('Cours.inkflow.json', 'Cahier', 'pdf'), 'Cours.pdf');
+    assert.equal(api.sanitizeDriveNotebookFilename('Cours.pdf', 'Cahier', 'json'), 'Cours.inkflow.json');
+
+    const prevDefaultFmt = api.getGdriveDefaultSaveFormat();
+    const driveFiles = new Map();
+    const stats = { posts: 0, patches: 0, lastMime: '', lastBase64: '' };
+    let nextId = 1;
+
+    api.resetGdriveSyncMeta();
+    api.setNetworkState({ online: true, unreachable: false });
+    api.storeGdriveTokens({ access_token: 'ya29.pdf_drive_ok', expires_in: 3600, refresh_token: '1//r' });
+
+    sandbox.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      const method = (opts.method || 'GET').toUpperCase();
+
+      const directMetaMatch = method === 'GET' && !u.includes('alt=media') && u.match(/\/drive\/v3\/files\/([^/?]+)\?/);
+      if (directMetaMatch) {
+        const fid = decodeURIComponent(directMetaMatch[1]);
+        const rec = driveFiles.get(fid);
+        if (!rec) return { ok: false, status: 404, json: async () => ({ error: { message: 'Not found' } }) };
+        return { ok: true, status: 200, json: async () => ({ id: rec.id, name: rec.name, mimeType: rec.mimeType, trashed: false, modifiedTime: rec.modifiedTime, appProperties: rec.appProperties }) };
+      }
+
+      if (u.includes('/drive/v3/files?') && method === 'GET') {
+        const parsedUrl = new URL(u);
+        const q = parsedUrl.searchParams.get('q') || '';
+        if (q.includes("mimeType='application/vnd.google-apps.folder'") && q.includes("name='InkFlow'")) {
+          return { ok: true, status: 200, json: async () => ({ files: [{ id: 'drv_fld_inkflow_pdf', name: 'InkFlow' }] }) };
+        }
+        const results = Array.from(driveFiles.values()).filter((f) => {
+          const nameMatch = q.match(/name='([^']+)'/);
+          if (nameMatch && f.name !== nameMatch[1]) return false;
+          const parentMatch = q.match(/'([^']+)' in parents/);
+          if (parentMatch && !(f.parents || []).includes(parentMatch[1])) return false;
+          return true;
+        });
+        return { ok: true, status: 200, json: async () => ({ files: results }) };
+      }
+
+      if (u.includes('/upload/drive/v3/files') && (method === 'POST' || method === 'PATCH')) {
+        const bodyStr = String(opts.body || '');
+        const parts = bodyStr.split('\r\n\r\n');
+        const metaPart = JSON.parse(parts[1].split('\r\n--')[0]);
+        const rawPayload = parts[2].split('\r\n--')[0];
+        stats.lastMime = metaPart.mimeType || '';
+        stats.lastBase64 = metaPart.mimeType === 'application/pdf' ? rawPayload.trim() : '';
+
+        if (method === 'PATCH') {
+          const m = u.match(/\/files\/([^?]+)/);
+          const fid = decodeURIComponent(m[1]);
+          const rec = driveFiles.get(fid);
+          rec.name = metaPart.name || rec.name;
+          rec.mimeType = metaPart.mimeType || rec.mimeType;
+          rec.appProperties = metaPart.appProperties || {};
+          rec.rawPayload = rawPayload;
+          rec.modifiedTime = new Date().toISOString();
+          stats.patches++;
+          return { ok: true, status: 200, json: async () => rec };
+        }
+        const fid = `drv_pdf_${nextId++}`;
+        const rec = {
+          id: fid,
+          name: metaPart.name,
+          mimeType: metaPart.mimeType,
+          parents: metaPart.parents || ['root'],
+          modifiedTime: new Date().toISOString(),
+          appProperties: metaPart.appProperties || {},
+          rawPayload
+        };
+        driveFiles.set(fid, rec);
+        stats.posts++;
+        return { ok: true, status: 200, json: async () => rec };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+
+    let nbPdf = null;
+    try {
+      // 1. Cahier ciblé en format PDF sur Google Drive
+      const created = await api.createNotebookProgrammatically('Fiche Histoire', 'lined', '#0072ce', {
+        driveTarget: {
+          mode: 'folder',
+          fileId: null,
+          fileName: 'Fiche-Histoire.pdf',
+          folderId: 'drv_fld_cours',
+          folderPath: 'Mon Drive / Cours',
+          format: 'pdf'
+        }
+      });
+      nbPdf = created.notebook;
+      created.firstPage.strokes.push({
+        id: 't18_s1',
+        tool: 'pen',
+        color: '#1e293b',
+        size: 3,
+        points: [{ x: 40, y: 50, pressure: 0.5 }, { x: 200, y: 120, pressure: 0.6 }]
+      });
+      created.firstPage.texts.push({
+        id: 't18_tx1',
+        x: 60,
+        y: 160,
+        width: 240,
+        fontSize: 16,
+        color: '#1e293b',
+        text: 'Chapitre 1 : Révisions'
+      });
+
+      assert.match(api.describeNotebookDriveTarget(nbPdf), /PDF/, 'La description cible Drive doit indiquer le format PDF');
+
+      // 1er envoi -> POST d'un véritable fichier application/pdf valide décodable par pdf-lib
+      const r1 = await api.syncSingleNotebookWithGoogleDrive(nbPdf.id, { auto: true });
+      assert.ok(r1 && r1.uploaded.includes(nbPdf.id), 'Le cahier PDF doit être envoyé sur Drive');
+      assert.equal(stats.posts, 1);
+      assert.equal(stats.lastMime, 'application/pdf', 'Le MIME envoyé doit être application/pdf');
+      const decodedBytes = Buffer.from(stats.lastBase64, 'base64');
+      assert.equal(decodedBytes.slice(0, 5).toString('ascii'), '%PDF-', 'Les octets envoyés doivent commencer par %PDF-');
+      const parsedPdf = await sandbox.PDFLib.PDFDocument.load(decodedBytes);
+      assert.equal(parsedPdf.getPageCount(), 1, 'Le PDF envoyé sur Drive doit contenir la page du cahier');
+
+      // 2e synchro sans modification -> 0 ré-envoi
+      const r2 = await api.syncSingleNotebookWithGoogleDrive(nbPdf.id, { auto: true });
+      assert.ok(r2 && r2.skipped.includes(nbPdf.id), 'Un cahier PDF inchangé ne doit pas être ré-envoyé');
+      assert.equal(stats.posts, 1);
+      assert.equal(stats.patches, 0);
+
+      // 3e synchro après ajout d'un trait -> PATCH en place sur le même fichier PDF Drive
+      created.firstPage.strokes.push({
+        id: 't18_s2',
+        tool: 'highlighter',
+        color: '#facc15',
+        size: 16,
+        points: [{ x: 40, y: 170, pressure: 0.5 }, { x: 220, y: 170, pressure: 0.5 }]
+      });
+      const r3 = await api.syncSingleNotebookWithGoogleDrive(nbPdf.id, { auto: true });
+      assert.ok(r3 && r3.uploaded.includes(nbPdf.id), 'Le cahier modifié doit mettre à jour le PDF sur Drive');
+      assert.equal(stats.posts, 1, 'Aucun doublon PDF ne doit être créé');
+      assert.equal(stats.patches, 1, 'La mise à jour PDF doit utiliser PATCH en place');
+
+      // 4. Mode global PDF par défaut
+      assert.equal(api.setGdriveDefaultSaveFormat('pdf'), 'pdf');
+      assert.equal(api.getGdriveDefaultSaveFormat(), 'pdf');
+    } finally {
+      api.setGdriveDefaultSaveFormat(prevDefaultFmt || 'json');
+      if (nbPdf) await api.deleteNotebookById(nbPdf.id);
+      api.clearGdriveSession();
+      api.resetGdriveSyncMeta();
+      delete sandbox.fetch;
+    }
+
+    return 'Choix de format .json / .pdf, génération PDF vectoriel encodé base64 (%PDF- validé via pdf-lib), skip si inchangé et mise à jour PATCH en place sur Drive vérifiés.';
+  });
+
   console.log('======================================================================');
   console.log(`🎉 TOUS LES TESTS UNITAIRES SONT PASSÉS AVEC SUCCÈS (${results.length}/${results.length})`);
   console.log('======================================================================');

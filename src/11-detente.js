@@ -3652,6 +3652,14 @@
       if (!requireNetwork('Synchronisation Google Drive')) return;
       syncNotebooksIncrementalWithGoogleDrive({ auto: false });
     });
+    document.querySelectorAll('#gdriveSaveFormatRow [data-gdrive-global-format]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (typeof setGdriveDefaultSaveFormat === 'function') {
+          setGdriveDefaultSaveFormat(btn.dataset.gdriveGlobalFormat);
+        }
+      });
+    });
+    if (typeof renderGdriveSaveFormatUi === 'function') renderGdriveSaveFormatUi();
     document.getElementById('btnGdriveBackupNow')?.addEventListener('click', () => {
       if (!requireNetwork('Sauvegarde Google Drive')) return;
       backupToGoogleDriveApiNow();
@@ -3706,6 +3714,13 @@
         }, 350);
       });
     }
+    document.querySelectorAll('#driveTargetFormatWrap [data-drive-save-format]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (typeof setDrivePickerTargetFormat === 'function') {
+          setDrivePickerTargetFormat(btn.dataset.driveSaveFormat, { reload: true });
+        }
+      });
+    });
     document.getElementById('btnDrivePickerMore')?.addEventListener('click', () => loadDrivePickerItems({ append: true }));
     document.getElementById('btnDrivePickerNewFolder')?.addEventListener('click', () => createNewFolderInDrivePicker());
     document.getElementById('btnDrivePickerImport')?.addEventListener('click', () => {

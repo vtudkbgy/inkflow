@@ -5281,6 +5281,26 @@
         exportAnnotatedPdfWithPdfLib('page', true);
       });
     }
+    const btnExportPdfToGdrive = document.getElementById('btnExportPdfToGdrive');
+    if (btnExportPdfToGdrive) {
+      btnExportPdfToGdrive.addEventListener('click', () => {
+        dom.exportPopover.classList.add('hidden');
+        const activeNb = getActiveNotebook();
+        if (!activeNb) return;
+        if (!isGdriveLinked()) {
+          openCloudBackupModal('api');
+          showToast('Reliez d’abord un compte Google pour sauvegarder en PDF sur Drive.', 'error');
+          return;
+        }
+        if (!requireNetwork('Sauvegarder en PDF sur Google Drive')) return;
+        if (typeof promptNotebookDriveTarget === 'function') {
+          promptNotebookDriveTarget(activeNb, {
+            defaultFormat: 'pdf',
+            pickerTitle: `Sauvegarder en PDF sur Google Drive — « ${activeNb.title} »`
+          });
+        }
+      });
+    }
 
     // Importation PDF locale avec pdfjs-dist (PDF.js)
     let autoImportModeAfterFilePick = null;
@@ -5544,10 +5564,12 @@
         ev.stopPropagation();
         const curTitle = (dom.inputNotebookName && dom.inputNotebookName.value.trim()) || `Cahier ${state.notebooks.length + 1}`;
         const cur = state.newNotebookDriveTarget;
+        const curFmt = (cur && cur.format) || (typeof getGdriveDefaultSaveFormat === 'function' ? getGdriveDefaultSaveFormat() : 'json');
         openDriveTargetPicker({
           pickerTitle: 'Choisir le fichier Google Drive du nouveau cahier',
           notebookTitle: curTitle,
-          defaultFileName: (cur && !cur.autoFileName && cur.fileName) ? cur.fileName : sanitizeDriveNotebookFilename('', curTitle),
+          defaultFormat: curFmt,
+          defaultFileName: (cur && !cur.autoFileName && cur.fileName) ? cur.fileName : sanitizeDriveNotebookFilename('', curTitle, curFmt),
           initialFolderId: cur ? cur.folderId : null,
           initialFolderPath: cur ? cur.folderPath : '',
           onSelect: (picked) => {
@@ -5636,7 +5658,7 @@
       const dims = getPageDimensionsForSizeAndOrientation(tpl.sizeId || 'goodnotes_standard', tpl.orientation || 'portrait');
       let chosenDriveTarget = state.newNotebookDriveTarget ? { ...state.newNotebookDriveTarget } : null;
       if (chosenDriveTarget && chosenDriveTarget.mode === 'folder' && chosenDriveTarget.autoFileName) {
-        chosenDriveTarget.fileName = sanitizeDriveNotebookFilename('', title);
+        chosenDriveTarget.fileName = sanitizeDriveNotebookFilename('', title, chosenDriveTarget.format || 'json');
       }
       const templateOptions = {
         paperType,

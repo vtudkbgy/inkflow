@@ -14441,9 +14441,76 @@ svg.bj-card.back .card-hatch {
 
 .new-nb-drive-target-row .icon-btn-tiny.hidden,
 .drive-target-filename-wrap.hidden,
+.drive-target-format-wrap.hidden,
 #btnDrivePickerNewFolder.hidden,
 #drivePickerFilterChips.hidden {
   display: none !important;
+}
+
+.gdrive-format-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--surface-subtle, rgba(15, 23, 42, 0.03));
+}
+
+.gdrive-format-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gdrive-format-title {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.gdrive-format-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.gdrive-format-pills,
+.drive-target-format-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--surface-panel, rgba(15, 23, 42, 0.06));
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.drive-format-pill {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.drive-format-pill:hover {
+  color: var(--text-primary);
+}
+
+.drive-format-pill.active {
+  background: var(--accent-primary, #0072ce);
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 114, 206, 0.28);
 }
 
 .drive-target-filename-wrap {

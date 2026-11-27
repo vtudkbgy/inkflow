@@ -3944,31 +3944,27 @@
     return { notebook: targetNb, pages: createdPages, pdfId };
   }
 
-  async function exportAnnotatedPdfWithPdfLib(scope = 'notebook', triggerDownload = true) {
+  async function buildPdfBytesForPages(pagesToExport, { silent = false } = {}) {
     if (typeof window === 'undefined' || !window.PDFLib) {
-      showToast('Erreur : pdf-lib non disponible');
+      if (!silent) showToast('Erreur : pdf-lib non disponible');
       return null;
     }
     const { PDFDocument, StandardFonts, rgb, LineCapStyle, LineJoinStyle, BlendMode, degrees } = window.PDFLib;
-    const nb = getActiveNotebook();
-    const pagesToExport = scope === 'page'
-      ? [getActivePage()].filter(Boolean)
-      : getActiveNotebookPages();
-
-    if (!pagesToExport || pagesToExport.length === 0) {
-      showToast('Aucune page à exporter');
+    const list = (Array.isArray(pagesToExport) ? pagesToExport : []).filter(Boolean);
+    if (list.length === 0) {
+      if (!silent) showToast('Aucune page à exporter');
       return null;
     }
 
-    showToast('Génération du PDF vectoriel annoté (pdf-lib)...');
+    if (!silent) showToast('Génération du PDF vectoriel annoté (pdf-lib)...');
 
     const outPdf = await PDFDocument.create();
     const fontReg = await outPdf.embedFont(StandardFonts.Helvetica);
     const fontBold = await outPdf.embedFont(StandardFonts.HelveticaBold);
     const loadedSourcePdfs = new Map();
 
-    for (let pIdx = 0; pIdx < pagesToExport.length; pIdx++) {
-      const page = pagesToExport[pIdx];
+    for (let pIdx = 0; pIdx < list.length; pIdx++) {
+      const page = list[pIdx];
       let pdfPage = null;
 
       // 1. Charge la page du PDF d'origine si présente, sinon crée une page aux proportions exactes
@@ -4288,18 +4284,43 @@
           const lineStr = lines[lIdx];
           if (!lineStr) continue;
           const wy = tb.y + 10 + (lIdx + 0.82) * lhWorld;
-          pdfPage.drawText(lineStr, {
-            x: toPdfX(tb.x + 10),
-            y: toPdfY(wy),
-            size: fontSizePdf,
-            font: chosenFont,
-            color: textCol
-          });
+          try {
+            pdfPage.drawText(lineStr, {
+              x: toPdfX(tb.x + 10),
+              y: toPdfY(wy),
+              size: fontSizePdf,
+              font: chosenFont,
+              color: textCol
+            });
+          } catch (_) {
+            const safeAscii = lineStr.replace(/[^\x20-\xFF]/g, '?');
+            if (safeAscii.trim()) {
+              try {
+                pdfPage.drawText(safeAscii, {
+                  x: toPdfX(tb.x + 10),
+                  y: toPdfY(wy),
+                  size: fontSizePdf,
+                  font: chosenFont,
+                  color: textCol
+                });
+              } catch (__) {}
+            }
+          }
         }
       }
     }
 
-    const pdfBytes = await outPdf.save();
+    return await outPdf.save();
+  }
+
+  async function exportAnnotatedPdfWithPdfLib(scope = 'notebook', triggerDownload = true) {
+    const nb = getActiveNotebook();
+    const pagesToExport = scope === 'page'
+      ? [getActivePage()].filter(Boolean)
+      : getActiveNotebookPages();
+
+    const pdfBytes = await buildPdfBytesForPages(pagesToExport, { silent: false });
+    if (!pdfBytes) return null;
     state.lastExportedPdfBytes = pdfBytes;
 
     if (triggerDownload) {

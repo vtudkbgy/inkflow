@@ -1756,6 +1756,9 @@
         <button class="paper-option-btn" id="btnExportCurrentPagePdf" style="width:100%">
           📄 Exporter la page active en PDF (.pdf)
         </button>
+        <button class="paper-option-btn" id="btnExportPdfToGdrive" style="width:100%" data-needs-network title="Enregistrer ce cahier en PDF sur Google Drive pour le lire sur téléphone ou ordinateur sans l'application">
+          ☁ Sauvegarder sur Google Drive (PDF)
+        </button>
         <button class="paper-option-btn" id="btnImportPdfFromExportMenu" style="width:100%">
           📥 Importer un fichier PDF...
         </button>
@@ -2929,6 +2932,16 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
             </svg>
             <span>Importer depuis Drive</span>
           </button>
+          <div class="gdrive-format-row" id="gdriveSaveFormatRow">
+            <div class="gdrive-format-text">
+              <span class="gdrive-format-title">Format de sauvegarde sur Drive</span>
+              <span class="gdrive-format-sub" id="gdriveSaveFormatHint">Synchronisable et modifiable dans InkFlow (.inkflow.json)</span>
+            </div>
+            <div class="gdrive-format-pills" role="radiogroup" aria-label="Format de sauvegarde Google Drive">
+              <button type="button" class="drive-format-pill active" data-gdrive-global-format="json" role="radio" aria-checked="true">InkFlow</button>
+              <button type="button" class="drive-format-pill" data-gdrive-global-format="pdf" role="radio" aria-checked="false">PDF</button>
+            </div>
+          </div>
           <div class="cloud-actions-row">
             <button class="cloud-btn-primary" id="btnGdriveSyncIncremental" type="button" data-needs-network title="Synchroniser uniquement les cahiers modifiés dans le dossier InkFlow/">Synchroniser</button>
             <button class="cloud-btn-secondary" id="btnGdriveBackupNow" type="button" data-needs-network>Sauvegarde complète</button>
@@ -3026,6 +3039,10 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
 
       <footer class="drive-picker-foot">
         <div class="drive-picker-selection" id="drivePickerSelection">Sélectionnez un ou plusieurs fichiers</div>
+        <div class="drive-target-format-wrap hidden" id="driveTargetFormatWrap" role="radiogroup" aria-label="Format du fichier Google Drive">
+          <button type="button" class="drive-format-pill active" data-drive-save-format="json" role="radio" aria-checked="true" title="Format modifiable et synchronisable dans InkFlow (.inkflow.json)">InkFlow (.json)</button>
+          <button type="button" class="drive-format-pill" data-drive-save-format="pdf" role="radio" aria-checked="false" title="Format PDF lisible sur téléphone et ordinateur sans l'application">PDF (.pdf)</button>
+        </div>
         <div class="drive-target-filename-wrap hidden" id="driveTargetFilenameWrap">
           <label for="driveTargetFilenameInput">Fichier :</label>
           <input type="text" id="driveTargetFilenameInput" class="cloud-input drive-target-filename-input" placeholder="Mon-Cahier.inkflow.json" spellcheck="false" autocomplete="off" />

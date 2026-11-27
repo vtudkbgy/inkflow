@@ -961,17 +961,59 @@
     needsReload: false,
     searchTimer: null,
     onTargetSelect: null,
-    defaultTargetFileName: ''
+    defaultTargetFileName: '',
+    targetFormat: 'json' // 'json' | 'pdf'
   };
 
-  function sanitizeDriveNotebookFilename(rawName, fallbackTitle = 'Cahier') {
+  function normalizeDriveSaveFormat(fmt) {
+    return String(fmt || '').toLowerCase() === 'pdf' ? 'pdf' : 'json';
+  }
+
+  function sanitizeDriveNotebookFilename(rawName, fallbackTitle = 'Cahier', format = 'json') {
+    const fmt = normalizeDriveSaveFormat(format);
     let base = String(rawName || '').trim();
     if (!base) base = String(fallbackTitle || 'Cahier').trim() || 'Cahier';
     base = base.replace(/[<>:"/\\|?*\x00-\x1f]+/g, '-').replace(/\s+/g, ' ').trim();
+    if (fmt === 'pdf') {
+      base = base.replace(/\.inkflow\.json$/i, '').replace(/\.json$/i, '');
+      if (!/\.pdf$/i.test(base)) {
+        base = `${base}.pdf`;
+      }
+      return base;
+    }
+    base = base.replace(/\.pdf$/i, '');
     if (!/\.json$/i.test(base)) {
       base = `${base}.inkflow.json`;
     }
     return base;
+  }
+
+  function setDrivePickerTargetFormat(nextFormat, { reload = true } = {}) {
+    const fmt = normalizeDriveSaveFormat(nextFormat);
+    const changed = drivePicker.targetFormat !== fmt;
+    drivePicker.targetFormat = fmt;
+    if (drivePicker.mode === 'target') {
+      drivePicker.filter = fmt === 'pdf' ? 'pdf' : 'backup';
+      drivePicker.selected.clear();
+      const fnInput = document.getElementById('driveTargetFilenameInput');
+      if (fnInput) {
+        const curVal = fnInput.value || drivePicker.defaultTargetFileName || 'Cahier';
+        fnInput.value = sanitizeDriveNotebookFilename(curVal, drivePicker.defaultTargetFileName || 'Cahier', fmt);
+        fnInput.placeholder = fmt === 'pdf' ? 'Mon-Cahier.pdf' : 'Mon-Cahier.inkflow.json';
+      }
+    }
+    if (typeof document.querySelectorAll === 'function') {
+      document.querySelectorAll('#driveTargetFormatWrap [data-drive-save-format]').forEach((btn) => {
+        const active = btn.dataset.driveSaveFormat === fmt;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-checked', active ? 'true' : 'false');
+      });
+    }
+    if (reload && changed && drivePicker.mode === 'target' && isDrivePickerOpen()) {
+      reloadDrivePicker();
+    } else if (drivePicker.mode === 'target') {
+      renderDrivePickerFooter();
+    }
   }
 
   function getDrivePickerBreadcrumbPath() {
@@ -1093,18 +1135,28 @@
     } else {
       drivePicker.stack = [{ id: 'root', name: DRIVE_VIEW_LABELS.root }];
     }
-    drivePicker.filter = drivePicker.mode === 'import' ? (options.filter || 'all') : 'backup';
+    const initialFmt = normalizeDriveSaveFormat(
+      options.defaultFormat ||
+      (/\.pdf$/i.test(String(options.defaultFileName || '')) ? 'pdf' : (typeof getGdriveDefaultSaveFormat === 'function' ? getGdriveDefaultSaveFormat() : 'json'))
+    );
+    drivePicker.targetFormat = initialFmt;
+    drivePicker.filter = drivePicker.mode === 'import'
+      ? (options.filter || 'all')
+      : (drivePicker.mode === 'target' && initialFmt === 'pdf' ? 'pdf' : 'backup');
     drivePicker.search = '';
     drivePicker.items = [];
     drivePicker.nextPageToken = null;
     drivePicker.selected.clear();
     drivePicker.error = '';
     drivePicker.openedFrom = options.from || null;
-    drivePicker.defaultTargetFileName = sanitizeDriveNotebookFilename(options.defaultFileName || '', options.notebookTitle || 'Cahier');
+    drivePicker.defaultTargetFileName = sanitizeDriveNotebookFilename(options.defaultFileName || '', options.notebookTitle || 'Cahier', initialFmt);
     const search = document.getElementById('drivePickerSearch');
     if (search) search.value = '';
     const fnInput = document.getElementById('driveTargetFilenameInput');
-    if (fnInput) fnInput.value = drivePicker.defaultTargetFileName;
+    if (fnInput) {
+      fnInput.value = drivePicker.defaultTargetFileName;
+      fnInput.placeholder = initialFmt === 'pdf' ? 'Mon-Cahier.pdf' : 'Mon-Cahier.inkflow.json';
+    }
     const titleEl = document.getElementById('drivePickerTitle');
     if (titleEl) {
       if (drivePicker.mode === 'target') titleEl.textContent = options.pickerTitle || 'Choisir le fichier Google Drive du cahier';
@@ -1117,6 +1169,9 @@
     if (newFldBtn) newFldBtn.classList.toggle('hidden', drivePicker.mode === 'import');
     const fnWrap = document.getElementById('driveTargetFilenameWrap');
     if (fnWrap) fnWrap.classList.toggle('hidden', drivePicker.mode !== 'target');
+    const fmtWrap = document.getElementById('driveTargetFormatWrap');
+    if (fmtWrap) fmtWrap.classList.toggle('hidden', drivePicker.mode !== 'target');
+    setDrivePickerTargetFormat(initialFmt, { reload: false });
     syncDrivePickerChrome();
     modal.classList.remove('hidden');
     renderGdriveAccountUi();
@@ -1181,22 +1236,28 @@
     const sel = Array.from(drivePicker.selected.values());
     let target;
     if (sel.length > 0 && !sel[0].isFolder) {
+      const pickedFormat = (sel[0].kind === 'pdf' || /\.pdf$/i.test(sel[0].name || ''))
+        ? 'pdf'
+        : normalizeDriveSaveFormat(drivePicker.targetFormat);
       target = {
         mode: 'file',
         fileId: sel[0].id,
         fileName: sel[0].name,
         folderId,
-        folderPath
+        folderPath,
+        format: pickedFormat
       };
     } else {
+      const fmt = normalizeDriveSaveFormat(drivePicker.targetFormat);
       const fnInput = document.getElementById('driveTargetFilenameInput');
-      const fileName = sanitizeDriveNotebookFilename(fnInput ? fnInput.value : '', drivePicker.defaultTargetFileName);
+      const fileName = sanitizeDriveNotebookFilename(fnInput ? fnInput.value : '', drivePicker.defaultTargetFileName, fmt);
       target = {
         mode: 'folder',
         fileId: null,
         fileName,
         folderId,
-        folderPath
+        folderPath,
+        format: fmt
       };
     }
     closeDrivePicker();
@@ -1531,12 +1592,14 @@
     const btn = document.getElementById('btnDrivePickerImport');
     const targetWrap = document.getElementById('drivePdfTargetWrap');
     const fnWrap = document.getElementById('driveTargetFilenameWrap');
+    const fmtWrap = document.getElementById('driveTargetFormatWrap');
 
     if (drivePicker.mode === 'target' || drivePicker.mode === 'target-folder') {
       const folderPath = getDrivePickerBreadcrumbPath();
       if (targetWrap) targetWrap.classList.add('hidden');
       if (drivePicker.mode === 'target-folder') {
         if (fnWrap) fnWrap.classList.add('hidden');
+        if (fmtWrap) fmtWrap.classList.add('hidden');
         if (label) label.textContent = `Dossier ciblé : ${folderPath}`;
         if (btn) {
           btn.disabled = false;
@@ -1544,17 +1607,21 @@
         }
       } else if (sel.length > 0) {
         if (fnWrap) fnWrap.classList.add('hidden');
-        if (label) label.textContent = `Fichier Drive existant : « ${sel[0].name} »`;
+        if (fmtWrap) fmtWrap.classList.remove('hidden');
+        const fmtTag = (sel[0].kind === 'pdf' || /\.pdf$/i.test(sel[0].name || '')) ? 'PDF' : 'InkFlow';
+        if (label) label.textContent = `Fichier Drive existant (${fmtTag}) : « ${sel[0].name} »`;
         if (btn) {
           btn.disabled = false;
           btn.textContent = 'Cibler ce fichier';
         }
       } else {
         if (fnWrap) fnWrap.classList.remove('hidden');
-        if (label) label.textContent = `Dossier : ${folderPath}`;
+        if (fmtWrap) fmtWrap.classList.remove('hidden');
+        const fmtTag = drivePicker.targetFormat === 'pdf' ? 'PDF lisible partout' : 'InkFlow (.json)';
+        if (label) label.textContent = `${folderPath} · ${fmtTag}`;
         if (btn) {
           btn.disabled = false;
-          btn.textContent = 'Enregistrer ici';
+          btn.textContent = drivePicker.targetFormat === 'pdf' ? 'Enregistrer en PDF ici' : 'Enregistrer ici';
         }
       }
       syncNetworkDependentControls();
@@ -1562,6 +1629,7 @@
     }
 
     if (fnWrap) fnWrap.classList.add('hidden');
+    if (fmtWrap) fmtWrap.classList.add('hidden');
     if (label) {
       if (progressText) label.textContent = progressText;
       else if (!sel.length) label.textContent = 'Sélectionnez un ou plusieurs fichiers';
