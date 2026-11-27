@@ -14749,4 +14749,553 @@ html.is-canvas-interacting[data-theme="dark"] .sidebar:not(.collapsed) {
   .fc-mode-toggle, .fc-preview-grid { grid-template-columns: 1fr; }
   .fc-grade-row { grid-template-columns: repeat(2, 1fr); }
   .fc-review kbd { display: none; }
+/^>>>>>>> feat/boutique-perso$/d
+/* ===== BOUTIQUE, PERSONNALISATION ET ANIMATIONS ===== */
+/* Boutique Détente : nouvelles catégories (motifs de papier, encres, polices, barre d'outils, cahiers prêts à
+   l'emploi), aperçus, habillages de la barre d'outils et animations discrètes. Les animations n'utilisent que
+   transform et opacity, jamais sur les canvas, et s'éteignent pendant html.is-canvas-interacting ainsi qu'avec
+   prefers-reduced-motion. */
+
+/* Éléments masqués tant que l'achat n'est pas fait (menu Papier, sélecteur de police, Nouveau cahier) */
+.paper-option-btn.hidden,
+.gn-text-font-opt.hidden,
+.form-field.hidden {
+  display: none !important;
+}
+
+.paper-opt-ico {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* ---------- Boutique : filtres de catégories ---------- */
+.detente-shop-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.detente-filter-chip {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-color);
+  background: var(--surface-panel);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s var(--ease-gn-smooth);
+}
+
+.detente-filter-chip:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.detente-filter-chip:active {
+  transform: scale(0.96);
+}
+
+.detente-filter-chip.active {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  background: var(--accent-primary-soft);
+}
+
+.detente-filter-chip:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+/* ---------- Boutique : cartes ---------- */
+.detente-shop-item {
+  position: relative;
+  transition: transform 0.2s var(--ease-gn-smooth), border-color 0.15s ease;
+}
+
+.detente-shop-preview {
+  position: relative;
+  overflow: hidden;
+}
+
+.detente-shop-preview.cover {
+  overflow: hidden;
+}
+
+.detente-shop-preview.cover .detente-cover-motif {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.detente-chip-btn.buy:hover:not(:disabled) {
+  background: var(--accent-primary-soft);
+}
+
+.detente-chip-btn.buy[data-short] {
+  color: var(--text-muted);
+  border-color: var(--border-color);
+}
+
+/* Motif de papier : tracé SVG sur papier ivoire */
+.detente-shop-preview.paper {
+  display: block;
+  background: #fbfaf5;
+  color: #64748b;
+}
+
+.detente-paper-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Encres : gouttes de couleur */
+.detente-shop-preview.ink {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--surface-subtle);
+}
+
+.detente-shop-preview.ink i {
+  display: block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50% 0 50% 50%;
+  transform: rotate(-45deg);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.18);
+}
+
+/* Polices : échantillon dans la police achetée */
+.detente-shop-preview.font {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+  font-size: 25px;
+  line-height: 1.05;
+}
+
+.detente-shop-preview.font small {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+/* Barre d'outils : maquette du bandeau */
+.detente-shop-preview.bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: #f6f6f8;
+  border-top: 3px solid #3462a2;
+}
+
+.detente-shop-preview.bar i {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 5px;
+  background: #64748b;
+  opacity: 0.5;
+}
+
+[data-theme="dark"] .detente-shop-preview.bar {
+  background: #1b1d24;
+  border-top-color: #294c7f;
+}
+
+.detente-shop-preview.bar[data-bar-preview="filet"] { border-top-color: var(--accent-primary); }
+
+.detente-shop-preview.bar[data-bar-preview="papier"] {
+  background: #faf6ec;
+  border-top-color: var(--accent-primary);
+}
+
+[data-theme="dark"] .detente-shop-preview.bar[data-bar-preview="papier"] { background: #2a2622; }
+
+.detente-shop-preview.bar[data-bar-preview="ardoise"] {
+  background: #1f2937;
+  border-top-color: #64748b;
+}
+
+.detente-shop-preview.bar[data-bar-preview="ardoise"] i { background: #cbd5e1; }
+.detente-shop-preview.bar[data-bar-preview="ronds"] i { border-radius: 50%; }
+
+/* Cahiers prêts à l'emploi : couverture et page */
+.detente-shop-preview.nbk {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+  border: none;
+  background: transparent;
+  overflow: visible;
+}
+
+.detente-shop-preview.nbk .nbk-cover {
+  position: relative;
+  width: 40px;
+  border-radius: 5px 2px 2px 5px;
+  background: var(--nb-cover);
+  box-shadow: inset 5px 0 0 rgba(15, 23, 42, 0.22);
+}
+
+.detente-shop-preview.nbk .nbk-cover::after {
+  content: "";
+  position: absolute;
+  left: 11px;
+  right: 6px;
+  top: 12px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--nb-accent);
+  opacity: 0.9;
+}
+
+.detente-shop-preview.nbk .nbk-page {
+  width: 58px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-left: none;
+  border-radius: 0 5px 5px 0;
+  background: var(--nb-page);
+  color: var(--nb-ink);
+}
+
+/* ---------- Nouveau cahier : raccourcis des cahiers prêts à l'emploi ---------- */
+.detente-nb-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.detente-nb-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px 0 9px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--border-color);
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.16s var(--ease-gn-smooth), border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.detente-nb-preset:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.detente-nb-preset:active {
+  transform: scale(0.97);
+}
+
+.detente-nb-preset.active {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary-soft);
+  color: var(--accent-primary);
+}
+
+.detente-nb-preset-cover {
+  display: block;
+  width: 12px;
+  height: 17px;
+  border-radius: 2px 3px 3px 2px;
+  background: var(--nb-cover);
+  box-shadow: inset 3px 0 0 rgba(15, 23, 42, 0.25);
+}
+
+/* ---------- Habillages de la barre d'outils (data-detente-skin sur <html>) ---------- */
+html[data-detente-skin="filet"] .unified-top-bar {
+  border-top-color: var(--accent-primary);
+}
+
+html[data-detente-skin="papier"] .unified-top-bar {
+  background: #faf6ec;
+  border-top-color: var(--accent-primary);
+}
+
+html[data-detente-skin="papier"][data-theme="dark"] .unified-top-bar {
+  background: #2a2622;
+}
+
+html[data-detente-skin="ardoise"] .unified-top-bar {
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --border-color: rgba(255, 255, 255, 0.12);
+  background: #1f2937;
+  border-top-color: #64748b;
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-detente-skin="ardoise"][data-theme="dark"] .unified-top-bar {
+  background: #161b25;
+}
+
+html[data-detente-skin="ardoise"] .unified-top-bar .gn-bar-center {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+html[data-detente-skin="ardoise"] .unified-top-bar .tool-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+html[data-detente-skin="ronds"] .unified-top-bar .tool-btn,
+html[data-detente-skin="ronds"] .unified-top-bar .gn-bar-center {
+  border-radius: var(--radius-pill);
+}
+
+/* ---------- Animations (transform et opacity uniquement) ---------- */
+@keyframes dtPageIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.992); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes dtPageOut {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(6px) scale(0.994); }
+}
+
+@keyframes dtPanelIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes dtRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes dtTabPop {
+  from { transform: scale(0.93); }
+  to { transform: none; }
+}
+
+@keyframes dtPopoverIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes dtModalIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.975); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes dtFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dtBoughtCard {
+  0% { transform: scale(0.95); }
+  50% { transform: scale(1.035); }
+  100% { transform: none; }
+}
+
+@keyframes dtBoughtRing {
+  0% { opacity: 0.85; transform: scale(0.96); }
+  100% { opacity: 0; transform: scale(1.09); }
+}
+
+@keyframes dtBoughtPreview {
+  0% { transform: scale(0.88) rotate(-2deg); }
+  60% { transform: scale(1.05) rotate(0.5deg); }
+  100% { transform: none; }
+}
+
+@keyframes dtSpent {
+  0% { transform: scale(1); }
+  30% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+@keyframes dtSpendFloat {
+  0% { opacity: 0; transform: translateY(8px); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-28px); }
+}
+
+@keyframes dtPageActivated {
+  0% { transform: scale(0.95); }
+  55% { transform: scale(1.035); }
+  100% { transform: none; }
+}
+
+.detente-page:not(.hidden) {
+  animation: dtPageIn 0.3s var(--ease-gn-smooth) backwards;
+}
+
+.detente-page.closing {
+  animation: dtPageOut 0.16s ease-in forwards;
+  pointer-events: none;
+}
+
+.detente-panel:not(.hidden) {
+  animation: dtPanelIn 0.24s var(--ease-gn-smooth) backwards;
+}
+
+.detente-tab:active {
+  transform: scale(0.96);
+}
+
+.detente-tab.active {
+  animation: dtTabPop 0.26s var(--ease-gn-spring);
+}
+
+.detente-shop.entering .detente-shop-group {
+  animation: dtRise 0.32s var(--ease-gn-smooth) backwards;
+}
+
+.detente-shop.entering .detente-shop-group:nth-child(3) { animation-delay: 0.03s; }
+.detente-shop.entering .detente-shop-group:nth-child(4) { animation-delay: 0.06s; }
+.detente-shop.entering .detente-shop-group:nth-child(5) { animation-delay: 0.09s; }
+.detente-shop.entering .detente-shop-group:nth-child(6) { animation-delay: 0.12s; }
+.detente-shop.entering .detente-shop-group:nth-child(n+7) { animation-delay: 0.15s; }
+
+/* Achat : la carte rebondit, un anneau s'élargit, l'aperçu se pose, le solde encaisse */
+.detente-shop-item.just-bought {
+  animation: dtBoughtCard 0.5s var(--ease-gn-spring);
+}
+
+.detente-shop-item.just-bought::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 16px;
+  border: 2px solid var(--accent-primary);
+  pointer-events: none;
+  animation: dtBoughtRing 0.7s ease-out forwards;
+}
+
+.detente-shop-item.just-bought .detente-shop-preview {
+  animation: dtBoughtPreview 0.55s var(--ease-gn-spring);
+}
+
+.detente-wallet {
+  position: relative;
+}
+
+.detente-balance-value {
+  display: inline-block;
+}
+
+.detente-balance-value.spent {
+  animation: dtSpent 0.5s var(--ease-gn-smooth);
+}
+
+.detente-spend-float {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -2px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-warm);
+  pointer-events: none;
+  animation: dtSpendFloat 1s ease-out forwards;
+}
+
+/* Menus, popovers et fenêtres : apparition courte */
+.popover-panel:not(.hidden) {
+  transform-origin: top right;
+  animation: dtPopoverIn 0.18s var(--ease-gn-smooth) backwards;
+}
+
+.modal-backdrop:not(.hidden) {
+  animation: dtFadeIn 0.16s ease-out backwards;
+}
+
+.modal-backdrop:not(.hidden) > .modal-card {
+  animation: dtModalIn 0.22s var(--ease-gn-smooth) backwards;
+}
+
+/* Changement de page : rebond de la vignette active dans le panneau des pages */
+.page-thumb-card.page-activated {
+  animation: dtPageActivated 0.42s var(--ease-gn-spring);
+}
+
+/* Survol : légers retours sur les boutons de réglage de page (la souris seulement) */
+.paper-option-btn,
+.tone-btn {
+  transition: transform 0.16s var(--ease-gn-smooth), border-color 0.14s ease, background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+
+@media (hover: hover) {
+  .detente-shop-item:hover {
+    transform: translateY(-2px);
+  }
+
+  .paper-option-btn:hover,
+  .tone-btn:hover {
+    transform: translateY(-1px);
+  }
+}
+
+.paper-option-btn:active,
+.tone-btn:active {
+  transform: scale(0.97);
+}
+
+/* Aucune animation pendant le tracé, la gomme ou le panoramique */
+html.is-canvas-interacting .popover-panel,
+html.is-canvas-interacting .modal-backdrop,
+html.is-canvas-interacting .modal-backdrop > .modal-card,
+html.is-canvas-interacting .page-thumb-card.page-activated,
+html.is-canvas-interacting .detente-page {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detente-page:not(.hidden),
+  .detente-page.closing,
+  .detente-panel:not(.hidden),
+  .detente-tab.active,
+  .detente-shop.entering .detente-shop-group,
+  .detente-shop-item.just-bought,
+  .detente-shop-item.just-bought::after,
+  .detente-shop-item.just-bought .detente-shop-preview,
+  .detente-balance-value.spent,
+  .detente-spend-float,
+  .popover-panel:not(.hidden),
+  .modal-backdrop:not(.hidden),
+  .modal-backdrop:not(.hidden) > .modal-card,
+  .page-thumb-card.page-activated {
+    animation: none !important;
+  }
+
+  .detente-shop-item,
+  .detente-filter-chip,
+  .detente-nb-preset,
+  .paper-option-btn,
+  .tone-btn {
+    transition: none !important;
+  }
+
+  .detente-shop-item:hover,
+  .paper-option-btn:hover,
+  .tone-btn:hover,
+  .detente-nb-preset:hover {
+    transform: none !important;
+  }
 }

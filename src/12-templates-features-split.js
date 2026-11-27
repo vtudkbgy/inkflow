@@ -322,13 +322,45 @@
       grad.addColorStop(1, acc);
       tctx.fillStyle = grad;
       tctx.fillRect(0, 0, w, h);
-      tctx.fillStyle = 'rgba(255,255,255,0.22)';
-      tctx.beginPath();
-      tctx.arc(w * 0.78, h * 0.25, w * 0.38, 0, Math.PI * 2);
-      tctx.fill();
-      tctx.beginPath();
-      tctx.arc(w * 0.22, h * 0.80, w * 0.32, 0, Math.PI * 2);
-      tctx.fill();
+      if (coverItem.style === 'pat-hex') {
+        // Boutique Détente : nid d'abeilles
+        const hr = w * 0.13;
+        const hhh = Math.sqrt(3) / 2 * hr;
+        tctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        tctx.lineWidth = 2.2;
+        tctx.beginPath();
+        for (let i = -1; i * hr * 1.5 <= w + hr; i++) {
+          const cx = i * hr * 1.5;
+          const off = (((i % 2) + 2) % 2) * hhh;
+          for (let cy = off - 2 * hhh; cy <= h + hhh; cy += 2 * hhh) {
+            tctx.moveTo(cx - hr, cy);
+            tctx.lineTo(cx - hr / 2, cy - hhh);
+            tctx.lineTo(cx + hr / 2, cy - hhh);
+            tctx.lineTo(cx + hr, cy);
+          }
+        }
+        tctx.stroke();
+      } else if (coverItem.style === 'pat-stripes') {
+        // Boutique Détente : rayures diagonales
+        tctx.fillStyle = 'rgba(255,255,255,0.2)';
+        for (let x = -h; x < w; x += 26) {
+          tctx.beginPath();
+          tctx.moveTo(x, h);
+          tctx.lineTo(x + 12, h);
+          tctx.lineTo(x + 12 + h, 0);
+          tctx.lineTo(x + h, 0);
+          tctx.closePath();
+          tctx.fill();
+        }
+      } else {
+        tctx.fillStyle = 'rgba(255,255,255,0.22)';
+        tctx.beginPath();
+        tctx.arc(w * 0.78, h * 0.25, w * 0.38, 0, Math.PI * 2);
+        tctx.fill();
+        tctx.beginPath();
+        tctx.arc(w * 0.22, h * 0.80, w * 0.32, 0, Math.PI * 2);
+        tctx.fill();
+      }
     } else {
       tctx.fillStyle = base;
       tctx.fillRect(0, 0, w, h);
