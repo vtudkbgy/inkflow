@@ -11,7 +11,7 @@
   const DETENTE_COSTS = { notebook: 10, page: 1, pdf: 10 };
   const DETENTE_HISTORY_MAX = 8;
   const DETENTE_CELL_H = 88;
-  const DETENTE_TABS = ['slot', 'blackjack', 'roulette', 'shop', 'bank', 'odds'];
+  const DETENTE_TABS = ['slot', 'blackjack', 'roulette', 'wheel', 'plinko', 'scratch', 'shop', 'bank', 'odds'];
   // <detente-codes> généré par scripts/generate-detente-codes.js : empreintes SHA-256 salées uniquement, jamais de code en clair
   const DETENTE_CODE_BOOK = [
     ['g', 1, '5de32291dfd637cd0dda832ed92477c3', '6755fb2f2605ebb65ae8d9fcf23e32ad45c13866c312745d4228d23b53aa2057'],
@@ -325,6 +325,7 @@
       if (detenteState.tab === 'shop') renderDetenteShop();
       if (detenteState.tab === 'blackjack') renderBlackjackControls();
       if (detenteState.tab === 'roulette') renderRouletteControls();
+      renderDetenteGamesHud(); // jeux de 11b-detente-jeux.js
       if (detenteState.tab === 'bank') renderDetenteBank();
     }
   }
@@ -2432,6 +2433,8 @@
     } else if (tab === 'roulette') {
       renderRouletteChips();
       renderRouletteControls();
+    } else if (DJ_TABS.includes(tab)) {
+      renderDetenteGamesPanel(tab); // roue, Plinko, grattage et dés : 11b-detente-jeux.js
     } else if (tab === 'shop') {
       renderDetenteShop();
     } else if (tab === 'bank') {
@@ -2542,6 +2545,7 @@
       if (e.key === 'Enter') { e.preventDefault(); repayDetenteDebt(false); }
     });
     renderDetenteOdds();
+    initDetenteGames(); // roue, Plinko, grattage et dés (11b-detente-jeux.js)
 
     // Bons du banquier (GitHub)
     document.getElementById('detenteBons')?.addEventListener('click', (e) => {
@@ -2585,7 +2589,7 @@
     const tag = e.target && e.target.tagName;
     // Un champ de saisie (code, montant) garde toutes ses touches
     if (tag === 'INPUT' && e.target.type !== 'range') return;
-    if (detenteState.tab !== 'slot') return;
+    if (detenteState.tab !== 'slot') { handleDetenteGamesKeydown(e, tag); return; }
     if ((e.key === ' ' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey && !e.altKey) {
       // Espace / Entrée lancent, sauf sur un bouton ou un curseur qui a le focus (comportement natif)
       if (tag === 'BUTTON' || tag === 'INPUT' || (e.target && e.target.id === 'detenteLever')) return;
