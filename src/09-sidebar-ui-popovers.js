@@ -4509,6 +4509,7 @@
     setDisabled('btnGnLassoAlign', !hasStrokes);
     setDisabled('btnGnLassoScreenshot', !hasSel);
     setDisabled('btnGnLassoSaveElement', !hasSel);
+    setDisabled('btnGnLassoFlashcard', !hasSel);
     setDisabled('btnGnLassoDup', !hasSel);
     setDisabled('btnGnLassoRecog', !hasSel);
     setDisabled('btnGnLassoDel', !hasSel);

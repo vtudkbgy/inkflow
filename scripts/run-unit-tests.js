@@ -2530,6 +2530,135 @@ async function runTests() {
     return 'DPR adaptatif HiDPI plein écran, classe is-canvas-interacting, 0 snapshot à vide, interpolation rapide et Undo unique multi-traits vérifiés.';
   });
 
+  // ------------------------------------------------------------------------
+  // TEST 17 : Fiches de révision (lasso -> fiche, répétition espacée, IndexedDB)
+  // ------------------------------------------------------------------------
+  await runStep('Test 17 : Fiches de révision (création au lasso, planification SM-2, séance et persistance IndexedDB)', async () => {
+    const MIN = 60 * 1000;
+    const DAY = 24 * 60 * MIN;
+    const t0 = Date.UTC(2026, 10, 27, 9, 0, 0);
+    const { GOOD, EASY, HARD, AGAIN } = api.FLASHCARD_GRADES;
+
+    // 1. Planification pure
+    const fresh = api.createFlashcardSrs(t0);
+    assert.equal(fresh.state, 'new');
+    assert.equal(fresh.due, t0, 'Une fiche neuve est à réviser immédiatement');
+    assert.equal(api.scheduleFlashcardReview(fresh, AGAIN, t0).due - t0, 1 * MIN, 'Encore sur une fiche neuve : retour dans 1 min');
+    assert.equal(api.scheduleFlashcardReview(fresh, HARD, t0).due - t0, 10 * MIN, 'Difficile sur une fiche neuve : retour dans 10 min');
+    const good1 = api.scheduleFlashcardReview(fresh, GOOD, t0);
+    assert.equal(good1.state, 'review');
+    assert.equal(good1.interval, 1, 'Bien sur une fiche neuve : 1 jour');
+    assert.equal(api.scheduleFlashcardReview(fresh, EASY, t0).interval, 4, 'Facile sur une fiche neuve : 4 jours');
+    assert.equal(fresh.state, 'new', 'La planification ne modifie jamais l’état reçu');
+
+    const mature = { state: 'review', due: t0, interval: 10, ease: 2.5, reps: 4, lapses: 0, lastReviewedAt: t0 - 10 * DAY };
+    const hard = api.scheduleFlashcardReview(mature, HARD, t0);
+    const good = api.scheduleFlashcardReview(mature, GOOD, t0);
+    const easy = api.scheduleFlashcardReview(mature, EASY, t0);
+    assert.equal(hard.interval, 12);
+    assert.equal(good.interval, 25);
+    assert.equal(easy.interval, 33);
+    assert.ok(hard.interval < good.interval && good.interval < easy.interval, 'Difficile < Bien < Facile');
+    assert.ok(hard.ease < 2.5 && easy.ease > 2.5 && good.ease === 2.5, 'La facilité suit la note');
+    const lapse = api.scheduleFlashcardReview(mature, AGAIN, t0);
+    assert.equal(lapse.state, 'learning');
+    assert.equal(lapse.lapses, 1, 'Un oubli d’une fiche mûre compte un trou de mémoire');
+    assert.ok(Math.abs(lapse.ease - 2.3) < 1e-9);
+    let worn = mature;
+    for (let i = 0; i < 20; i++) worn = api.scheduleFlashcardReview({ ...worn, state: 'review', interval: 5 }, AGAIN, t0);
+    assert.equal(worn.ease, 1.3, 'La facilité ne descend jamais sous 1,3');
+    const capped = api.scheduleFlashcardReview({ ...mature, interval: 3000, ease: 3 }, EASY, t0);
+    assert.equal(capped.interval, 3650, 'Intervalle plafonné à 10 ans');
+
+    assert.deepEqual(Array.from(api.previewFlashcardIntervals(fresh, t0)), ['1 min', '10 min', '1 j', '4 j']);
+    assert.equal(api.formatFlashcardDelay(45 * DAY), '1 mois');
+    assert.equal(api.formatFlashcardDelay(400 * DAY), '1,1 an');
+    assert.equal(api.formatFlashcardDelay(3 * 60 * MIN), '3 h');
+
+    const pool = [
+      { id: 'a', notebookId: 'n1', createdAt: t0 - 3, srs: { ...mature, due: t0 - 5 } },
+      { id: 'b', notebookId: 'n2', createdAt: t0 - 2, srs: { ...mature, due: t0 + DAY } },
+      { id: 'c', notebookId: 'n1', createdAt: t0 - 1, srs: null },
+      { id: 'd', notebookId: 'n1', createdAt: t0, srs: { ...mature, due: t0 - 50 } }
+    ];
+    assert.deepEqual(api.getDueFlashcards(pool, t0).map((c) => c.id), ['d', 'a', 'c'], 'Fiches dues triées par échéance, fiche sans planification = neuve');
+    assert.deepEqual(api.getDueFlashcards(pool, t0, 'n2').map((c) => c.id), [], 'Filtre par cahier');
+
+    // 2. Zone de contexte « occlusion » bornée à la page
+    const ctxRect = api.computeFlashcardContextRect({ minX: 20, minY: 30, maxX: 120, maxY: 80 }, { strokes: [] });
+    assert.ok(ctxRect.minX <= 20 && ctxRect.maxX >= 120 && ctxRect.minY <= 30 && ctxRect.maxY >= 80, 'Le contexte contient toujours la sélection');
+
+    // 3. Parcours complet : lasso -> fiche -> séance -> persistance -> suppression
+    const nbRes = await api.createNotebookProgrammatically('Fiches Révision', 'grid', '#0072ce');
+    const nb = nbRes.notebook;
+    const pg = nbRes.firstPage;
+    const st = api.getState();
+    const createModal = sandbox.document.getElementById('modalFlashcardCreate');
+    const panel = sandbox.document.getElementById('modalFlashcards');
+    try {
+      await api.loadFlashcards();
+      const before = api.flashcardStore.cards.length;
+      pg.strokes = [
+        { id: 'fc_s1', tool: 'pen', color: '#111827', size: 3, points: [{ x: 100, y: 80, pressure: 0.5 }, { x: 220, y: 120, pressure: 0.5 }] },
+        { id: 'fc_s2', tool: 'pen', color: '#111827', size: 3, points: [{ x: 100, y: 300, pressure: 0.5 }, { x: 220, y: 320, pressure: 0.5 }] }
+      ];
+      st.selectedIds.strokes.clear();
+      st.selectedIds.strokes.add('fc_s1');
+      st.selectionBounds = { minX: 90, minY: 70, maxX: 230, maxY: 130 };
+
+      assert.equal(await api.handleFlashcardLassoAction(), true, 'Le bouton Fiche ouvre la création depuis la sélection');
+      assert.equal(api.flashcardDraft.active, true);
+      assert.equal(createModal.classList.contains('hidden'), false, 'La fenêtre de création est affichée');
+      assert.ok(api.flashcardDraft.images.occlusionFront && api.flashcardDraft.images.occlusionBack && api.flashcardDraft.images.qaFront, 'Les trois faces possibles sont capturées');
+
+      api.setFlashcardDraftMode('qa');
+      assert.equal(await api.confirmFlashcardCreation(), null, 'Une fiche question/réponse sans réponse est refusée');
+      sandbox.document.getElementById('fcCreateBackText').value = 'Mitose : division cellulaire';
+      // Double-clic sur « Créer la fiche » : une seule fiche
+      const [card, duplicate] = await Promise.all([api.confirmFlashcardCreation(), api.confirmFlashcardCreation()]);
+      assert.ok(card && card.id, 'La fiche est créée');
+      assert.equal(duplicate, null, 'Un double-clic ne crée pas de seconde fiche');
+      assert.equal(card.kind, 'qa');
+      assert.equal(card.backText, 'Mitose : division cellulaire');
+      assert.equal(card.notebookId, nb.id);
+      assert.equal(card.pageId, pg.id);
+      assert.equal(createModal.classList.contains('hidden'), true, 'La fenêtre de création se ferme');
+      assert.equal(api.flashcardDraft.active, false, 'Le brouillon est remis à zéro');
+      assert.equal(api.flashcardStore.cards.length, before + 1);
+      await new Promise((r) => setTimeout(r, 60));
+      const stored = (await api.db.getAllFlashcards()).find((c) => c.id === card.id);
+      assert.ok(stored, 'La fiche est écrite dans le store IndexedDB « flashcards »');
+      assert.equal(stored.backText, 'Mitose : division cellulaire');
+
+      await api.openFlashcardsPanel();
+      assert.equal(panel.classList.contains('hidden'), false, 'Le panneau Révision s’ouvre');
+      assert.equal(api.startFlashcardSession(nb.id), true, 'La séance démarre sur le paquet du cahier');
+      assert.equal(api.flashcardReview.current.id, card.id);
+      assert.equal(await api.gradeCurrentFlashcard(GOOD), null, 'Impossible de noter avant d’avoir affiché la réponse');
+      api.revealFlashcard();
+      const srs = await api.gradeCurrentFlashcard(GOOD);
+      assert.equal(srs.state, 'review');
+      assert.equal(srs.interval, 1, 'Bien : prochaine révision demain');
+      assert.equal(api.flashcardReview.view, 'done', 'La séance se termine quand la file est vide');
+      await new Promise((r) => setTimeout(r, 60));
+      const reloaded = (await api.db.getAllFlashcards()).find((c) => c.id === card.id);
+      assert.equal(reloaded.srs.interval, 1, 'La planification est persistée');
+      assert.equal(api.getDueFlashcards(api.flashcardStore.cards, Date.now(), nb.id).length, 0, 'Plus rien à réviser aujourd’hui dans ce cahier');
+
+      await api.deleteFlashcardById(card.id);
+      await new Promise((r) => setTimeout(r, 60));
+      assert.equal((await api.db.getAllFlashcards()).some((c) => c.id === card.id), false, 'La fiche supprimée disparaît d’IndexedDB');
+    } finally {
+      if (createModal) createModal.classList.add('hidden');
+      if (panel) panel.classList.add('hidden');
+      st.selectedIds.strokes.clear();
+      st.selectionBounds = null;
+      await api.deleteNotebookById(nb.id);
+    }
+
+    return 'SM-2 (1 min / 10 min / 1 j / 4 j, Difficile < Bien < Facile, plancher 1,3, plafond 10 ans), fiches dues triées, création au lasso, refus sans réponse, séance, persistance et suppression IndexedDB vérifiés.';
+  });
+
   console.log('======================================================================');
   console.log(`🎉 TOUS LES TESTS UNITAIRES SONT PASSÉS AVEC SUCCÈS (${results.length}/${results.length})`);
   console.log('======================================================================');

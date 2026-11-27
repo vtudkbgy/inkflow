@@ -3,7 +3,7 @@
   // ============================================================================
 
   const DB_NAME = 'PlumeStudioDB';
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
   class NotebookDatabase {
     constructor() {
       this.db = null;
@@ -12,6 +12,7 @@
       this.memPages = new Map();
       this.memPdfs = new Map();
       this.memWorkspace = null;
+      this.memFlashcards = new Map();
       this._writeQueue = Promise.resolve();
     }
     _enqueueWrite(taskFn) {
@@ -41,6 +42,10 @@
             reject(syncErr);
             return;
           }
+          req.onblocked = () => {
+            // Une autre fenêtre InkFlow garde l'ancienne version de la base ouverte : la mise à niveau attend sa fermeture
+            try { if (typeof showToast === 'function') showToast('Ferme les autres fenêtres InkFlow pour terminer la mise à jour des données.', 'error', 'idb-blocked'); } catch (_) {}
+          };
           req.onupgradeneeded = (e) => {
             const db = e.target.result;
             if (!db.objectStoreNames.contains('notebooks')) db.createObjectStore('notebooks', { keyPath: 'id' });
@@ -53,8 +58,23 @@
               pdfStore.createIndex('notebookId', 'notebookId', { unique: false });
             }
             if (!db.objectStoreNames.contains('workspace')) db.createObjectStore('workspace', { keyPath: 'id' });
+            // v3 : fiches de révision (image recto/verso + planification de répétition espacée)
+            if (!db.objectStoreNames.contains('flashcards')) {
+              const fcStore = db.createObjectStore('flashcards', { keyPath: 'id' });
+              fcStore.createIndex('notebookId', 'notebookId', { unique: false });
+            }
           };
-          req.onsuccess = (e) => { this.db = e.target.result; resolve(this.db); };
+          req.onsuccess = (e) => {
+            this.db = e.target.result;
+            // Laisse un autre onglet mettre la base à niveau sans rester bloqué sur l'ancienne version
+            try {
+              this.db.onversionchange = () => {
+                try { this.db.close(); } catch (_) {}
+                this.db = null;
+              };
+            } catch (_) {}
+            resolve(this.db);
+          };
           req.onerror = (e) => reject(e.target.error || new Error('IndexedDB error'));
         });
       } catch (_) {
@@ -293,6 +313,58 @@
         } catch (_) {
           resolve();
         }
+      });
+    }
+    async getAllFlashcards() {
+      await this.open();
+      const memList = () => Array.from(this.memFlashcards.values());
+      if (this.fallbackMode || !this.db || !this.db.objectStoreNames.contains('flashcards')) return memList();
+      return new Promise((resolve) => {
+        try {
+          const req = this.db.transaction('flashcards', 'readonly').objectStore('flashcards').getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve(memList());
+        } catch (_) {
+          resolve(memList());
+        }
+      });
+    }
+    async saveFlashcard(card) {
+      if (!card || !card.id) return;
+      const cloned = JSON.parse(JSON.stringify(card));
+      this.memFlashcards.set(cloned.id, cloned);
+      return this._enqueueWrite(async () => {
+        await this.open();
+        if (this.fallbackMode || !this.db || !this.db.objectStoreNames.contains('flashcards')) return;
+        await new Promise((resolve) => {
+          try {
+            const tx = this.db.transaction('flashcards', 'readwrite');
+            tx.objectStore('flashcards').put(cloned);
+            // Écrite sur disque : inutile de garder une seconde copie des images en RAM
+            tx.oncomplete = () => { this.memFlashcards.delete(cloned.id); resolve(); };
+            tx.onerror = () => resolve();
+          } catch (_) {
+            resolve();
+          }
+        });
+      });
+    }
+    async deleteFlashcard(cardId) {
+      if (!cardId) return;
+      this.memFlashcards.delete(cardId);
+      return this._enqueueWrite(async () => {
+        await this.open();
+        if (this.fallbackMode || !this.db || !this.db.objectStoreNames.contains('flashcards')) return;
+        await new Promise((resolve) => {
+          try {
+            const tx = this.db.transaction('flashcards', 'readwrite');
+            tx.objectStore('flashcards').delete(cardId);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+          } catch (_) {
+            resolve();
+          }
+        });
       });
     }
     async saveWorkspaceState(st) {

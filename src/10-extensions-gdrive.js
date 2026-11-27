@@ -83,7 +83,9 @@
       exportedAt: new Date().toISOString(),
       folders: state.folders || [],
       notebooks: state.notebooks || [],
-      pages: allPages
+      pages: allPages,
+      // Fiches de révision (images + planification) : champ facultatif, ignoré par les anciennes versions
+      flashcards: (typeof flashcardStore !== 'undefined' && Array.isArray(flashcardStore.cards)) ? flashcardStore.cards : []
     };
   }
 
@@ -97,6 +99,10 @@
     }
     for (const nb of data.notebooks) await db.saveNotebook(nb);
     for (const pg of data.pages) await db.savePage(pg);
+    if (Array.isArray(data.flashcards) && data.flashcards.length > 0) {
+      for (const card of data.flashcards) { if (card && card.id) await db.saveFlashcard(card); }
+      if (typeof reloadFlashcards === 'function') await reloadFlashcards();
+    }
     await loadFromIndexedDB();
     showToast('Sauvegarde restaurée avec succès !');
   }

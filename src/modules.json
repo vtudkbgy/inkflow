@@ -16,6 +16,7 @@
     "10-extensions-gdrive.js",
     "10b-gdrive-incremental-sync.js",
     "11-detente.js",
-    "12-templates-features-split.js"
+    "12-templates-features-split.js",
+    "13-fiches-revision.js"
   ]
 }

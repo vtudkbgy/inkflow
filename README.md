@@ -18,6 +18,10 @@ Application de prise de notes manuscrites **100 % locale et hors-ligne** (Window
   - Emplacements de texte déplaçables et éditables au clavier directement sur la page.
   - Éditeur **LaTeX** intégré avec aperçu en direct.
   - **Reconnaissance d'écriture manuscrite et d'équations** vers texte ou LaTeX.
+- **Fiches de révision (répétition espacée)** :
+  - Entourez une zone au lasso puis touchez **Fiche** : soit la zone est masquée et il faut la retrouver, soit elle devient la question (réponse écrite au clavier ou entourée au lasso).
+  - Séances de révision par cahier depuis **Fichiers → Révision** (Espace pour retourner la fiche, `1` à `4` pour noter Encore / Difficile / Bien / Facile), planification SM-2 et compteur des fiches à réviser.
+  - Fiches enregistrées en images dans IndexedDB (store `flashcards`) : elles restent lisibles même si la page change.
 - **Gestion complète des PDF (100 % hors-ligne)** :
   - **Importation** via `pdfjs-dist` (worker local, sans lien externe), rendu HiDPI adapté à `window.devicePixelRatio` et chargement paresseux (*Lazy Loading* `{k-1, k, k+1}`).
   - **Sauvegarde optimisée dans IndexedDB** : binaire PDF stocké séparément des annotations vectorielles, sauvegarde différée (*debounce* 500 ms).
