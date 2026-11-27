@@ -2437,8 +2437,13 @@ async function runTests() {
       const dpr4kFs = api.getEffectiveCanvasDpr({ width: 3840, height: 2160 });
       assert.equal(dpr4kFs, 1.25, 'Sur écran 4K @ 2x, le DPR conserve un plancher net de 1.25');
 
+      const dprBeforeFs = api.getEffectiveCanvasDpr({ width: 1920, height: 1080 });
       await api.setFullscreenMode(true);
       assert.equal(sandbox.document.documentElement.classList.contains('is-fullscreen'), true, 'La classe is-fullscreen doit être posée sur html');
+      assert.equal(api.getEffectiveCanvasDpr({ width: 1920, height: 1080 }), dprBeforeFs, 'Le DPR des canvas ne dépend pas du plein écran (pas de flou ni de réallocation à la bascule)');
+      sandbox.devicePixelRatio = 1.25;
+      assert.equal(api.getEffectiveCanvasDpr({ width: 2048, height: 1152 }), 1.25, 'Plein écran 1440p @ 125 % : DPR natif conservé');
+      sandbox.devicePixelRatio = 2.0;
       await api.setFullscreenMode(false);
       assert.equal(sandbox.document.documentElement.classList.contains('is-fullscreen'), false, 'La classe is-fullscreen doit être retirée à la sortie');
     } finally {

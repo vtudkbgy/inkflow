@@ -7971,23 +7971,23 @@
   }
 
   // Plafond adaptatif de pixels physiques par calque canvas (~4,2 MPx) :
-  // - conserve 100 % du DPR natif sur les fenêtres standards (ex. 1200×800 @ 2x = 3,84 MPx → DPR 2.0 intact)
-  // - évite d'allouer et de recompositer 4 surfaces 4K–5K simultanées en plein écran HiDPI (1080p/1440p/4K @ 200-250 %)
+  // - conserve 100 % du DPR natif sur les fenêtres standards et en plein écran 1440p @ 125 % (3,7 MPx)
+  // - évite d'allouer 4 surfaces 4K–5K simultanées sur les très grands écrans HiDPI (4K @ 200 %)
   //   tout en garantissant un plancher >= 1.25 sur écran HiDPI pour une netteté d'encre irréprochable.
+  // Le DPR ne dépend PAS du mode plein écran : la saccade du stylet en plein écran venait du plein
+  // écran natif Windows (flip indépendant DWM, voir src-tauri/src/fullscreen.rs), pas de la taille
+  // des canvas (tracé incrémental O(1), mesuré identique fenêtré / plein écran). Un DPR propre au
+  // plein écran floutait l'encre et réallouait les 3 canvas à chaque bascule.
   const MAX_CANVAS_DEVICE_PIXELS = 4200000;
-  const MAX_FULLSCREEN_CANVAS_DEVICE_PIXELS = 2600000;
 
   function getEffectiveCanvasDpr(rect) {
     const rawDpr = Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1);
     if (!rect || !(rect.width > 0) || !(rect.height > 0) || rawDpr <= 1) return rawDpr;
-    const isFs = typeof document !== 'undefined' && document.documentElement &&
-      document.documentElement.classList && document.documentElement.classList.contains('is-fullscreen');
-    const budget = isFs ? MAX_FULLSCREEN_CANVAS_DEVICE_PIXELS : MAX_CANVAS_DEVICE_PIXELS;
     const cssArea = rect.width * rect.height;
     const rawDevicePixels = cssArea * rawDpr * rawDpr;
-    if (rawDevicePixels <= budget) return rawDpr;
-    const capped = Math.sqrt(budget / cssArea);
-    const minHiDpi = Math.min(rawDpr, isFs ? 1.1 : 1.25);
+    if (rawDevicePixels <= MAX_CANVAS_DEVICE_PIXELS) return rawDpr;
+    const capped = Math.sqrt(MAX_CANVAS_DEVICE_PIXELS / cssArea);
+    const minHiDpi = Math.min(rawDpr, 1.25);
     return Math.max(minHiDpi, Math.min(rawDpr, Math.round(capped * 100) / 100));
   }
 
@@ -19890,6 +19890,11 @@
         updateFullscreenUi(Boolean(document.fullscreenElement || document.webkitFullscreenElement));
         requestRender();
       });
+    }
+    // L'exe Tauri démarre en plein écran : le script d'initialisation Rust pose ce drapeau avant
+    // le premier rendu pour que le bouton et la mise en page soient justes dès le boot.
+    if (typeof window !== 'undefined' && window.__TAURI__ && window.__INKFLOW_BOOT_FULLSCREEN__) {
+      updateFullscreenUi(true);
     }
     syncFullscreenState();
 
