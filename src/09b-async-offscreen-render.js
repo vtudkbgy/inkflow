@@ -22,24 +22,32 @@
     return null;
   }
 
-  async function surfaceToDataUrl(surface, mime = 'image/png', quality = 0.7) {
+  async function surfaceToDataUrl(surface, mime = 'image/webp', quality = 0.72) {
     if (!surface || !surface.canvas) return '';
     if (surface.isOffscreen && typeof surface.canvas.convertToBlob === 'function') {
-      try {
-        const blob = await surface.canvas.convertToBlob({ type: mime, quality });
-        if (typeof FileReader !== 'undefined') {
-          return await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(String(reader.result || ''));
-            reader.onerror = () => resolve('');
-            reader.readAsDataURL(blob);
-          });
-        }
-      } catch (_) {}
+      const tryTypes = mime === 'image/webp' ? ['image/webp', 'image/png'] : [mime];
+      for (let ti = 0; ti < tryTypes.length; ti++) {
+        try {
+          const blob = await surface.canvas.convertToBlob({ type: tryTypes[ti], quality });
+          if (blob && blob.size > 0 && typeof FileReader !== 'undefined') {
+            const res = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(String(reader.result || ''));
+              reader.onerror = () => resolve('');
+              reader.readAsDataURL(blob);
+            });
+            if (res && res.startsWith('data:image/')) return res;
+          }
+        } catch (_) {}
+      }
     }
     if (typeof surface.canvas.toDataURL === 'function') {
       try {
-        return surface.canvas.toDataURL(mime, quality);
+        const fast = surface.canvas.toDataURL(mime, quality);
+        if (fast && fast.startsWith('data:image/')) return fast;
+      } catch (_) {}
+      try {
+        return surface.canvas.toDataURL('image/png');
       } catch (_) {}
     }
     return '';
@@ -85,7 +93,7 @@
     if (!surface) return generatePageThumbnail(page);
     try {
       paintPageThumbnailOnContext(surface.ctx, page, pw, ph, sc);
-      return await surfaceToDataUrl(surface, 'image/png', 0.7);
+      return await surfaceToDataUrl(surface, 'image/webp', 0.72);
     } finally {
       releaseOffscreenSurface(surface);
     }

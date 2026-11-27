@@ -225,6 +225,7 @@
     selectionBounds: null,
     lassoAction: null,
     lassoDragStartWorld: null,
+    lassoLiveMoveDelta: null,
     lassoInitialSnapshot: null,
     lassoInitialBounds: null,
     historyByPage: new Map(),
@@ -1154,8 +1155,10 @@
     state.lassoButtonMaxTravel = 0;
     state.lastLassoButtonClickTime = 0;
     state.lastLassoButtonClickPos = null;
+    if (typeof commitPendingLassoMoveDelta === 'function') commitPendingLassoMoveDelta();
     state.lassoPolygon = [];
     state.lassoAction = null;
+    state.lassoLiveMoveDelta = null;
     state.lassoInitialSnapshot = null;
     state.lassoInitialBounds = null;
     state.lassoDragStartWorld = null;

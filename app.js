@@ -3168,6 +3168,7 @@
     selectionBounds: null,
     lassoAction: null,
     lassoDragStartWorld: null,
+    lassoLiveMoveDelta: null,
     lassoInitialSnapshot: null,
     lassoInitialBounds: null,
     historyByPage: new Map(),
@@ -4097,8 +4098,10 @@
     state.lassoButtonMaxTravel = 0;
     state.lastLassoButtonClickTime = 0;
     state.lastLassoButtonClickPos = null;
+    if (typeof commitPendingLassoMoveDelta === 'function') commitPendingLassoMoveDelta();
     state.lassoPolygon = [];
     state.lassoAction = null;
+    state.lassoLiveMoveDelta = null;
     state.lassoInitialSnapshot = null;
     state.lassoInitialBounds = null;
     state.lassoDragStartWorld = null;
@@ -8056,6 +8059,7 @@
         entry.renderingPromise = null;
         entry.lastUsedAt = Date.now();
         pdfRenderedCanvasCache.set(key, entry);
+        invalidatePdfBgCache();
 
         // Extraction paresseuse des liens internes/externes de cette page PDF avant cleanup()
         if (typeof extractAndCachePdfPageLinks === 'function') {
@@ -8067,11 +8071,15 @@
           try { pdfPage.cleanup(); } catch (_) {}
         }
 
-        // Met à jour la miniature dès que cette page PDF est rendue pour la première fois
+        // Met à jour la miniature de manière non-bloquante dès que cette page PDF est rendue pour la première fois
         if (!page.thumbnail || !page._pdfThumbGenerated) {
           page._pdfThumbGenerated = true;
-          page.thumbnail = generatePageThumbnail(page);
-          updateSingleSidebarThumbnailDom(page);
+          if (typeof scheduleAsyncPageThumbnail === 'function') {
+            scheduleAsyncPageThumbnail(page, { priority: 'high' });
+          } else {
+            page.thumbnail = generatePageThumbnail(page);
+            updateSingleSidebarThumbnailDom(page);
+          }
         }
         if (getActivePage() === page) {
           requestRender();
@@ -8200,6 +8208,27 @@
 
   let activeCanvasDirty = false;
 
+  let pdfBgRenderGen = 0;
+
+  const pdfBgCache = {
+    canvas: null,
+    ctx: null,
+    valid: false,
+    sig: '',
+    zoom: 1,
+    dpr: 1,
+    viewW: 0,
+    viewH: 0,
+    originPanX: 0,
+    originPanY: 0,
+    pad: 240
+  };
+
+  function invalidatePdfBgCache() {
+    pdfBgCache.valid = false;
+    pdfBgRenderGen++;
+  }
+
   const staticInkCache = {
     canvas: null,
     ctx: null,
@@ -8212,6 +8241,7 @@
     originPanX: 0,
     originPanY: 0,
     effectiveDark: false,
+    excludeKey: '',
     pad: 240
   };
 
@@ -8226,10 +8256,18 @@
   function releaseStaticInkCacheMemory() {
     staticInkCache.valid = false;
     staticInkCache.pageId = null;
+    staticInkCache.excludeKey = '';
     if (staticInkCache.canvas) {
       releaseCanvasMemory(staticInkCache.canvas);
       staticInkCache.canvas = null;
       staticInkCache.ctx = null;
+    }
+    pdfBgCache.valid = false;
+    pdfBgCache.sig = '';
+    if (pdfBgCache.canvas) {
+      releaseCanvasMemory(pdfBgCache.canvas);
+      pdfBgCache.canvas = null;
+      pdfBgCache.ctx = null;
     }
   }
 
@@ -9082,6 +9120,43 @@
     return true;
   }
 
+  function isOverlayEntityTransformActive() {
+    return Boolean(
+      state.lassoAction === 'move' ||
+      state.lassoAction === 'scale' ||
+      state.shapeEditDrag
+    );
+  }
+
+  function getMovingShapeIdsForPage(page) {
+    if (!page || !Array.isArray(page.shapes) || page.shapes.length === 0) return null;
+    let baseSet = null;
+    if (state.shapeEditDrag && state.selectedShapeId) {
+      baseSet = new Set([state.selectedShapeId]);
+    } else if ((state.lassoAction === 'move' || state.lassoAction === 'scale') && state.selectedIds.shapes.size > 0) {
+      baseSet = new Set(state.selectedIds.shapes);
+    }
+    if (!baseSet || baseSet.size === 0) return null;
+    // Inclut également les connecteurs reliés aux formes déplacées pour qu'ils restent fluides à 120 FPS sur #activeInkCanvas
+    for (let i = 0; i < page.shapes.length; i++) {
+      const sh = page.shapes[i];
+      if (baseSet.has(sh.id)) continue;
+      if ((sh.startConnection && baseSet.has(sh.startConnection.shapeId)) ||
+          (sh.endConnection && baseSet.has(sh.endConnection.shapeId))) {
+        baseSet.add(sh.id);
+      }
+    }
+    return baseSet;
+  }
+
+  function getTransformExclusionCacheKey(page) {
+    if (!isOverlayEntityTransformActive()) return '';
+    if (state.shapeEditDrag && state.selectedShapeId) {
+      return `shape:${state.selectedShapeId}`;
+    }
+    return `lasso:${state.selectedIds.strokes.size}:${state.selectedIds.shapes.size}`;
+  }
+
   function renderActiveCanvasOnly() {
     if (!activeCtx || !dom.activeInkCanvas) {
       renderScene();
@@ -9107,6 +9182,7 @@
     const effectiveDark = page.pdfId ? false : isDark;
     const hasShapeConnGuide = Boolean(state.tool === 'shape' && state.shapeHoverConnection);
     const selectedShape = state.selectedShapeId ? getSelectedShape(page) : null;
+    const overlayTransformActive = isOverlayEntityTransformActive();
     const hasPdfSearchHighlights = Boolean(
       pdfSearchState.open &&
       pdfSearchState.matches.length > 0 &&
@@ -9114,15 +9190,16 @@
     );
 
     // Cas 1 : Tracé libre au stylo ou surligneur -> rendu incrémental O(1) uniquement des nouveaux points
-    if (state.currentStroke && !state.currentStrokeSnappedFromAutoShape && !state.currentShape && !hasShapeConnGuide && !selectedShape && !hasPdfSearchHighlights && state.lassoPolygon.length === 0 && !state.currentTape && state.laserTrail.length === 0) {
+    if (!overlayTransformActive && state.currentStroke && !state.currentStrokeSnappedFromAutoShape && !state.currentShape && !hasShapeConnGuide && !selectedShape && !hasPdfSearchHighlights && state.lassoPolygon.length === 0 && !state.currentTape && state.laserTrail.length === 0) {
       renderIncrementalStrokeTail(state.currentStroke, dpr, rect, effectiveDark);
       renderPerfStats.activeRenderCount++;
       renderPerfStats.lastActiveRenderMs = performance.now() - t0;
       return;
     }
 
-    // Cas 2 : Forme géométrique, Édition de forme, Guides de connexion, Aperçu Zone de Texte, Ruban d'étude, Pointeur Laser, Recherche PDF ou Lasso
+    // Cas 2 : Forme géométrique, Édition/Déplacement O(1), Guides, Aperçu Zone de Texte, Ruban, Laser, Recherche PDF ou Lasso
     const hasOverlay = Boolean(
+      overlayTransformActive ||
       state.currentStroke ||
       state.currentShape ||
       hasShapeConnGuide ||
@@ -9151,6 +9228,51 @@
     activeCtx.clearRect(0, 0, rect.width, rect.height);
     activeCtx.translate(state.panX, state.panY);
     activeCtx.scale(state.zoom, state.zoom);
+
+    // Rendu O(1) des éléments en cours de déplacement/redimensionnement Lasso ou d'édition de forme
+    // sans retoucher #pdfBgCanvas ni redessiner les traits non sélectionnés restés en cache sur #inkCanvas
+    if (overlayTransformActive) {
+      const movingShapes = getMovingShapeIdsForPage(page);
+      const isLassoMove = state.lassoAction === 'move' && state.lassoInitialSnapshot && state.lassoLiveMoveDelta;
+      const isLassoTransform = state.lassoAction === 'move' || state.lassoAction === 'scale';
+      const snapStrokes = isLassoMove ? state.lassoInitialSnapshot.strokes : null;
+      const moveDx = isLassoMove ? state.lassoLiveMoveDelta.dx : 0;
+      const moveDy = isLassoMove ? state.lassoLiveMoveDelta.dy : 0;
+
+      if (isLassoTransform && state.selectedIds.strokes.size > 0) {
+        const pageStrokes = page.strokes || [];
+        activeCtx.save();
+        if (isLassoMove) activeCtx.translate(moveDx, moveDy);
+        for (let i = 0; i < pageStrokes.length; i++) {
+          const s = pageStrokes[i];
+          if (s.tool === 'highlighter' && state.selectedIds.strokes.has(s.id)) {
+            drawSingleStroke(activeCtx, (snapStrokes && snapStrokes[i]) || s, effectiveDark, true);
+          }
+        }
+        activeCtx.restore();
+      }
+      if (movingShapes && movingShapes.size > 0) {
+        const pageShapes = page.shapes || [];
+        for (let i = 0; i < pageShapes.length; i++) {
+          const sh = pageShapes[i];
+          if (movingShapes.has(sh.id)) {
+            drawGeometricShape(activeCtx, sh, state.selectedIds.shapes.has(sh.id), effectiveDark);
+          }
+        }
+      }
+      if (isLassoTransform && state.selectedIds.strokes.size > 0) {
+        const pageStrokes = page.strokes || [];
+        activeCtx.save();
+        if (isLassoMove) activeCtx.translate(moveDx, moveDy);
+        for (let i = 0; i < pageStrokes.length; i++) {
+          const s = pageStrokes[i];
+          if (s.tool !== 'highlighter' && state.selectedIds.strokes.has(s.id)) {
+            drawSingleStroke(activeCtx, (snapStrokes && snapStrokes[i]) || s, effectiveDark, true);
+          }
+        }
+        activeCtx.restore();
+      }
+    }
 
     if (hasShapeConnGuide) {
       drawShapeConnectionGuides(activeCtx);
@@ -9382,6 +9504,9 @@
     const tapes = page.tapes || [];
     const hasSelectedStrokes = state.selectedIds.strokes.size > 0;
     const hasSelectedShapes = state.selectedIds.shapes.size > 0;
+    const isActivePage = getActivePage() === page;
+    const excludeMovingStrokes = Boolean(isActivePage && (state.lassoAction === 'move' || state.lassoAction === 'scale') && hasSelectedStrokes);
+    const excludeMovingShapesSet = isActivePage && isOverlayEntityTransformActive() ? getMovingShapeIdsForPage(page) : null;
     const clipBounded = isBoundedPage(page);
     if (clipBounded) {
       const pb = getPageBounds(page);
@@ -9394,11 +9519,13 @@
     for (let i = 0; i < strokes.length; i++) {
       const s = strokes[i];
       if (s.tool === 'highlighter') {
+        if (excludeMovingStrokes && state.selectedIds.strokes.has(s.id)) continue;
         drawSingleStroke(targetCtx, s, effectiveDark, hasSelectedStrokes && state.selectedIds.strokes.has(s.id), viewBounds);
       }
     }
     for (let i = 0; i < shapes.length; i++) {
       const sh = shapes[i];
+      if (excludeMovingShapesSet && excludeMovingShapesSet.has(sh.id)) continue;
       if (viewBounds) {
         const sb = getShapeBoundingBox(sh);
         if (!isBoundsInViewport(sb, viewBounds)) continue;
@@ -9408,6 +9535,7 @@
     for (let i = 0; i < strokes.length; i++) {
       const s = strokes[i];
       if (s.tool !== 'highlighter') {
+        if (excludeMovingStrokes && state.selectedIds.strokes.has(s.id)) continue;
         drawSingleStroke(targetCtx, s, effectiveDark, hasSelectedStrokes && state.selectedIds.strokes.has(s.id), viewBounds);
       }
     }
@@ -9450,6 +9578,7 @@
 
   function ensureStaticInkBitmapCacheReady(page, rect, dpr, effectiveDark) {
     const pad = getEffectiveStaticCachePad(rect);
+    const excludeKey = getTransformExclusionCacheKey(page);
     const cacheW = Math.max(1, Math.floor((rect.width + pad * 2) * dpr));
     const cacheH = Math.max(1, Math.floor((rect.height + pad * 2) * dpr));
 
@@ -9460,6 +9589,7 @@
       staticInkCache.zoom === state.zoom &&
       staticInkCache.dpr === dpr &&
       staticInkCache.pad === pad &&
+      staticInkCache.excludeKey === excludeKey &&
       staticInkCache.viewW === rect.width &&
       staticInkCache.viewH === rect.height &&
       staticInkCache.effectiveDark === effectiveDark &&
@@ -9509,6 +9639,7 @@
     staticInkCache.originPanX = originPanX;
     staticInkCache.originPanY = originPanY;
     staticInkCache.effectiveDark = effectiveDark;
+    staticInkCache.excludeKey = excludeKey;
     return true;
   }
 
@@ -9558,7 +9689,7 @@
         }
       }
       // Si le zoom dépasse la zone en cache, on dessine directement sur le viewport sans allouer/reconstruire le cache surdimensionné (il sera reconstruit au repos après 110 ms)
-    } else if (!state.eraserGestureActive && bgCtx && activeCtx && hasElements && !hasAnyLassoSelection() && ensureStaticInkBitmapCacheReady(page, rect, dpr, effectiveDark)) {
+    } else if (!state.eraserGestureActive && bgCtx && activeCtx && hasElements && (!hasAnyLassoSelection() || isOverlayEntityTransformActive()) && ensureStaticInkBitmapCacheReady(page, rect, dpr, effectiveDark)) {
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, dom.inkCanvas.width, dom.inkCanvas.height);
@@ -9695,6 +9826,110 @@
     }
   }
 
+  function getPdfBgCacheSignature(page, boundedStack) {
+    const desk = getBoundedDeskBackdropColor();
+    if (boundedStack && boundedStack.items.length > 1) {
+      let s = `stack:${desk}:${pdfBgRenderGen}:${boundedStack.totalHeight}:`;
+      for (let i = 0; i < boundedStack.items.length; i++) {
+        const p = boundedStack.items[i].page;
+        s += `${p.id},${p.paperType || 'grid'},${p.paperTone || 'ivory'},${p.gridSize || 28},${p.pageWidth || 0},${p.pageHeight || 0},${p.pdfId || ''},${p.pdfPageNumber || 0},${p.rotation || 0};`;
+      }
+      return s;
+    }
+    return `single:${page.id}:${desk}:${pdfBgRenderGen}:${page.viewMode || 'infinite'}:${page.paperType || 'grid'}:${page.paperTone || 'ivory'}:${page.gridSize || 28}:${page.pageWidth || 0}:${page.pageHeight || 0}:${page.pdfId || ''}:${page.pdfPageNumber || 0}:${page.rotation || 0}:${page.templateLanguage || 'fr'}:${page.customTemplateDataUrl ? page.customTemplateDataUrl.length : 0}`;
+  }
+
+  function ensurePdfBgBitmapCacheReady(page, rect, dpr, boundedStack) {
+    const pad = getEffectiveStaticCachePad(rect);
+    const sig = getPdfBgCacheSignature(page, boundedStack);
+    const cacheW = Math.max(1, Math.floor((rect.width + pad * 2) * dpr));
+    const cacheH = Math.max(1, Math.floor((rect.height + pad * 2) * dpr));
+
+    if (
+      pdfBgCache.valid &&
+      pdfBgCache.canvas &&
+      pdfBgCache.sig === sig &&
+      pdfBgCache.zoom === state.zoom &&
+      pdfBgCache.dpr === dpr &&
+      pdfBgCache.pad === pad &&
+      pdfBgCache.viewW === rect.width &&
+      pdfBgCache.viewH === rect.height &&
+      Math.abs(state.panX - pdfBgCache.originPanX) <= pad - 12 &&
+      Math.abs(state.panY - pdfBgCache.originPanY) <= pad - 12
+    ) {
+      return true;
+    }
+
+    if (!pdfBgCache.canvas) {
+      pdfBgCache.canvas = document.createElement('canvas');
+      pdfBgCache.ctx = pdfBgCache.canvas.getContext('2d', { alpha: false });
+    }
+    if (!pdfBgCache.ctx) return false;
+
+    if (pdfBgCache.canvas.width !== cacheW || pdfBgCache.canvas.height !== cacheH) {
+      pdfBgCache.canvas.width = cacheW;
+      pdfBgCache.canvas.height = cacheH;
+    }
+
+    const cCtx = pdfBgCache.ctx;
+    const originPanX = state.panX;
+    const originPanY = state.panY;
+    const fullW = rect.width + pad * 2;
+    const fullH = rect.height + pad * 2;
+
+    const prevPanX = state.panX;
+    const prevPanY = state.panY;
+    state.panX = originPanX + pad;
+    state.panY = originPanY + pad;
+    try {
+      cCtx.save();
+      cCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (boundedStack) {
+        cCtx.fillStyle = getBoundedDeskBackdropColor();
+        cCtx.fillRect(0, 0, fullW, fullH);
+        cCtx.translate(state.panX, state.panY);
+        cCtx.scale(state.zoom, state.zoom);
+        const viewMinY = -state.panY / state.zoom - 120;
+        const viewMaxY = (fullH - state.panY) / state.zoom + 120;
+        for (let i = 0; i < boundedStack.items.length; i++) {
+          const it = boundedStack.items[i];
+          if (it.relY + it.height < viewMinY || it.relY > viewMaxY) continue;
+          cCtx.save();
+          cCtx.translate(it.relX, it.relY);
+          drawPaperBackground(cCtx, it.page, fullW, fullH, false, true);
+          if (it.page.pdfId) {
+            drawLockedPdfBackground(cCtx, it.page, false);
+          }
+          cCtx.restore();
+        }
+      } else {
+        cCtx.fillStyle = getBoundedDeskBackdropColor();
+        cCtx.fillRect(0, 0, fullW, fullH);
+        cCtx.translate(state.panX, state.panY);
+        cCtx.scale(state.zoom, state.zoom);
+        drawPaperBackground(cCtx, page, fullW, fullH, false);
+        if (page.pdfId) {
+          drawLockedPdfBackground(cCtx, page, false);
+        }
+      }
+      cCtx.restore();
+    } finally {
+      state.panX = prevPanX;
+      state.panY = prevPanY;
+    }
+
+    pdfBgCache.valid = true;
+    pdfBgCache.sig = sig;
+    pdfBgCache.zoom = state.zoom;
+    pdfBgCache.dpr = dpr;
+    pdfBgCache.pad = pad;
+    pdfBgCache.viewW = rect.width;
+    pdfBgCache.viewH = rect.height;
+    pdfBgCache.originPanX = originPanX;
+    pdfBgCache.originPanY = originPanY;
+    return true;
+  }
+
   let lastBadgeTotalCount = -1;
   function renderScene() {
     const t0 = performance.now();
@@ -9704,39 +9939,80 @@
 
     syncWorldLayerTransform();
 
-    // 1. CALQUE DE FOND VERROUILLÉ (#pdfBgCanvas) : Fond neutre GoodNotes + Empilement vertical A4 + PDF Haute Résolution
+    // 1. CALQUE DE FOND VERROUILLÉ (#pdfBgCanvas) : Blit O(1) ~0.05 ms pendant le Pan et le Zoom actif via pdfBgCache
     if (bgCtx) {
-      bgCtx.save();
-      bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const boundedStack = getBoundedStackInfo(page);
-      if (boundedStack) {
-        bgCtx.fillStyle = getBoundedDeskBackdropColor();
-        bgCtx.fillRect(0, 0, rect.width, rect.height);
-        bgCtx.translate(state.panX, state.panY);
-        bgCtx.scale(state.zoom, state.zoom);
-        const viewMinY = -state.panY / state.zoom - 120;
-        const viewMaxY = (rect.height - state.panY) / state.zoom + 120;
-        for (let i = 0; i < boundedStack.items.length; i++) {
-          const it = boundedStack.items[i];
-          if (it.relY + it.height < viewMinY || it.relY > viewMaxY) continue;
+      const expectedSig = getPdfBgCacheSignature(page, boundedStack);
+      let bgBlitted = false;
+
+      if (isZoomInteracting && pdfBgCache.valid && pdfBgCache.canvas && pdfBgCache.sig === expectedSig && pdfBgCache.zoom > 0) {
+        const scaleRatio = state.zoom / pdfBgCache.zoom;
+        const cw = pdfBgCache.viewW + pdfBgCache.pad * 2;
+        const ch = pdfBgCache.viewH + pdfBgCache.pad * 2;
+        const dstX = state.panX - (pdfBgCache.originPanX + pdfBgCache.pad) * scaleRatio;
+        const dstY = state.panY - (pdfBgCache.originPanY + pdfBgCache.pad) * scaleRatio;
+        const dstW = cw * scaleRatio;
+        const dstH = ch * scaleRatio;
+        if (
+          scaleRatio >= 0.4 &&
+          scaleRatio <= 2.8 &&
+          dstX <= 4 &&
+          dstY <= 4 &&
+          dstX + dstW >= rect.width - 4 &&
+          dstY + dstH >= rect.height - 4
+        ) {
           bgCtx.save();
-          bgCtx.translate(it.relX, it.relY);
-          drawPaperBackground(bgCtx, it.page, rect.width, rect.height, false, true);
-          if (it.page.pdfId) {
-            drawLockedPdfBackground(bgCtx, it.page, false);
-          }
+          bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          bgCtx.imageSmoothingEnabled = true;
+          bgCtx.imageSmoothingQuality = 'low';
+          bgCtx.drawImage(pdfBgCache.canvas, dstX, dstY, dstW, dstH);
           bgCtx.restore();
+          bgBlitted = true;
+          renderPerfStats.bgCacheHitCount = (renderPerfStats.bgCacheHitCount || 0) + 1;
         }
-      } else {
-        bgCtx.clearRect(0, 0, rect.width, rect.height);
-        bgCtx.translate(state.panX, state.panY);
-        bgCtx.scale(state.zoom, state.zoom);
-        drawPaperBackground(bgCtx, page, rect.width, rect.height, false);
-        if (page.pdfId) {
-          drawLockedPdfBackground(bgCtx, page, false);
-        }
+      } else if (!isZoomInteracting && ensurePdfBgBitmapCacheReady(page, rect, dpr, boundedStack)) {
+        bgCtx.save();
+        bgCtx.setTransform(1, 0, 0, 1, 0, 0);
+        const dx = Math.round((state.panX - pdfBgCache.originPanX - pdfBgCache.pad) * dpr);
+        const dy = Math.round((state.panY - pdfBgCache.originPanY - pdfBgCache.pad) * dpr);
+        bgCtx.drawImage(pdfBgCache.canvas, dx, dy);
+        bgCtx.restore();
+        bgBlitted = true;
+        renderPerfStats.bgCacheHitCount = (renderPerfStats.bgCacheHitCount || 0) + 1;
       }
-      bgCtx.restore();
+
+      if (!bgBlitted) {
+        bgCtx.save();
+        bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        if (boundedStack) {
+          bgCtx.fillStyle = getBoundedDeskBackdropColor();
+          bgCtx.fillRect(0, 0, rect.width, rect.height);
+          bgCtx.translate(state.panX, state.panY);
+          bgCtx.scale(state.zoom, state.zoom);
+          const viewMinY = -state.panY / state.zoom - 120;
+          const viewMaxY = (rect.height - state.panY) / state.zoom + 120;
+          for (let i = 0; i < boundedStack.items.length; i++) {
+            const it = boundedStack.items[i];
+            if (it.relY + it.height < viewMinY || it.relY > viewMaxY) continue;
+            bgCtx.save();
+            bgCtx.translate(it.relX, it.relY);
+            drawPaperBackground(bgCtx, it.page, rect.width, rect.height, false, true);
+            if (it.page.pdfId) {
+              drawLockedPdfBackground(bgCtx, it.page, false);
+            }
+            bgCtx.restore();
+          }
+        } else {
+          bgCtx.clearRect(0, 0, rect.width, rect.height);
+          bgCtx.translate(state.panX, state.panY);
+          bgCtx.scale(state.zoom, state.zoom);
+          drawPaperBackground(bgCtx, page, rect.width, rect.height, false);
+          if (page.pdfId) {
+            drawLockedPdfBackground(bgCtx, page, false);
+          }
+        }
+        bgCtx.restore();
+      }
     }
 
     // 2. CALQUE STATIQUE (#inkCanvas) : Tous les traits et formes déjà terminés (via cache bitmap rapide ou frustum culling)
@@ -11151,7 +11427,7 @@
 
   function updateTelemetryHUD(e, coalescedCount = 1, computedPressure = 0.5, force = false) {
     const now = performance.now();
-    if (!force && state.isDrawing && now - lastTelemetryUpdateMs < 90) return;
+    if (!force && now - lastTelemetryUpdateMs < 90) return;
     lastTelemetryUpdateMs = now;
     const typeMap = { pen: 'Stylet Windows Ink', mouse: 'Souris PC', touch: 'Tactile / Pincement' };
     const label = typeMap[e.pointerType] || 'Pointeur';
@@ -11411,6 +11687,8 @@
       state.isDrawing = true;
       setCanvasInteractingClass(true);
       try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+      invalidateStaticInkCache();
+      renderStaticInkLayerOnly();
       updateLassoFloatingBarPosition();
       renderActiveCanvasOnly();
       return;
@@ -11492,6 +11770,8 @@
             }
           };
           try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+          invalidateStaticInkCache();
+          renderStaticInkLayerOnly();
           renderActiveCanvasOnly();
           return;
         }
@@ -11509,6 +11789,8 @@
             }
           };
           try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+          invalidateStaticInkCache();
+          renderStaticInkLayerOnly();
           renderActiveCanvasOnly();
           return;
         }
@@ -11648,8 +11930,15 @@
       else if (erasedOnDown) requestStaticInkRender();
     } else if (state.tool === 'lasso') {
       handleLassoPointerDown(worldPt);
-      if (state.lassoAction === 'draw' && !hadLassoSelection) renderActiveCanvasOnly();
-      else requestRender();
+      if (state.lassoAction === 'move' || state.lassoAction === 'scale') {
+        invalidateStaticInkCache();
+        renderStaticInkLayerOnly();
+        renderActiveCanvasOnly();
+      } else if (state.lassoAction === 'draw' && !hadLassoSelection) {
+        renderActiveCanvasOnly();
+      } else {
+        requestRender();
+      }
     }
 
     if (state.tool !== 'eraser') {
@@ -11674,7 +11963,7 @@
         const pts = Array.from(state.touchPoints.values());
         const newDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
         const newCenter = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
-        const rect = dom.inkCanvas.getBoundingClientRect();
+        const rect = getCachedViewportRect();
 
         if (state.pinchLastDist > 12 && newDist > 12) {
           const factor = newDist / state.pinchLastDist;
@@ -11783,8 +12072,6 @@
       if (selSh && activePageForMove) {
         const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
         applyShapeEditDrag(selSh, state.shapeEditDrag.origShape, state.shapeEditDrag, wPt, activePageForMove);
-        invalidateStaticInkCache();
-        renderScene();
         renderActiveCanvasOnly();
         updateShapeEditFloatingBar();
       }
@@ -11792,7 +12079,7 @@
     }
     if (state.lassoAction === 'move' || state.lassoAction === 'scale') {
       handleLassoPointerMove(clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY)));
-      requestRender();
+      renderActiveCanvasOnly();
       return;
     }
     if (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) {
@@ -12119,7 +12406,7 @@
         if (travel > state.lassoButtonMaxTravel) state.lassoButtonMaxTravel = travel;
       }
       handleLassoPointerMove(clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY)));
-      if (state.lassoAction === 'draw') renderActiveCanvasOnly();
+      if (state.lassoAction === 'draw' || state.lassoAction === 'move' || state.lassoAction === 'scale') renderActiveCanvasOnly();
       else requestRender();
     }
   }
@@ -12244,7 +12531,7 @@
         invalidateStaticInkCache();
         scheduleSaveActivePage(pageForEdit);
       }
-      renderScene();
+      renderStaticInkLayerOnly();
       renderActiveCanvasOnly();
       updateShapeEditFloatingBar();
       return;
@@ -12972,7 +13259,7 @@
       dom.lassoFloatingActions.classList.add('hidden');
       return;
     }
-    const vpRect = dom.canvasViewport.getBoundingClientRect();
+    const vpRect = getCachedViewportRect();
     if (vpRect.width <= 0 || vpRect.height <= 0) return;
     const b = state.selectionBounds;
     const centerScreenX = ((b.minX + b.maxX) * 0.5) * state.zoom + state.panX;
@@ -12997,6 +13284,7 @@
       materializePdfLassoClipIfNeeded(page);
       state.lassoAction = 'scale';
       state.lassoDragStartWorld = worldPt;
+      state.lassoLiveMoveDelta = null;
       state.lassoInitialBounds = { ...b };
       state.lassoInitialSnapshot = clonePageContent(page);
       return true;
@@ -13012,10 +13300,40 @@
       materializePdfLassoClipIfNeeded(page);
       state.lassoAction = 'move';
       state.lassoDragStartWorld = worldPt;
+      state.lassoLiveMoveDelta = { dx: 0, dy: 0 };
+      state.lassoInitialBounds = { ...b };
       state.lassoInitialSnapshot = clonePageContent(page);
       return true;
     }
     return false;
+  }
+
+  function commitPendingLassoMoveDelta(explicitPage = null) {
+    if (state.lassoAction !== 'move' || !state.lassoLiveMoveDelta || !state.lassoInitialSnapshot) return;
+    const { dx, dy } = state.lassoLiveMoveDelta;
+    state.lassoLiveMoveDelta = null;
+    if (dx === 0 && dy === 0) return;
+    const page = explicitPage || getActivePage();
+    if (!page || !Array.isArray(page.strokes)) return;
+    page.strokes.forEach((s, idx) => {
+      if (state.selectedIds.strokes.has(s.id)) {
+        const orig = state.lassoInitialSnapshot.strokes[idx];
+        if (orig) {
+          s.points = orig.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
+          if (orig._bounds) {
+            s._bounds = {
+              minX: orig._bounds.minX + dx,
+              minY: orig._bounds.minY + dy,
+              maxX: orig._bounds.maxX + dx,
+              maxY: orig._bounds.maxY + dy
+            };
+          } else {
+            s._bounds = null;
+          }
+          invalidateStrokeCache(s);
+        }
+      }
+    });
   }
 
   function handleLassoPointerDown(worldPt) {
@@ -13046,39 +13364,43 @@
     } else if (state.lassoAction === 'move' && state.lassoInitialSnapshot) {
       const dx = worldPt.x - state.lassoDragStartWorld.x;
       const dy = worldPt.y - state.lassoDragStartWorld.y;
-      page.strokes.forEach((s, idx) => {
-        if (state.selectedIds.strokes.has(s.id)) {
-          const orig = state.lassoInitialSnapshot.strokes[idx];
-          if (orig) { s.points = orig.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })); invalidateStrokeCache(s); }
-        }
-      });
-      page.shapes.forEach((sh, idx) => {
-        if (state.selectedIds.shapes.has(sh.id)) {
-          const orig = state.lassoInitialSnapshot.shapes[idx];
-          if (orig) {
-            sh.x1 = orig.x1 + dx; sh.y1 = orig.y1 + dy; sh.x2 = orig.x2 + dx; sh.y2 = orig.y2 + dy;
-            if (Array.isArray(orig.vertices)) sh.vertices = orig.vertices.map((v) => ({ x: v.x + dx, y: v.y + dy }));
-          }
-        }
-      });
+      state.lassoLiveMoveDelta = { dx, dy };
       if (state.selectedIds.shapes.size > 0) {
+        page.shapes.forEach((sh, idx) => {
+          if (state.selectedIds.shapes.has(sh.id)) {
+            const orig = state.lassoInitialSnapshot.shapes[idx];
+            if (orig) {
+              sh.x1 = orig.x1 + dx; sh.y1 = orig.y1 + dy; sh.x2 = orig.x2 + dx; sh.y2 = orig.y2 + dy;
+              if (Array.isArray(orig.vertices)) sh.vertices = orig.vertices.map((v) => ({ x: v.x + dx, y: v.y + dy }));
+            }
+          }
+        });
         updateConnectedShapesForPage(page, state.selectedIds.shapes);
       }
-      page.texts.forEach((tb, idx) => {
-        if (state.selectedIds.texts.has(tb.id)) {
-          const orig = state.lassoInitialSnapshot.texts[idx];
-          if (orig) { tb.x = orig.x + dx; tb.y = orig.y + dy; }
-        }
-      });
-      (page.images || []).forEach((img, idx) => {
-        if (state.selectedIds.images && state.selectedIds.images.has(img.id)) {
-          const orig = state.lassoInitialSnapshot.images && state.lassoInitialSnapshot.images[idx];
-          if (orig) { img.x = Math.round(orig.x + dx); img.y = Math.round(orig.y + dy); }
-        }
-      });
-      invalidateStaticInkCache();
-      computeSelectionBounds();
-      renderWorldTextCards();
+      const hasDomCardsSelected = state.selectedIds.texts.size > 0 || Boolean(state.selectedIds.images && state.selectedIds.images.size > 0);
+      if (state.selectedIds.texts.size > 0) {
+        page.texts.forEach((tb, idx) => {
+          if (state.selectedIds.texts.has(tb.id)) {
+            const orig = state.lassoInitialSnapshot.texts[idx];
+            if (orig) { tb.x = orig.x + dx; tb.y = orig.y + dy; }
+          }
+        });
+      }
+      if (state.selectedIds.images && state.selectedIds.images.size > 0) {
+        (page.images || []).forEach((img, idx) => {
+          if (state.selectedIds.images.has(img.id)) {
+            const orig = state.lassoInitialSnapshot.images && state.lassoInitialSnapshot.images[idx];
+            if (orig) { img.x = Math.round(orig.x + dx); img.y = Math.round(orig.y + dy); }
+          }
+        });
+      }
+      if (state.lassoInitialBounds) {
+        const ib = state.lassoInitialBounds;
+        state.selectionBounds = { minX: ib.minX + dx, minY: ib.minY + dy, maxX: ib.maxX + dx, maxY: ib.maxY + dy };
+      } else {
+        computeSelectionBounds();
+      }
+      if (hasDomCardsSelected) renderWorldTextCards();
     } else if (state.lassoAction === 'scale' && state.lassoInitialSnapshot && state.lassoInitialBounds) {
       const b = state.lassoInitialBounds;
       const sx = Math.max(0.25, Math.min(4.0, (worldPt.x - b.minX) / Math.max(20, b.maxX - b.minX)));
@@ -13087,9 +13409,10 @@
       if (state.selectedIds.shapes.size > 0) {
         updateConnectedShapesForPage(page, state.selectedIds.shapes);
       }
-      invalidateStaticInkCache();
       computeSelectionBounds();
-      renderWorldTextCards();
+      if (state.selectedIds.texts.size > 0 || (state.selectedIds.images && state.selectedIds.images.size > 0)) {
+        renderWorldTextCards();
+      }
     }
   }
 
@@ -13217,9 +13540,18 @@
       updateLassoToolbarBadge();
       renderWorldTextCards();
     } else if (state.lassoAction === 'move' || state.lassoAction === 'scale') {
-      scheduleSaveActivePage();
+      commitPendingLassoMoveDelta(page);
+      state.lassoAction = null;
+      state.lassoLiveMoveDelta = null;
+      state.lassoInitialSnapshot = null;
+      invalidateStaticInkCache();
+      computeSelectionBounds();
+      renderStaticInkLayerOnly();
+      renderActiveCanvasOnly();
+      scheduleSaveActivePage(page);
     }
     state.lassoAction = null;
+    state.lassoLiveMoveDelta = null;
     state.lassoInitialSnapshot = null;
     updateLassoFloatingBarPosition();
     if (typeof syncGnLassoSubBarUi === 'function') syncGnLassoSubBarUi();
@@ -14717,7 +15049,7 @@
     pageSaveTimers.delete(pageId);
   }
 
-  function executePageSaveNow(targetPage) {
+  function executePageSaveNow(targetPage, { syncThumbnail = false } = {}) {
     if (!targetPage || !targetPage.id) return Promise.resolve();
     const pageId = targetPage.id;
     cancelPendingPageSave(pageId);
@@ -14725,11 +15057,13 @@
     let savePromise = null;
     savePromise = (async () => {
       try {
-        try {
-          targetPage.thumbnail = generatePageThumbnail(targetPage);
-        } catch (thumbErr) {
-          // Une miniature impossible à générer ne doit jamais empêcher la sauvegarde de la page
-          console.warn('[InkFlow] Miniature non générée :', thumbErr);
+        const useAsyncThumb = !syncThumbnail && typeof scheduleAsyncPageThumbnail === 'function';
+        if (!useAsyncThumb) {
+          try {
+            targetPage.thumbnail = generatePageThumbnail(targetPage);
+          } catch (thumbErr) {
+            console.warn('[InkFlow] Miniature non générée :', thumbErr);
+          }
         }
         targetPage.updatedAt = Date.now();
         await db.savePage(targetPage);
@@ -14741,8 +15075,16 @@
           if (dom.dbStatusDot) dom.dbStatusDot.classList.remove('saving');
           if (dom.dbStatusText) dom.dbStatusText.textContent = 'IndexedDB synchronisé';
         }
-        if (targetPage.notebookId === state.activeNotebookId) {
+        if (!useAsyncThumb && targetPage.notebookId === state.activeNotebookId) {
           updateSingleSidebarThumbnailDom(targetPage);
+        } else if (useAsyncThumb) {
+          scheduleAsyncPageThumbnail(targetPage, {
+            onDone: (dataUrl, pg) => {
+              if (dataUrl && pg && !hasPendingPageSave(pg.id)) {
+                db.savePage(pg).catch(() => {});
+              }
+            }
+          });
         }
       } catch (_) {
         if (dom.dbStatusText) dom.dbStatusText.textContent = 'Stockage actif';
@@ -14798,7 +15140,7 @@
     for (const entry of pendingEntries) {
       if (entry.timerId) clearTimeout(entry.timerId);
       if (entry.page) {
-        executePageSaveNow(entry.page);
+        executePageSaveNow(entry.page, { syncThumbnail: !entry.page.thumbnail });
       }
     }
     if (inFlightPageSaves.size > 0) {
@@ -19337,7 +19679,7 @@
     dom.canvasViewport.addEventListener('wheel', (e) => {
       e.preventDefault();
       stopViewportAnimations();
-      const rect = dom.inkCanvas.getBoundingClientRect();
+      const rect = getCachedViewportRect();
       if (e.ctrlKey || e.metaKey) {
         resetPullToAddState();
         zoomAtScreenPoint(state.zoom * Math.exp(-e.deltaY * 0.0055), e.clientX - rect.left, e.clientY - rect.top);
@@ -20688,24 +21030,32 @@
     return null;
   }
 
-  async function surfaceToDataUrl(surface, mime = 'image/png', quality = 0.7) {
+  async function surfaceToDataUrl(surface, mime = 'image/webp', quality = 0.72) {
     if (!surface || !surface.canvas) return '';
     if (surface.isOffscreen && typeof surface.canvas.convertToBlob === 'function') {
-      try {
-        const blob = await surface.canvas.convertToBlob({ type: mime, quality });
-        if (typeof FileReader !== 'undefined') {
-          return await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(String(reader.result || ''));
-            reader.onerror = () => resolve('');
-            reader.readAsDataURL(blob);
-          });
-        }
-      } catch (_) {}
+      const tryTypes = mime === 'image/webp' ? ['image/webp', 'image/png'] : [mime];
+      for (let ti = 0; ti < tryTypes.length; ti++) {
+        try {
+          const blob = await surface.canvas.convertToBlob({ type: tryTypes[ti], quality });
+          if (blob && blob.size > 0 && typeof FileReader !== 'undefined') {
+            const res = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(String(reader.result || ''));
+              reader.onerror = () => resolve('');
+              reader.readAsDataURL(blob);
+            });
+            if (res && res.startsWith('data:image/')) return res;
+          }
+        } catch (_) {}
+      }
     }
     if (typeof surface.canvas.toDataURL === 'function') {
       try {
-        return surface.canvas.toDataURL(mime, quality);
+        const fast = surface.canvas.toDataURL(mime, quality);
+        if (fast && fast.startsWith('data:image/')) return fast;
+      } catch (_) {}
+      try {
+        return surface.canvas.toDataURL('image/png');
       } catch (_) {}
     }
     return '';
@@ -20751,7 +21101,7 @@
     if (!surface) return generatePageThumbnail(page);
     try {
       paintPageThumbnailOnContext(surface.ctx, page, pw, ph, sc);
-      return await surfaceToDataUrl(surface, 'image/png', 0.7);
+      return await surfaceToDataUrl(surface, 'image/webp', 0.72);
     } finally {
       releaseOffscreenSurface(surface);
     }
@@ -33779,6 +34129,7 @@
       deleteSelectedShape,
       mergeCompletedItemIntoStaticCanvas,
       invalidateStaticInkCache,
+      invalidatePdfBgCache,
       clearActiveCanvas,
       handlePointerDown,
       handlePointerMove,

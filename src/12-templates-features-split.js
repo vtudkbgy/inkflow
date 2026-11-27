@@ -4415,6 +4415,7 @@
       deleteSelectedShape,
       mergeCompletedItemIntoStaticCanvas,
       invalidateStaticInkCache,
+      invalidatePdfBgCache,
       clearActiveCanvas,
       handlePointerDown,
       handlePointerMove,

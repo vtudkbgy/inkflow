@@ -865,7 +865,7 @@
 
   function updateTelemetryHUD(e, coalescedCount = 1, computedPressure = 0.5, force = false) {
     const now = performance.now();
-    if (!force && state.isDrawing && now - lastTelemetryUpdateMs < 90) return;
+    if (!force && now - lastTelemetryUpdateMs < 90) return;
     lastTelemetryUpdateMs = now;
     const typeMap = { pen: 'Stylet Windows Ink', mouse: 'Souris PC', touch: 'Tactile / Pincement' };
     const label = typeMap[e.pointerType] || 'Pointeur';
@@ -1125,6 +1125,8 @@
       state.isDrawing = true;
       setCanvasInteractingClass(true);
       try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+      invalidateStaticInkCache();
+      renderStaticInkLayerOnly();
       updateLassoFloatingBarPosition();
       renderActiveCanvasOnly();
       return;
@@ -1206,6 +1208,8 @@
             }
           };
           try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+          invalidateStaticInkCache();
+          renderStaticInkLayerOnly();
           renderActiveCanvasOnly();
           return;
         }
@@ -1223,6 +1227,8 @@
             }
           };
           try { if (typeof e.pointerId === 'number') dom.inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+          invalidateStaticInkCache();
+          renderStaticInkLayerOnly();
           renderActiveCanvasOnly();
           return;
         }
@@ -1362,8 +1368,15 @@
       else if (erasedOnDown) requestStaticInkRender();
     } else if (state.tool === 'lasso') {
       handleLassoPointerDown(worldPt);
-      if (state.lassoAction === 'draw' && !hadLassoSelection) renderActiveCanvasOnly();
-      else requestRender();
+      if (state.lassoAction === 'move' || state.lassoAction === 'scale') {
+        invalidateStaticInkCache();
+        renderStaticInkLayerOnly();
+        renderActiveCanvasOnly();
+      } else if (state.lassoAction === 'draw' && !hadLassoSelection) {
+        renderActiveCanvasOnly();
+      } else {
+        requestRender();
+      }
     }
 
     if (state.tool !== 'eraser') {
@@ -1388,7 +1401,7 @@
         const pts = Array.from(state.touchPoints.values());
         const newDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
         const newCenter = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
-        const rect = dom.inkCanvas.getBoundingClientRect();
+        const rect = getCachedViewportRect();
 
         if (state.pinchLastDist > 12 && newDist > 12) {
           const factor = newDist / state.pinchLastDist;
@@ -1497,8 +1510,6 @@
       if (selSh && activePageForMove) {
         const wPt = clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY));
         applyShapeEditDrag(selSh, state.shapeEditDrag.origShape, state.shapeEditDrag, wPt, activePageForMove);
-        invalidateStaticInkCache();
-        renderScene();
         renderActiveCanvasOnly();
         updateShapeEditFloatingBar();
       }
@@ -1506,7 +1517,7 @@
     }
     if (state.lassoAction === 'move' || state.lassoAction === 'scale') {
       handleLassoPointerMove(clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY)));
-      requestRender();
+      renderActiveCanvasOnly();
       return;
     }
     if (state.tool === 'pen' || state.tool === 'pencil' || state.tool === 'highlighter' || (state.tool === 'shape' && state.shapeType === 'auto')) {
@@ -1833,7 +1844,7 @@
         if (travel > state.lassoButtonMaxTravel) state.lassoButtonMaxTravel = travel;
       }
       handleLassoPointerMove(clampPointToPage(activePageForMove, screenToWorld(e.clientX, e.clientY)));
-      if (state.lassoAction === 'draw') renderActiveCanvasOnly();
+      if (state.lassoAction === 'draw' || state.lassoAction === 'move' || state.lassoAction === 'scale') renderActiveCanvasOnly();
       else requestRender();
     }
   }
@@ -1958,7 +1969,7 @@
         invalidateStaticInkCache();
         scheduleSaveActivePage(pageForEdit);
       }
-      renderScene();
+      renderStaticInkLayerOnly();
       renderActiveCanvasOnly();
       updateShapeEditFloatingBar();
       return;
@@ -2686,7 +2697,7 @@
       dom.lassoFloatingActions.classList.add('hidden');
       return;
     }
-    const vpRect = dom.canvasViewport.getBoundingClientRect();
+    const vpRect = getCachedViewportRect();
     if (vpRect.width <= 0 || vpRect.height <= 0) return;
     const b = state.selectionBounds;
     const centerScreenX = ((b.minX + b.maxX) * 0.5) * state.zoom + state.panX;
@@ -2711,6 +2722,7 @@
       materializePdfLassoClipIfNeeded(page);
       state.lassoAction = 'scale';
       state.lassoDragStartWorld = worldPt;
+      state.lassoLiveMoveDelta = null;
       state.lassoInitialBounds = { ...b };
       state.lassoInitialSnapshot = clonePageContent(page);
       return true;
@@ -2726,10 +2738,40 @@
       materializePdfLassoClipIfNeeded(page);
       state.lassoAction = 'move';
       state.lassoDragStartWorld = worldPt;
+      state.lassoLiveMoveDelta = { dx: 0, dy: 0 };
+      state.lassoInitialBounds = { ...b };
       state.lassoInitialSnapshot = clonePageContent(page);
       return true;
     }
     return false;
+  }
+
+  function commitPendingLassoMoveDelta(explicitPage = null) {
+    if (state.lassoAction !== 'move' || !state.lassoLiveMoveDelta || !state.lassoInitialSnapshot) return;
+    const { dx, dy } = state.lassoLiveMoveDelta;
+    state.lassoLiveMoveDelta = null;
+    if (dx === 0 && dy === 0) return;
+    const page = explicitPage || getActivePage();
+    if (!page || !Array.isArray(page.strokes)) return;
+    page.strokes.forEach((s, idx) => {
+      if (state.selectedIds.strokes.has(s.id)) {
+        const orig = state.lassoInitialSnapshot.strokes[idx];
+        if (orig) {
+          s.points = orig.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
+          if (orig._bounds) {
+            s._bounds = {
+              minX: orig._bounds.minX + dx,
+              minY: orig._bounds.minY + dy,
+              maxX: orig._bounds.maxX + dx,
+              maxY: orig._bounds.maxY + dy
+            };
+          } else {
+            s._bounds = null;
+          }
+          invalidateStrokeCache(s);
+        }
+      }
+    });
   }
 
   function handleLassoPointerDown(worldPt) {
@@ -2760,39 +2802,43 @@
     } else if (state.lassoAction === 'move' && state.lassoInitialSnapshot) {
       const dx = worldPt.x - state.lassoDragStartWorld.x;
       const dy = worldPt.y - state.lassoDragStartWorld.y;
-      page.strokes.forEach((s, idx) => {
-        if (state.selectedIds.strokes.has(s.id)) {
-          const orig = state.lassoInitialSnapshot.strokes[idx];
-          if (orig) { s.points = orig.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })); invalidateStrokeCache(s); }
-        }
-      });
-      page.shapes.forEach((sh, idx) => {
-        if (state.selectedIds.shapes.has(sh.id)) {
-          const orig = state.lassoInitialSnapshot.shapes[idx];
-          if (orig) {
-            sh.x1 = orig.x1 + dx; sh.y1 = orig.y1 + dy; sh.x2 = orig.x2 + dx; sh.y2 = orig.y2 + dy;
-            if (Array.isArray(orig.vertices)) sh.vertices = orig.vertices.map((v) => ({ x: v.x + dx, y: v.y + dy }));
-          }
-        }
-      });
+      state.lassoLiveMoveDelta = { dx, dy };
       if (state.selectedIds.shapes.size > 0) {
+        page.shapes.forEach((sh, idx) => {
+          if (state.selectedIds.shapes.has(sh.id)) {
+            const orig = state.lassoInitialSnapshot.shapes[idx];
+            if (orig) {
+              sh.x1 = orig.x1 + dx; sh.y1 = orig.y1 + dy; sh.x2 = orig.x2 + dx; sh.y2 = orig.y2 + dy;
+              if (Array.isArray(orig.vertices)) sh.vertices = orig.vertices.map((v) => ({ x: v.x + dx, y: v.y + dy }));
+            }
+          }
+        });
         updateConnectedShapesForPage(page, state.selectedIds.shapes);
       }
-      page.texts.forEach((tb, idx) => {
-        if (state.selectedIds.texts.has(tb.id)) {
-          const orig = state.lassoInitialSnapshot.texts[idx];
-          if (orig) { tb.x = orig.x + dx; tb.y = orig.y + dy; }
-        }
-      });
-      (page.images || []).forEach((img, idx) => {
-        if (state.selectedIds.images && state.selectedIds.images.has(img.id)) {
-          const orig = state.lassoInitialSnapshot.images && state.lassoInitialSnapshot.images[idx];
-          if (orig) { img.x = Math.round(orig.x + dx); img.y = Math.round(orig.y + dy); }
-        }
-      });
-      invalidateStaticInkCache();
-      computeSelectionBounds();
-      renderWorldTextCards();
+      const hasDomCardsSelected = state.selectedIds.texts.size > 0 || Boolean(state.selectedIds.images && state.selectedIds.images.size > 0);
+      if (state.selectedIds.texts.size > 0) {
+        page.texts.forEach((tb, idx) => {
+          if (state.selectedIds.texts.has(tb.id)) {
+            const orig = state.lassoInitialSnapshot.texts[idx];
+            if (orig) { tb.x = orig.x + dx; tb.y = orig.y + dy; }
+          }
+        });
+      }
+      if (state.selectedIds.images && state.selectedIds.images.size > 0) {
+        (page.images || []).forEach((img, idx) => {
+          if (state.selectedIds.images.has(img.id)) {
+            const orig = state.lassoInitialSnapshot.images && state.lassoInitialSnapshot.images[idx];
+            if (orig) { img.x = Math.round(orig.x + dx); img.y = Math.round(orig.y + dy); }
+          }
+        });
+      }
+      if (state.lassoInitialBounds) {
+        const ib = state.lassoInitialBounds;
+        state.selectionBounds = { minX: ib.minX + dx, minY: ib.minY + dy, maxX: ib.maxX + dx, maxY: ib.maxY + dy };
+      } else {
+        computeSelectionBounds();
+      }
+      if (hasDomCardsSelected) renderWorldTextCards();
     } else if (state.lassoAction === 'scale' && state.lassoInitialSnapshot && state.lassoInitialBounds) {
       const b = state.lassoInitialBounds;
       const sx = Math.max(0.25, Math.min(4.0, (worldPt.x - b.minX) / Math.max(20, b.maxX - b.minX)));
@@ -2801,9 +2847,10 @@
       if (state.selectedIds.shapes.size > 0) {
         updateConnectedShapesForPage(page, state.selectedIds.shapes);
       }
-      invalidateStaticInkCache();
       computeSelectionBounds();
-      renderWorldTextCards();
+      if (state.selectedIds.texts.size > 0 || (state.selectedIds.images && state.selectedIds.images.size > 0)) {
+        renderWorldTextCards();
+      }
     }
   }
 
@@ -2931,9 +2978,18 @@
       updateLassoToolbarBadge();
       renderWorldTextCards();
     } else if (state.lassoAction === 'move' || state.lassoAction === 'scale') {
-      scheduleSaveActivePage();
+      commitPendingLassoMoveDelta(page);
+      state.lassoAction = null;
+      state.lassoLiveMoveDelta = null;
+      state.lassoInitialSnapshot = null;
+      invalidateStaticInkCache();
+      computeSelectionBounds();
+      renderStaticInkLayerOnly();
+      renderActiveCanvasOnly();
+      scheduleSaveActivePage(page);
     }
     state.lassoAction = null;
+    state.lassoLiveMoveDelta = null;
     state.lassoInitialSnapshot = null;
     updateLassoFloatingBarPosition();
     if (typeof syncGnLassoSubBarUi === 'function') syncGnLassoSubBarUi();

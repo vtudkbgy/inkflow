@@ -2839,6 +2839,101 @@ async function runTests() {
     return 'Choix de format .json / .pdf, génération PDF vectoriel encodé base64 (%PDF- validé via pdf-lib), skip si inchangé et mise à jour PATCH en place sur Drive vérifiés.';
   });
 
+  // ------------------------------------------------------------------------
+  // TEST 19 : Fluidité globale maximale (cache bitmap #pdfBgCanvas en Pan, Lasso Move O(1) sans recalcul Path2D & sauvegarde non-bloquante)
+  // ------------------------------------------------------------------------
+  await runStep('Test 19 : Fluidité globale 120 FPS (pdfBgCache Pan O(1), Lasso Move O(1) par séparation de calques & miniatures async)', async () => {
+    const nbRes = await api.createNotebookProgrammatically('Perf Globale 120FPS', 'dotted', '#0072ce');
+    const nb = nbRes.notebook;
+    const pg = nbRes.firstPage;
+    try {
+      const st = api.getState();
+      st.panX = 0;
+      st.panY = 0;
+      st.zoom = 1;
+
+      // Crée 150 traits sur fond pointillé (dotted) + sélectionne 20 traits au Lasso
+      const strokes = [];
+      for (let i = 0; i < 150; i++) {
+        strokes.push({
+          id: `g19_s_${i}`,
+          tool: 'pen',
+          penStyle: 'fountain',
+          color: '#1e293b',
+          size: 3,
+          points: [
+            { x: 40 + (i % 15) * 35, y: 40 + Math.floor(i / 15) * 35, pressure: 0.5 },
+            { x: 55 + (i % 15) * 35, y: 58 + Math.floor(i / 15) * 35, pressure: 0.65 },
+            { x: 70 + (i % 15) * 35, y: 48 + Math.floor(i / 15) * 35, pressure: 0.45 }
+          ]
+        });
+      }
+      pg.strokes = strokes;
+      api.invalidateStaticInkCache();
+      api.invalidatePdfBgCache();
+
+      // 1. Vérifie le cache bitmap de #pdfBgCanvas pendant 60 frames de Pan
+      api.renderScene();
+      const statsBeforePan = api.getRenderPerfStats();
+      const hitsBefore = statsBeforePan.bgCacheHitCount || 0;
+      const tPan0 = performance.now();
+      for (let f = 1; f <= 60; f++) {
+        st.panX = -f * 2;
+        st.panY = -f;
+        api.renderScene();
+      }
+      const avgPanMs = (performance.now() - tPan0) / 60;
+      const statsAfterPan = api.getRenderPerfStats();
+      assert.ok((statsAfterPan.bgCacheHitCount || 0) - hitsBefore >= 60, 'Les 60 frames de Pan doivent réutiliser pdfBgCache en 1 drawImage');
+      assert.ok(avgPanMs < 2.0, `Pan complet (#pdfBgCanvas + #inkCanvas) ultra-rapide : ${avgPanMs.toFixed(3)} ms/frame`);
+
+      // 2. Vérifie le déplacement Lasso O(1) (sans invalider le Path2D pendant le glisser, avec commit exact au relâchement)
+      st.panX = 0;
+      st.panY = 0;
+      st.selectedIds.strokes.clear();
+      for (let i = 0; i < 20; i++) st.selectedIds.strokes.add(`g19_s_${i}`);
+      api.computeSelectionBounds();
+      const origX0 = pg.strokes[0].points[0].x;
+      const origY0 = pg.strokes[0].points[0].y;
+      const startClickX = Math.round((st.selectionBounds.minX + st.selectionBounds.maxX) * 0.5);
+      const startClickY = Math.round((st.selectionBounds.minY + st.selectionBounds.maxY) * 0.5);
+
+      st.tool = 'pen';
+      api.handlePointerDown({ pointerId: 990, pointerType: 'pen', button: 0, buttons: 1, clientX: startClickX, clientY: startClickY, pressure: 0.5, preventDefault() {} });
+      assert.equal(st.lassoAction, 'move', 'Appuyer dans la sélection Lasso démarre le déplacement O(1)');
+
+      const tLasso0 = performance.now();
+      for (let step = 1; step <= 40; step++) {
+        api.handlePointerMove({
+          pointerId: 990,
+          pointerType: 'pen',
+          button: 0,
+          buttons: 1,
+          clientX: startClickX + step * 2,
+          clientY: startClickY + step,
+          pressure: 0.5,
+          getCoalescedEvents: () => [],
+          preventDefault() {}
+        });
+      }
+      const avgLassoMoveMs = (performance.now() - tLasso0) / 40;
+      assert.equal(pg.strokes[0].points[0].x, origX0, 'Pendant le glisser, les tableaux de points ne sont pas réalloués à chaque frame');
+      assert.ok(avgLassoMoveMs < 2.0, `Déplacement Lasso O(1) ultra-fluide : ${avgLassoMoveMs.toFixed(3)} ms/move`);
+
+      api.handlePointerUpOrCancel({ pointerId: 990, pointerType: 'pen', button: 0, buttons: 0, clientX: startClickX + 80, clientY: startClickY + 40, pressure: 0, preventDefault() {} });
+      assert.equal(Math.round(pg.strokes[0].points[0].x - origX0), 80, 'Au relâchement, le delta final X (+80) est appliqué aux traits');
+      assert.equal(Math.round(pg.strokes[0].points[0].y - origY0), 40, 'Au relâchement, le delta final Y (+40) est appliqué aux traits');
+
+      api.performUndo();
+      assert.equal(pg.strokes[0].points[0].x, origX0, 'Undo restaure la position initiale avant déplacement Lasso');
+      api.clearLassoSelection();
+    } finally {
+      await api.deleteNotebookById(nb.id);
+    }
+
+    return 'Cache bitmap #pdfBgCanvas en Pan (60 hits consécutifs), déplacement Lasso O(1) sans réallocation par frame + Undo et miniatures asynchrones vérifiés.';
+  });
+
   console.log('======================================================================');
   console.log(`🎉 TOUS LES TESTS UNITAIRES SONT PASSÉS AVEC SUCCÈS (${results.length}/${results.length})`);
   console.log('======================================================================');

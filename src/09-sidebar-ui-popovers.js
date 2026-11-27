@@ -92,7 +92,7 @@
     pageSaveTimers.delete(pageId);
   }
 
-  function executePageSaveNow(targetPage) {
+  function executePageSaveNow(targetPage, { syncThumbnail = false } = {}) {
     if (!targetPage || !targetPage.id) return Promise.resolve();
     const pageId = targetPage.id;
     cancelPendingPageSave(pageId);
@@ -100,11 +100,13 @@
     let savePromise = null;
     savePromise = (async () => {
       try {
-        try {
-          targetPage.thumbnail = generatePageThumbnail(targetPage);
-        } catch (thumbErr) {
-          // Une miniature impossible à générer ne doit jamais empêcher la sauvegarde de la page
-          console.warn('[InkFlow] Miniature non générée :', thumbErr);
+        const useAsyncThumb = !syncThumbnail && typeof scheduleAsyncPageThumbnail === 'function';
+        if (!useAsyncThumb) {
+          try {
+            targetPage.thumbnail = generatePageThumbnail(targetPage);
+          } catch (thumbErr) {
+            console.warn('[InkFlow] Miniature non générée :', thumbErr);
+          }
         }
         targetPage.updatedAt = Date.now();
         await db.savePage(targetPage);
@@ -116,8 +118,16 @@
           if (dom.dbStatusDot) dom.dbStatusDot.classList.remove('saving');
           if (dom.dbStatusText) dom.dbStatusText.textContent = 'IndexedDB synchronisé';
         }
-        if (targetPage.notebookId === state.activeNotebookId) {
+        if (!useAsyncThumb && targetPage.notebookId === state.activeNotebookId) {
           updateSingleSidebarThumbnailDom(targetPage);
+        } else if (useAsyncThumb) {
+          scheduleAsyncPageThumbnail(targetPage, {
+            onDone: (dataUrl, pg) => {
+              if (dataUrl && pg && !hasPendingPageSave(pg.id)) {
+                db.savePage(pg).catch(() => {});
+              }
+            }
+          });
         }
       } catch (_) {
         if (dom.dbStatusText) dom.dbStatusText.textContent = 'Stockage actif';
@@ -173,7 +183,7 @@
     for (const entry of pendingEntries) {
       if (entry.timerId) clearTimeout(entry.timerId);
       if (entry.page) {
-        executePageSaveNow(entry.page);
+        executePageSaveNow(entry.page, { syncThumbnail: !entry.page.thumbnail });
       }
     }
     if (inFlightPageSaves.size > 0) {
@@ -4712,7 +4722,7 @@
     dom.canvasViewport.addEventListener('wheel', (e) => {
       e.preventDefault();
       stopViewportAnimations();
-      const rect = dom.inkCanvas.getBoundingClientRect();
+      const rect = getCachedViewportRect();
       if (e.ctrlKey || e.metaKey) {
         resetPullToAddState();
         zoomAtScreenPoint(state.zoom * Math.exp(-e.deltaY * 0.0055), e.clientX - rect.left, e.clientY - rect.top);
