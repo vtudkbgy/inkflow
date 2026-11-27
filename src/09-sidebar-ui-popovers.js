@@ -5836,6 +5836,7 @@
     });
     let fullscreenSyncTimer = null;
     window.addEventListener('resize', () => {
+      invalidateViewportRectCache();
       requestRender();
       if (typeof window !== 'undefined' && window.__TAURI__) {
         if (fullscreenSyncTimer) clearTimeout(fullscreenSyncTimer);
@@ -5849,6 +5850,7 @@
     if (typeof ResizeObserver !== 'undefined') {
       let initialFitDone = false;
       const ro = new ResizeObserver((entries) => {
+        invalidateViewportRectCache();
         for (const entry of entries) {
           if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
             if (!initialFitDone) {
@@ -5868,6 +5870,7 @@
 
   function updateFullscreenUi(isFs) {
     isWindowFullscreen = Boolean(isFs);
+    invalidateViewportRectCache();
     if (typeof document !== 'undefined') {
       if (document.documentElement) {
         if (typeof document.documentElement.setAttribute === 'function') {

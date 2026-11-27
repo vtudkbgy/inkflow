@@ -975,7 +975,7 @@
 
   const ctx = dom.inkCanvas.getContext('2d');
   const activeCtx = dom.activeInkCanvas ? dom.activeInkCanvas.getContext('2d') : null;
-  const bgCtx = dom.pdfBgCanvas ? dom.pdfBgCanvas.getContext('2d') : null;
+  const bgCtx = dom.pdfBgCanvas ? dom.pdfBgCanvas.getContext('2d', { alpha: false }) : null;
 
   const renderPerfStats = {
     staticRenderCount: 0,
@@ -1336,8 +1336,20 @@
   // 9. COORDONNÉES MONDE, ZOOM FLUIDE, PINCEMENT & TRANSFORMATIONS
   // ============================================================================
 
+  let cachedViewportRect = null;
+  function invalidateViewportRectCache() {
+    cachedViewportRect = null;
+  }
+  function getCachedViewportRect() {
+    if (!cachedViewportRect || !(cachedViewportRect.width > 0) || !(cachedViewportRect.height > 0)) {
+      const target = dom.canvasViewport || dom.inkCanvas;
+      cachedViewportRect = target ? target.getBoundingClientRect() : { left: 0, top: 0, width: 1200, height: 800 };
+    }
+    return cachedViewportRect;
+  }
+
   function screenToWorld(clientX, clientY) {
-    const rect = dom.inkCanvas.getBoundingClientRect();
+    const rect = getCachedViewportRect();
     return {
       x: (clientX - rect.left - state.panX) / state.zoom,
       y: (clientY - rect.top - state.panY) / state.zoom

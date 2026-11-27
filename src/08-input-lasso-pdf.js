@@ -2201,17 +2201,24 @@
     }
   }
 
+  let lastEraserCursorSize = -1;
   function updateEraserCursor(clientX, clientY, visible) {
     if (!visible) {
-      dom.eraserCursor.style.display = 'none';
+      if (dom.eraserCursor.style.display !== 'none') {
+        dom.eraserCursor.style.display = 'none';
+      }
       return;
     }
-    const d = Math.max(4, state.eraserSize * 2 * state.zoom);
-    dom.eraserCursor.style.display = 'block';
-    dom.eraserCursor.style.width = `${d}px`;
-    dom.eraserCursor.style.height = `${d}px`;
-    dom.eraserCursor.style.left = `${clientX}px`;
-    dom.eraserCursor.style.top = `${clientY}px`;
+    const d = Math.max(4, Math.round(state.eraserSize * 2 * state.zoom));
+    if (dom.eraserCursor.style.display !== 'block') {
+      dom.eraserCursor.style.display = 'block';
+    }
+    if (d !== lastEraserCursorSize) {
+      lastEraserCursorSize = d;
+      dom.eraserCursor.style.width = `${d}px`;
+      dom.eraserCursor.style.height = `${d}px`;
+    }
+    dom.eraserCursor.style.transform = `translate3d(${clientX}px, ${clientY}px, 0) translate(-50%, -50%)`;
   }
 
   function getActiveCursorColor() {
@@ -2232,16 +2239,24 @@
     return true;
   }
 
+  let lastColorDotColor = '';
   function updateColorDotCursor(clientX, clientY, visible) {
     if (!dom.colorDotCursor) return;
     if (!visible) {
-      dom.colorDotCursor.style.display = 'none';
+      if (dom.colorDotCursor.style.display !== 'none') {
+        dom.colorDotCursor.style.display = 'none';
+      }
       return;
     }
-    dom.colorDotCursor.style.backgroundColor = getActiveCursorColor();
-    dom.colorDotCursor.style.display = 'block';
-    dom.colorDotCursor.style.left = `${clientX}px`;
-    dom.colorDotCursor.style.top = `${clientY}px`;
+    const nextColor = getActiveCursorColor();
+    if (nextColor !== lastColorDotColor) {
+      lastColorDotColor = nextColor;
+      dom.colorDotCursor.style.backgroundColor = nextColor;
+    }
+    if (dom.colorDotCursor.style.display !== 'block') {
+      dom.colorDotCursor.style.display = 'block';
+    }
+    dom.colorDotCursor.style.transform = `translate3d(${clientX}px, ${clientY}px, 0) translate(-50%, -50%)`;
   }
 
   function canEraserEraseStroke(s) {

@@ -982,15 +982,19 @@
   // - évite d'allouer et de recompositer 4 surfaces 4K–5K simultanées en plein écran HiDPI (1080p/1440p/4K @ 200-250 %)
   //   tout en garantissant un plancher >= 1.25 sur écran HiDPI pour une netteté d'encre irréprochable.
   const MAX_CANVAS_DEVICE_PIXELS = 4200000;
+  const MAX_FULLSCREEN_CANVAS_DEVICE_PIXELS = 2600000;
 
   function getEffectiveCanvasDpr(rect) {
     const rawDpr = Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1);
     if (!rect || !(rect.width > 0) || !(rect.height > 0) || rawDpr <= 1) return rawDpr;
+    const isFs = typeof document !== 'undefined' && document.documentElement &&
+      document.documentElement.classList && document.documentElement.classList.contains('is-fullscreen');
+    const budget = isFs ? MAX_FULLSCREEN_CANVAS_DEVICE_PIXELS : MAX_CANVAS_DEVICE_PIXELS;
     const cssArea = rect.width * rect.height;
     const rawDevicePixels = cssArea * rawDpr * rawDpr;
-    if (rawDevicePixels <= MAX_CANVAS_DEVICE_PIXELS) return rawDpr;
-    const capped = Math.sqrt(MAX_CANVAS_DEVICE_PIXELS / cssArea);
-    const minHiDpi = Math.min(rawDpr, 1.25);
+    if (rawDevicePixels <= budget) return rawDpr;
+    const capped = Math.sqrt(budget / cssArea);
+    const minHiDpi = Math.min(rawDpr, isFs ? 1.1 : 1.25);
     return Math.max(minHiDpi, Math.min(rawDpr, Math.round(capped * 100) / 100));
   }
 
@@ -1003,7 +1007,7 @@
   }
 
   function ensureCanvasDimensionsSynced() {
-    const rect = dom.canvasViewport.getBoundingClientRect();
+    const rect = getCachedViewportRect();
     const dpr = getEffectiveCanvasDpr(rect);
     const targetW = Math.max(1, Math.floor(rect.width * dpr));
     const targetH = Math.max(1, Math.floor(rect.height * dpr));
@@ -1915,7 +1919,7 @@
     const t0 = performance.now();
     const page = getActivePage();
     if (!page) return;
-    const rect = dom.canvasViewport.getBoundingClientRect();
+    const rect = getCachedViewportRect();
     const dpr = getEffectiveCanvasDpr(rect);
     const targetW = Math.max(1, Math.floor(rect.width * dpr));
     const targetH = Math.max(1, Math.floor(rect.height * dpr));
@@ -2383,7 +2387,7 @@
         }
       }
       // Si le zoom dépasse la zone en cache, on dessine directement sur le viewport sans allouer/reconstruire le cache surdimensionné (il sera reconstruit au repos après 110 ms)
-    } else if (bgCtx && activeCtx && hasElements && !hasAnyLassoSelection() && ensureStaticInkBitmapCacheReady(page, rect, dpr, effectiveDark)) {
+    } else if (!state.eraserGestureActive && bgCtx && activeCtx && hasElements && !hasAnyLassoSelection() && ensureStaticInkBitmapCacheReady(page, rect, dpr, effectiveDark)) {
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, dom.inkCanvas.width, dom.inkCanvas.height);

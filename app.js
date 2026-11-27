@@ -3846,7 +3846,7 @@
 
   const ctx = dom.inkCanvas.getContext('2d');
   const activeCtx = dom.activeInkCanvas ? dom.activeInkCanvas.getContext('2d') : null;
-  const bgCtx = dom.pdfBgCanvas ? dom.pdfBgCanvas.getContext('2d') : null;
+  const bgCtx = dom.pdfBgCanvas ? dom.pdfBgCanvas.getContext('2d', { alpha: false }) : null;
 
   const renderPerfStats = {
     staticRenderCount: 0,
@@ -4207,8 +4207,20 @@
   // 9. COORDONNÉES MONDE, ZOOM FLUIDE, PINCEMENT & TRANSFORMATIONS
   // ============================================================================
 
+  let cachedViewportRect = null;
+  function invalidateViewportRectCache() {
+    cachedViewportRect = null;
+  }
+  function getCachedViewportRect() {
+    if (!cachedViewportRect || !(cachedViewportRect.width > 0) || !(cachedViewportRect.height > 0)) {
+      const target = dom.canvasViewport || dom.inkCanvas;
+      cachedViewportRect = target ? target.getBoundingClientRect() : { left: 0, top: 0, width: 1200, height: 800 };
+    }
+    return cachedViewportRect;
+  }
+
   function screenToWorld(clientX, clientY) {
-    const rect = dom.inkCanvas.getBoundingClientRect();
+    const rect = getCachedViewportRect();
     return {
       x: (clientX - rect.left - state.panX) / state.zoom,
       y: (clientY - rect.top - state.panY) / state.zoom
@@ -7963,15 +7975,19 @@
   // - évite d'allouer et de recompositer 4 surfaces 4K–5K simultanées en plein écran HiDPI (1080p/1440p/4K @ 200-250 %)
   //   tout en garantissant un plancher >= 1.25 sur écran HiDPI pour une netteté d'encre irréprochable.
   const MAX_CANVAS_DEVICE_PIXELS = 4200000;
+  const MAX_FULLSCREEN_CANVAS_DEVICE_PIXELS = 2600000;
 
   function getEffectiveCanvasDpr(rect) {
     const rawDpr = Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1);
     if (!rect || !(rect.width > 0) || !(rect.height > 0) || rawDpr <= 1) return rawDpr;
+    const isFs = typeof document !== 'undefined' && document.documentElement &&
+      document.documentElement.classList && document.documentElement.classList.contains('is-fullscreen');
+    const budget = isFs ? MAX_FULLSCREEN_CANVAS_DEVICE_PIXELS : MAX_CANVAS_DEVICE_PIXELS;
     const cssArea = rect.width * rect.height;
     const rawDevicePixels = cssArea * rawDpr * rawDpr;
-    if (rawDevicePixels <= MAX_CANVAS_DEVICE_PIXELS) return rawDpr;
-    const capped = Math.sqrt(MAX_CANVAS_DEVICE_PIXELS / cssArea);
-    const minHiDpi = Math.min(rawDpr, 1.25);
+    if (rawDevicePixels <= budget) return rawDpr;
+    const capped = Math.sqrt(budget / cssArea);
+    const minHiDpi = Math.min(rawDpr, isFs ? 1.1 : 1.25);
     return Math.max(minHiDpi, Math.min(rawDpr, Math.round(capped * 100) / 100));
   }
 
@@ -7984,7 +8000,7 @@
   }
 
   function ensureCanvasDimensionsSynced() {
-    const rect = dom.canvasViewport.getBoundingClientRect();
+    const rect = getCachedViewportRect();
     const dpr = getEffectiveCanvasDpr(rect);
     const targetW = Math.max(1, Math.floor(rect.width * dpr));
     const targetH = Math.max(1, Math.floor(rect.height * dpr));
@@ -8896,7 +8912,7 @@
     const t0 = performance.now();
     const page = getActivePage();
     if (!page) return;
-    const rect = dom.canvasViewport.getBoundingClientRect();
+    const rect = getCachedViewportRect();
     const dpr = getEffectiveCanvasDpr(rect);
     const targetW = Math.max(1, Math.floor(rect.width * dpr));
     const targetH = Math.max(1, Math.floor(rect.height * dpr));
@@ -9364,7 +9380,7 @@
         }
       }
       // Si le zoom dépasse la zone en cache, on dessine directement sur le viewport sans allouer/reconstruire le cache surdimensionné (il sera reconstruit au repos après 110 ms)
-    } else if (bgCtx && activeCtx && hasElements && !hasAnyLassoSelection() && ensureStaticInkBitmapCacheReady(page, rect, dpr, effectiveDark)) {
+    } else if (!state.eraserGestureActive && bgCtx && activeCtx && hasElements && !hasAnyLassoSelection() && ensureStaticInkBitmapCacheReady(page, rect, dpr, effectiveDark)) {
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, dom.inkCanvas.width, dom.inkCanvas.height);
@@ -12293,17 +12309,24 @@
     }
   }
 
+  let lastEraserCursorSize = -1;
   function updateEraserCursor(clientX, clientY, visible) {
     if (!visible) {
-      dom.eraserCursor.style.display = 'none';
+      if (dom.eraserCursor.style.display !== 'none') {
+        dom.eraserCursor.style.display = 'none';
+      }
       return;
     }
-    const d = Math.max(4, state.eraserSize * 2 * state.zoom);
-    dom.eraserCursor.style.display = 'block';
-    dom.eraserCursor.style.width = `${d}px`;
-    dom.eraserCursor.style.height = `${d}px`;
-    dom.eraserCursor.style.left = `${clientX}px`;
-    dom.eraserCursor.style.top = `${clientY}px`;
+    const d = Math.max(4, Math.round(state.eraserSize * 2 * state.zoom));
+    if (dom.eraserCursor.style.display !== 'block') {
+      dom.eraserCursor.style.display = 'block';
+    }
+    if (d !== lastEraserCursorSize) {
+      lastEraserCursorSize = d;
+      dom.eraserCursor.style.width = `${d}px`;
+      dom.eraserCursor.style.height = `${d}px`;
+    }
+    dom.eraserCursor.style.transform = `translate3d(${clientX}px, ${clientY}px, 0) translate(-50%, -50%)`;
   }
 
   function getActiveCursorColor() {
@@ -12324,16 +12347,24 @@
     return true;
   }
 
+  let lastColorDotColor = '';
   function updateColorDotCursor(clientX, clientY, visible) {
     if (!dom.colorDotCursor) return;
     if (!visible) {
-      dom.colorDotCursor.style.display = 'none';
+      if (dom.colorDotCursor.style.display !== 'none') {
+        dom.colorDotCursor.style.display = 'none';
+      }
       return;
     }
-    dom.colorDotCursor.style.backgroundColor = getActiveCursorColor();
-    dom.colorDotCursor.style.display = 'block';
-    dom.colorDotCursor.style.left = `${clientX}px`;
-    dom.colorDotCursor.style.top = `${clientY}px`;
+    const nextColor = getActiveCursorColor();
+    if (nextColor !== lastColorDotColor) {
+      lastColorDotColor = nextColor;
+      dom.colorDotCursor.style.backgroundColor = nextColor;
+    }
+    if (dom.colorDotCursor.style.display !== 'block') {
+      dom.colorDotCursor.style.display = 'block';
+    }
+    dom.colorDotCursor.style.transform = `translate3d(${clientX}px, ${clientY}px, 0) translate(-50%, -50%)`;
   }
 
   function canEraserEraseStroke(s) {
@@ -20231,6 +20262,7 @@
     });
     let fullscreenSyncTimer = null;
     window.addEventListener('resize', () => {
+      invalidateViewportRectCache();
       requestRender();
       if (typeof window !== 'undefined' && window.__TAURI__) {
         if (fullscreenSyncTimer) clearTimeout(fullscreenSyncTimer);
@@ -20244,6 +20276,7 @@
     if (typeof ResizeObserver !== 'undefined') {
       let initialFitDone = false;
       const ro = new ResizeObserver((entries) => {
+        invalidateViewportRectCache();
         for (const entry of entries) {
           if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
             if (!initialFitDone) {
@@ -20263,6 +20296,7 @@
 
   function updateFullscreenUi(isFs) {
     isWindowFullscreen = Boolean(isFs);
+    invalidateViewportRectCache();
     if (typeof document !== 'undefined') {
       if (document.documentElement) {
         if (typeof document.documentElement.setAttribute === 'function') {
