@@ -3158,6 +3158,9 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
       <button type="button" role="tab" class="detente-tab active" data-detente-tab="slot" aria-selected="true">Machine à sous</button>
       <button type="button" role="tab" class="detente-tab" data-detente-tab="blackjack" aria-selected="false" tabindex="-1">Blackjack</button>
       <button type="button" role="tab" class="detente-tab" data-detente-tab="roulette" aria-selected="false" tabindex="-1">Roulette</button>
+      <button type="button" role="tab" class="detente-tab" data-detente-tab="wheel" aria-selected="false" tabindex="-1">Roue</button>
+      <button type="button" role="tab" class="detente-tab" data-detente-tab="plinko" aria-selected="false" tabindex="-1">Plinko</button>
+      <button type="button" role="tab" class="detente-tab" data-detente-tab="scratch" aria-selected="false" tabindex="-1">Grattage et dés</button>
       <span class="detente-tab-sep" aria-hidden="true"></span>
       <button type="button" role="tab" class="detente-tab" data-detente-tab="shop" aria-selected="false" tabindex="-1">Boutique</button>
       <button type="button" role="tab" class="detente-tab" data-detente-tab="bank" aria-selected="false" tabindex="-1">Banque</button>
@@ -3281,6 +3284,206 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
         </section>
       </div>
 
+      <!-- Roue de la fortune -->
+      <div class="detente-panel detente-split hidden" data-detente-panel="wheel" role="tabpanel">
+        <section class="detente-machine dj-machine" aria-label="Roue de la fortune">
+          <div class="detente-machine-top">
+            <div class="detente-result" id="wfResult" aria-live="polite">Fais tourner la roue.</div>
+          </div>
+          <div class="dj-stage" id="wfStage">
+            <svg class="dj-wheel" id="wfWheel" viewBox="-108 -126 216 234" role="img" aria-label="Roue de la fortune à 24 cases"></svg>
+          </div>
+          <div class="detente-controls">
+            <div class="detente-bet" role="group" aria-label="Mise de la roue">
+              <button class="detente-icon-btn" type="button" id="btnWfBetDown" title="Baisser la mise" aria-label="Baisser la mise">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <div class="detente-bet-value-wrap">
+                <span class="detente-label">Mise</span>
+                <strong class="detente-bet-value" id="wfBet">50</strong>
+              </div>
+              <button class="detente-icon-btn" type="button" id="btnWfBetUp" title="Augmenter la mise" aria-label="Augmenter la mise">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+            </div>
+            <button class="detente-spin-btn" type="button" id="btnWfSpin" title="Lancer la roue (Espace ou Entrée)">Lancer la roue</button>
+          </div>
+        </section>
+        <aside class="detente-side">
+          <section class="detente-card" aria-labelledby="wfPaytableTitle">
+            <h3 class="detente-card-title" id="wfPaytableTitle">Cases de la roue</h3>
+            <ul class="detente-paytable" id="wfPaytable"></ul>
+            <p class="detente-note">Gain = mise × multiplicateur, la mise comprise. Les 24 cases ont la même chance.</p>
+          </section>
+          <section class="detente-card" aria-labelledby="wfHistoryTitle">
+            <h3 class="detente-card-title" id="wfHistoryTitle">Derniers tirages</h3>
+            <div class="dj-pills" id="wfHistory"></div>
+          </section>
+        </aside>
+      </div>
+
+      <!-- Plinko -->
+      <div class="detente-panel detente-split hidden" data-detente-panel="plinko" role="tabpanel">
+        <section class="detente-machine dj-machine" aria-label="Plinko">
+          <div class="detente-machine-top">
+            <div class="detente-result" id="plResult" aria-live="polite">Lâche une bille.</div>
+          </div>
+          <div class="dj-options">
+            <div class="dj-opt">
+              <span class="detente-label">Risque</span>
+              <div class="dj-seg" id="plRisk" role="group" aria-label="Niveau de risque">
+                <button type="button" class="dj-seg-btn" data-risk="low" aria-pressed="false">Bas</button>
+                <button type="button" class="dj-seg-btn" data-risk="mid" aria-pressed="false">Moyen</button>
+                <button type="button" class="dj-seg-btn" data-risk="high" aria-pressed="false">Élevé</button>
+              </div>
+            </div>
+            <div class="dj-opt">
+              <span class="detente-label">Rangées</span>
+              <div class="dj-seg" id="plRows" role="group" aria-label="Nombre de rangées">
+                <button type="button" class="dj-seg-btn" data-rows="8" aria-pressed="false">8</button>
+                <button type="button" class="dj-seg-btn" data-rows="12" aria-pressed="false">12</button>
+                <button type="button" class="dj-seg-btn" data-rows="16" aria-pressed="false">16</button>
+              </div>
+            </div>
+          </div>
+          <div class="dj-stage">
+            <svg class="dj-board" id="plBoard" viewBox="0 0 400 330" role="img" aria-label="Plateau de Plinko : la bille rebondit sur les clous vers une case multiplicatrice"></svg>
+          </div>
+          <div class="detente-controls">
+            <div class="detente-bet" role="group" aria-label="Mise par bille">
+              <button class="detente-icon-btn" type="button" id="btnPlBetDown" title="Baisser la mise" aria-label="Baisser la mise">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <div class="detente-bet-value-wrap">
+                <span class="detente-label">Mise</span>
+                <strong class="detente-bet-value" id="plBet">50</strong>
+              </div>
+              <button class="detente-icon-btn" type="button" id="btnPlBetUp" title="Augmenter la mise" aria-label="Augmenter la mise">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+            </div>
+            <button class="detente-spin-btn" type="button" id="btnPlDrop" title="Lâcher une bille (Espace ou Entrée)">Lâcher la bille</button>
+          </div>
+          <div class="detente-note dj-foot">Jusqu’à 4 billes en même temps. Risque et rangées se changent quand le plateau est vide.</div>
+        </section>
+        <aside class="detente-side">
+          <section class="detente-card" aria-labelledby="plPaytableTitle">
+            <h3 class="detente-card-title" id="plPaytableTitle">Multiplicateurs et chances</h3>
+            <ul class="detente-paytable" id="plPaytable"></ul>
+            <p class="detente-note" id="plRtpNote"></p>
+          </section>
+          <section class="detente-card" aria-labelledby="plHistoryTitle">
+            <h3 class="detente-card-title" id="plHistoryTitle">Dernières billes</h3>
+            <div class="dj-pills" id="plHistory"></div>
+          </section>
+        </aside>
+      </div>
+
+      <!-- Grattage et dés -->
+      <div class="detente-panel hidden" data-detente-panel="scratch" role="tabpanel">
+        <div class="dj-sub-wrap">
+          <div class="dj-seg dj-sub-seg" id="djSub" role="group" aria-label="Jeu">
+            <button type="button" class="dj-seg-btn" data-sub="scratch" aria-pressed="true">Ticket à gratter</button>
+            <button type="button" class="dj-seg-btn" data-sub="dice" aria-pressed="false">Dés</button>
+          </div>
+        </div>
+
+        <div class="detente-split" data-dj-sub="scratch">
+          <section class="detente-machine dj-machine" aria-label="Ticket à gratter">
+            <div class="detente-machine-top">
+              <div class="detente-result" id="scResult" aria-live="polite">Achète un ticket, puis gratte-le.</div>
+            </div>
+            <div class="dj-ticket idle" id="scTicket">
+              <div class="dj-ticket-head"><span class="dj-ticket-name">Ticket InkFlow</span><span class="dj-ticket-rule">Trois montants identiques : tu gagnes ce montant</span></div>
+              <div class="dj-ticket-body">
+                <div class="sc-grid" id="scGrid"></div>
+                <canvas class="sc-canvas hidden" id="scCanvas" aria-label="Zone à gratter"></canvas>
+              </div>
+            </div>
+            <div class="detente-controls">
+              <div class="detente-bet" role="group" aria-label="Prix du ticket">
+                <button class="detente-icon-btn" type="button" id="btnScBetDown" title="Baisser la mise" aria-label="Baisser la mise">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+                <div class="detente-bet-value-wrap">
+                  <span class="detente-label">Mise</span>
+                  <strong class="detente-bet-value" id="scBet">50</strong>
+                </div>
+                <button class="detente-icon-btn" type="button" id="btnScBetUp" title="Augmenter la mise" aria-label="Augmenter la mise">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+              </div>
+              <div class="dj-actions">
+                <button class="detente-chip-btn" type="button" id="btnScReveal" title="Révéler tout le ticket">Tout révéler</button>
+                <button class="detente-spin-btn" type="button" id="btnScBuy" title="Acheter un ticket (Espace ou Entrée)">Acheter un ticket</button>
+              </div>
+            </div>
+            <div class="detente-note dj-foot">Gratte avec le doigt, la souris ou le stylet. Au-delà de la moitié grattée, le ticket se révèle seul.</div>
+          </section>
+          <aside class="detente-side">
+            <section class="detente-card" aria-labelledby="scHistoryTitle">
+              <h3 class="detente-card-title" id="scHistoryTitle">Derniers tickets</h3>
+              <div class="dj-pills" id="scHistory"></div>
+            </section>
+            <section class="detente-card">
+              <h3 class="detente-card-title">Comment ça marche</h3>
+              <p class="detente-note detente-note-top">Le ticket est tiré à l’achat. Si trois cases montrent le même montant, ta mise est multipliée par ce montant. Les chances de chaque gain sont dans l’onglet Probabilités.</p>
+            </section>
+          </aside>
+        </div>
+
+        <div class="detente-split hidden" data-dj-sub="dice">
+          <section class="detente-machine dj-machine" aria-label="Dés">
+            <div class="detente-machine-top">
+              <div class="detente-result" id="dcResult" aria-live="polite">Choisis ton pari, puis lance les dés.</div>
+            </div>
+            <div class="dj-dice" id="dcDice" role="img" aria-label="Trois dés">
+              <div class="dj-die"></div>
+              <div class="dj-die"></div>
+              <div class="dj-die"></div>
+            </div>
+            <div class="dj-options">
+              <div class="dj-opt">
+                <span class="detente-label">Pari</span>
+                <div class="dj-seg" id="dcKinds" role="group" aria-label="Type de pari">
+                  <button type="button" class="dj-seg-btn" data-kind="small" aria-pressed="true">Petit</button>
+                  <button type="button" class="dj-seg-btn" data-kind="big" aria-pressed="false">Grand</button>
+                  <button type="button" class="dj-seg-btn" data-kind="total" aria-pressed="false">Total</button>
+                  <button type="button" class="dj-seg-btn" data-kind="triple" aria-pressed="false">Triple</button>
+                </div>
+              </div>
+            </div>
+            <div class="dj-seg dj-totals hidden" id="dcTotals" role="group" aria-label="Total visé"></div>
+            <div class="detente-note dj-foot" id="dcBetInfo"></div>
+            <div class="detente-controls">
+              <div class="detente-bet" role="group" aria-label="Mise des dés">
+                <button class="detente-icon-btn" type="button" id="btnDcBetDown" title="Baisser la mise" aria-label="Baisser la mise">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+                <div class="detente-bet-value-wrap">
+                  <span class="detente-label">Mise</span>
+                  <strong class="detente-bet-value" id="dcBet">50</strong>
+                </div>
+                <button class="detente-icon-btn" type="button" id="btnDcBetUp" title="Augmenter la mise" aria-label="Augmenter la mise">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+              </div>
+              <button class="detente-spin-btn" type="button" id="btnDcRoll" title="Lancer les dés (Espace ou Entrée)">Lancer les dés</button>
+            </div>
+          </section>
+          <aside class="detente-side">
+            <section class="detente-card" aria-labelledby="dcHistoryTitle">
+              <h3 class="detente-card-title" id="dcHistoryTitle">Derniers lancers</h3>
+              <ul class="detente-history dj-dice-history" id="dcHistory"></ul>
+            </section>
+            <section class="detente-card">
+              <h3 class="detente-card-title">Règles</h3>
+              <p class="detente-note detente-note-top">Petit : total de 4 à 10. Grand : total de 11 à 17. Ces deux paris perdent sur un triple. Total : tu vises un total précis, payé même sur un triple. Triple : les trois dés montrent la même face.</p>
+            </section>
+          </aside>
+        </div>
+      </div>
+
       <!-- Boutique -->
       <div class="detente-panel hidden" data-detente-panel="shop" role="tabpanel">
         <div class="detente-wide">
@@ -3373,6 +3576,7 @@ npm run build:linux  # Exporter en .AppImage / .deb</pre>
             </ul>
             <p class="detente-note">Un seul zéro, 37 cases : chaque mise rend en moyenne 36/37 de son montant. Le zéro fait perdre les mises simples, sans « en prison ».</p>
           </section>
+          <div class="dj-odds" id="detenteGamesOdds"></div>
           <p class="detente-note detente-odds-foot">Tous les tirages utilisent le générateur aléatoire cryptographique du système. À long terme, la maison gagne toujours : ces jeux restent une pause, avec des jetons fictifs.</p>
         </div>
       </div>

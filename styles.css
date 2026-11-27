@@ -15299,3 +15299,437 @@ html.is-canvas-interacting .detente-page {
     transform: none !important;
   }
 }
+
+/* ===== DÉTENTE : NOUVEAUX JEUX ===== */
+/* Roue de la fortune, Plinko, ticket à gratter, dés. Scripts : src/11b-detente-jeux.js */
+.detente-page {
+  --dj-silver: #b6bcc7;
+  --dj-silver-line: rgba(255, 255, 255, 0.42);
+  --dj-peg: #8a93a6;
+}
+
+[data-theme="dark"] .detente-page {
+  --dj-silver: #69707e;
+  --dj-silver-line: rgba(255, 255, 255, 0.13);
+  --dj-peg: #939cb0;
+}
+
+/* Couleur selon le palier du multiplicateur (0, moins de 1, 1, 2, 5, 20 et plus) */
+.dj-t0 { --dj-c: var(--text-muted); }
+.dj-t1 { --dj-c: var(--dt-ink-goutte); }
+.dj-t2 { --dj-c: var(--dt-ink-feuille); }
+.dj-t3 { --dj-c: var(--dt-ink-lune); }
+.dj-t4 { --dj-c: var(--dt-ink-coeur); }
+.dj-t5 { --dj-c: var(--dt-ink-plume); }
+
+.detente-split.hidden,
+.dj-totals.hidden,
+.sc-canvas.hidden {
+  display: none !important;
+}
+
+.dj-odds {
+  display: contents;
+}
+
+.dj-stage {
+  display: flex;
+  justify-content: center;
+}
+
+.dj-foot {
+  margin: 0;
+  text-align: center;
+}
+
+.dj-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 24px;
+}
+
+.dj-pill {
+  min-width: 34px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--dj-c);
+  background: color-mix(in srgb, var(--dj-c) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dj-c) 38%, transparent);
+}
+
+.dj-pt-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.dj-pt-r {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.dj-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--dj-c) 32%, var(--dt-reel-bg));
+  border: 1px solid var(--dj-c);
+}
+
+/* Choix segmentés (risque, rangées, pari, total) */
+.dj-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 18px;
+}
+
+.dj-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dj-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-color);
+}
+
+.dj-seg-btn {
+  min-width: 34px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.dj-seg-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.dj-seg-btn.active {
+  background: var(--surface-panel-solid);
+  color: var(--text-primary);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+}
+
+.dj-seg-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dj-seg-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.dj-totals {
+  justify-content: center;
+  align-self: center;
+  border-radius: 18px;
+}
+
+.dj-sub-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.dj-actions {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ---------- Roue de la fortune ---------- */
+.dj-wheel {
+  width: min(100%, 400px);
+  height: auto;
+  overflow: visible;
+}
+
+.dj-wheel .wf-rim { fill: var(--surface-subtle); stroke: var(--border-strong); stroke-width: 1.5; }
+.dj-wheel .wf-seg path { fill: color-mix(in srgb, var(--dj-c) 20%, var(--dt-reel-bg)); stroke: var(--dt-reel-bg); stroke-width: 1; }
+.dj-wheel .wf-seg text { font: 760 11px var(--font-sans); fill: var(--dj-c); pointer-events: none; }
+.dj-wheel .wf-seg.win path { fill: color-mix(in srgb, var(--dj-c) 40%, var(--dt-reel-bg)); stroke: var(--dj-c); stroke-width: 2.4; }
+.dj-wheel .wf-seg.win { animation: djSegPulse 0.9s ease-in-out 3; }
+.dj-wheel .wf-peg { fill: var(--text-secondary); }
+.dj-wheel .wf-hub-ring { fill: var(--dt-reel-bg); stroke: var(--border-strong); stroke-width: 1.2; }
+.dj-wheel .wf-hub { fill: var(--surface-panel-solid); stroke: var(--text-primary); stroke-width: 2; }
+.dj-wheel .wf-pointer { fill: var(--text-primary); stroke: var(--dt-reel-bg); stroke-width: 1.5; stroke-linejoin: round; }
+.dj-wheel .wf-pivot { fill: var(--dt-reel-bg); stroke: var(--text-primary); stroke-width: 1.4; }
+.dj-stage.won .wf-rim,
+.dj-stage.won-big .wf-rim { stroke: var(--dt-win); stroke-width: 3; }
+.dj-stage.won-big .wf-rim { animation: djRimGlow 0.8s ease-in-out 3; }
+
+@keyframes djSegPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes djRimGlow {
+  0%, 100% { stroke-width: 3; }
+  50% { stroke-width: 6; }
+}
+
+/* ---------- Plinko ---------- */
+.dj-board {
+  width: min(100%, 460px);
+  height: auto;
+}
+
+.dj-board .pl-peg {
+  fill: var(--dj-peg);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.18s ease, fill 0.18s ease;
+}
+
+.dj-board .pl-peg.hit {
+  fill: var(--accent-primary);
+  transform: scale(1.8);
+}
+
+.dj-board .pl-ball {
+  fill: var(--accent-primary);
+  stroke: var(--surface-panel-solid);
+  stroke-width: 1.2;
+}
+
+.dj-board .pl-bin rect {
+  fill: color-mix(in srgb, var(--dj-c) 20%, var(--dt-reel-bg));
+  stroke: color-mix(in srgb, var(--dj-c) 55%, transparent);
+  stroke-width: 1;
+  transform-box: fill-box;
+  transition: transform 0.2s ease, fill 0.2s ease;
+}
+
+.dj-board .pl-bin text {
+  font-family: var(--font-sans);
+  font-weight: 760;
+  fill: var(--dj-c);
+  pointer-events: none;
+}
+
+.dj-board .pl-bin.hit rect {
+  fill: color-mix(in srgb, var(--dj-c) 48%, var(--dt-reel-bg));
+  transform: translateY(3px);
+}
+
+/* ---------- Ticket à gratter ---------- */
+.dj-ticket {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 18px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-color);
+  box-shadow: inset 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.dj-ticket-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 10px;
+  padding: 0 2px;
+}
+
+.dj-ticket-name {
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.dj-ticket-rule {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.dj-ticket-body {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.sc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.sc-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1.35;
+  border-radius: 12px;
+  background: var(--dt-reel-bg);
+  border: 1px solid var(--border-color);
+  color: var(--dj-c, var(--text-muted));
+  font-size: 26px;
+  font-weight: 780;
+  font-variant-numeric: tabular-nums;
+}
+
+.dj-ticket.idle .sc-cell {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.dj-ticket.done .sc-cell:not(.win) {
+  opacity: 0.6;
+}
+
+.sc-cell.win {
+  background: color-mix(in srgb, var(--dj-c) 20%, var(--dt-reel-bg));
+  border-color: var(--dj-c);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dj-c) 32%, transparent);
+  animation: djCellPop 0.5s ease-out;
+}
+
+.sc-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  cursor: crosshair;
+  touch-action: none;
+  transition: opacity 0.3s ease;
+}
+
+.sc-canvas.fading {
+  opacity: 0;
+}
+
+@keyframes djCellPop {
+  0% { transform: scale(0.94); }
+  60% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* ---------- Dés ---------- */
+.dj-dice {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 14px 0 8px;
+}
+
+.dj-die {
+  width: 76px;
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  filter: drop-shadow(0 4px 6px rgba(15, 23, 42, 0.16));
+}
+
+.dj-die-svg rect {
+  fill: var(--dt-reel-bg);
+}
+
+.dj-die.rolling {
+  animation: djDieTumble 0.42s linear infinite;
+}
+
+.dj-die.landed {
+  animation: djDieLand 0.35s ease-out;
+}
+
+@keyframes djDieTumble {
+  0% { transform: rotate(0deg) translateY(0); }
+  25% { transform: rotate(90deg) translateY(-9px); }
+  50% { transform: rotate(180deg) translateY(0); }
+  75% { transform: rotate(270deg) translateY(-9px); }
+  100% { transform: rotate(360deg) translateY(0); }
+}
+
+@keyframes djDieLand {
+  0% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+
+.dj-dice-history li {
+  gap: 10px;
+}
+
+.dj-h-faces {
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.dj-h-total {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dj-h-mult {
+  margin-left: auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--dj-c);
+}
+
+.dj-actions .detente-spin-btn {
+  min-width: 150px;
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .dj-actions { width: 100%; }
+  .dj-actions .detente-spin-btn { max-width: none; }
+  .dj-die { width: 62px; height: 62px; }
+  .dj-die-svg { width: 60px; height: 60px; }
+  .sc-cell { font-size: 20px; }
+  .dj-dice { gap: 10px; }
+  .dj-seg-btn { padding: 0 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dj-wheel .wf-seg.win,
+  .dj-stage.won-big .wf-rim,
+  .sc-cell.win,
+  .dj-die.rolling,
+  .dj-die.landed { animation: none; }
+  .dj-board .pl-peg,
+  .dj-board .pl-bin rect,
+  .sc-canvas { transition: none; }
+}

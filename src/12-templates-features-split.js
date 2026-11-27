@@ -4459,6 +4459,7 @@
       getDetentePendingBons,
       getDetenteWallet: () => ({ balance: detenteState.balance, debt: detenteState.debt, borrowed: detenteState.borrowed, stock: { ...detenteState.stock }, ledger: detenteState.ledger.map((e) => ({ ...e })) }),
       getDetenteAccount,
+      getDetenteGamesRtp,
       detenteAccountHash,
       buyDetenteItem,
       runDetentePaidCreation,

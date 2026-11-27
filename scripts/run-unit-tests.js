@@ -1880,6 +1880,23 @@ async function runTests() {
   });
 
   // ------------------------------------------------------------------------
+  // TEST 10b : jeux de la page Détente (roue, Plinko, ticket à gratter, dés) : taux de retour < 100 %
+  // ------------------------------------------------------------------------
+  await runStep('Test 10b : Détente, nouveaux jeux : taux de retour théoriques entre 90 % et 97,5 %', async () => {
+    const rtp = api.getDetenteGamesRtp();
+    const check = (name, v) => assert.ok(v > 0.9 && v < 0.975, `RTP ${name} hors de 90 % à 97,5 % : ${(v * 100).toFixed(2)} %`);
+    check('roue', rtp.wheel);
+    check('ticket à gratter', rtp.scratch);
+    Object.keys(rtp.plinko).forEach((k) => check(`plinko ${k}`, rtp.plinko[k]));
+    Object.keys(rtp.dice).forEach((k) => check(`dés ${k}`, rtp.dice[k]));
+    assert.equal(Object.keys(rtp.plinko).length, 9, 'Trois risques × trois nombres de rangées');
+    assert.ok(Math.abs(rtp.wheel - 0.9375) < 1e-9, 'Roue : 22,5 / 24');
+    assert.ok(Math.abs(rtp.scratch - 0.95) < 1e-9, 'Ticket : 9 500 / 10 000');
+    assert.ok(Math.abs(rtp.dice.small - 210 / 216) < 1e-9, 'Petit : 105 / 216 × 2');
+    return `Roue ${(rtp.wheel * 100).toFixed(2)} %, ticket ${(rtp.scratch * 100).toFixed(2)} %, Plinko ${Math.min(...Object.values(rtp.plinko)).toFixed(3)} à ${Math.max(...Object.values(rtp.plinko)).toFixed(3)}, dés ${Math.min(...Object.values(rtp.dice)).toFixed(3)} à ${Math.max(...Object.values(rtp.dice)).toFixed(3)}.`;
+  });
+
+  // ------------------------------------------------------------------------
   // TEST 11 : Google Drive (liaison, jetons, sélecteur) et indicateur hors connexion
   // ------------------------------------------------------------------------
   await runStep('Test 11 : Google Drive (PKCE, requêtes du sélecteur, renouvellement du jeton) et refus hors connexion', async () => {
