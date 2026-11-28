@@ -310,8 +310,9 @@
     else if (outH / outW > 1.6) padX += (outH / 1.6 - outW) / 2;
     const rect = { minX: sel.minX - padX, minY: sel.minY - padY, maxX: sel.maxX + padX, maxY: sel.maxY + padY };
     if (page && typeof isBoundedPage === 'function' && isBoundedPage(page)) {
-      const pw = page.pdfWidth || PAGE_WIDTH;
-      const ph = page.pdfHeight || PAGE_HEIGHT;
+      const pb = typeof getPageBounds === 'function' ? getPageBounds(page) : { width: page.pdfWidth || PAGE_WIDTH, height: page.pdfHeight || PAGE_HEIGHT };
+      const pw = pb.width;
+      const ph = pb.height;
       rect.minX = Math.max(rect.minX, Math.min(sel.minX, 0));
       rect.minY = Math.max(rect.minY, Math.min(sel.minY, 0));
       rect.maxX = Math.min(rect.maxX, Math.max(sel.maxX, pw));
@@ -369,8 +370,9 @@
       ctx.scale(canvas.width / w, canvas.height / h);
       ctx.translate(-rect.minX, -rect.minY);
 
-      const pw = page.pdfWidth || PAGE_WIDTH;
-      const ph = page.pdfHeight || PAGE_HEIGHT;
+      const pb = typeof getPageBounds === 'function' ? getPageBounds(page) : { width: page.pdfWidth || PAGE_WIDTH, height: page.pdfHeight || PAGE_HEIGHT };
+      const pw = pb.width;
+      const ph = pb.height;
       const isDark = !page.pdfId && (page.paperTone === 'dark' || page.paperTone === 'blueprint');
       ctx.fillStyle = isDark ? '#1e1b1b' : '#ffffff';
       ctx.fillRect(rect.minX, rect.minY, w, h);

@@ -2518,6 +2518,12 @@
         paperTone: page.paperTone,
         gridSize: page.gridSize,
         viewMode: page.viewMode || 'infinite',
+        pageSize: page.pageSize || null,
+        pageOrientation: page.pageOrientation || null,
+        pageWidth: (Number.isFinite(page.pageWidth) && page.pageWidth > 0) ? page.pageWidth : null,
+        pageHeight: (Number.isFinite(page.pageHeight) && page.pageHeight > 0) ? page.pageHeight : null,
+        templateLanguage: page.templateLanguage || null,
+        customTemplateDataUrl: page.customTemplateDataUrl || null,
         pdfId: page.pdfId || null,
         pdfPageNumber: page.pdfPageNumber || null,
         pdfWidth: page.pdfWidth || null,
@@ -3172,6 +3178,8 @@
     lassoInitialSnapshot: null,
     lassoInitialBounds: null,
     historyByPage: new Map(),
+    viewportByNotebook: {},
+    initialViewportApplied: false,
     newNotebookCover: '#0072ce',
     newNotebookTemplate: {
       paperType: 'grid',
@@ -4943,13 +4951,72 @@
     });
   }
 
+  let workspaceViewportSaveTimer = null;
+
+  function rememberActiveNotebookViewport() {
+    const nbId = state.activeNotebookId;
+    if (!nbId) return;
+    if (!state.viewportByNotebook || typeof state.viewportByNotebook !== 'object') {
+      state.viewportByNotebook = {};
+    }
+    if (Number.isFinite(state.zoom) && state.zoom > 0 && Number.isFinite(state.panX) && Number.isFinite(state.panY)) {
+      state.viewportByNotebook[nbId] = {
+        zoom: Math.round(state.zoom * 10000) / 10000,
+        panX: Math.round(state.panX * 10) / 10,
+        panY: Math.round(state.panY * 10) / 10
+      };
+    }
+  }
+
+  function getWorkspaceSnapshotForSave() {
+    rememberActiveNotebookViewport();
+    return {
+      activeNotebookId: state.activeNotebookId,
+      activePageId: state.activePageId,
+      zoom: state.zoom,
+      panX: state.panX,
+      panY: state.panY,
+      viewportByNotebook: { ...(state.viewportByNotebook || {}) }
+    };
+  }
+
+  function scheduleSaveWorkspaceViewport() {
+    rememberActiveNotebookViewport();
+    if (workspaceViewportSaveTimer) clearTimeout(workspaceViewportSaveTimer);
+    workspaceViewportSaveTimer = setTimeout(() => {
+      workspaceViewportSaveTimer = null;
+      if (typeof db !== 'undefined' && db && typeof db.saveWorkspaceState === 'function') {
+        Promise.resolve(db.saveWorkspaceState(getWorkspaceSnapshotForSave())).catch(() => {});
+      }
+    }, 650);
+  }
+
+  function restoreNotebookViewportOrFit(nbId, page = getActivePage()) {
+    const saved = nbId && state.viewportByNotebook && state.viewportByNotebook[nbId];
+    if (saved && Number.isFinite(saved.zoom) && saved.zoom > 0 && Number.isFinite(saved.panX) && Number.isFinite(saved.panY)) {
+      const { minZoom, maxZoom } = getViewportZoomLimits(page);
+      const z = Math.max(minZoom, Math.min(maxZoom, saved.zoom));
+      const clamped = clampViewportPan(saved.panX, saved.panY, z, page);
+      state.zoom = z;
+      state.panX = clamped.panX;
+      state.panY = clamped.panY;
+      state.initialViewportApplied = true;
+      if (dom.btnZoomReset) dom.btnZoomReset.textContent = `${Math.round(state.zoom * 100)}%`;
+      syncWorldLayerTransform();
+      return true;
+    }
+    fitPageToViewport(false);
+    return false;
+  }
+
   function fitPageToViewport(animate = false) {
     stopViewportAnimations();
     const rect = dom.canvasViewport.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     const page = getActivePage();
-    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
-    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    const bounds = getPageBounds(page);
+    const pw = bounds.width;
+    const ph = bounds.height;
     const availW = rect.width - 28;
     const availH = rect.height - 72;
     const targetZoom = isBoundedPage(page)
@@ -4957,6 +5024,7 @@
       : Math.max(0.45, Math.min(1.08, Math.min(availW / pw, availH / ph)));
     const targetPanX = Math.round((rect.width - pw * targetZoom) / 2);
     const targetPanY = Math.max(58, Math.round(58 + Math.max(0, (rect.height - 72 - ph * targetZoom) / 2)));
+    state.initialViewportApplied = true;
     if (animate) {
       animateViewportTo(targetZoom, targetPanX, targetPanY, 220);
       return;
@@ -4964,6 +5032,7 @@
     state.zoom = targetZoom;
     state.panX = targetPanX;
     state.panY = targetPanY;
+    rememberActiveNotebookViewport();
     if (dom.btnZoomReset) dom.btnZoomReset.textContent = `${Math.round(state.zoom * 100)}%`;
     syncWorldLayerTransform();
     requestRender();
@@ -4991,6 +5060,7 @@
     zoomSettleTimer = setTimeout(() => {
       zoomSettleTimer = null;
       isZoomInteracting = false;
+      scheduleSaveWorkspaceViewport();
       if (!state.isPinching && snapBackBoundedViewportIfZoomedOut()) return;
       requestRender();
     }, 135);
@@ -12462,6 +12532,7 @@
       setCanvasInteractingClass(false);
       dom.canvasViewport.classList.remove('panning');
       try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      scheduleSaveWorkspaceViewport();
       if (commitOrResetPullToAdd()) return;
       startPanInertiaLoop();
       return;
@@ -14003,8 +14074,9 @@
     cCtx.scale(effScaleX, effScaleY);
     cCtx.translate(-(b.minX - pad), -(b.minY - pad));
 
-    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
-    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    const boundsForSnap = getPageBounds(page);
+    const pw = boundsForSnap.width;
+    const ph = boundsForSnap.height;
     drawPaperBackground(cCtx, page, pw, ph, true);
     if (page.pdfId) drawLockedPdfBackground(cCtx, page, false);
 
@@ -14545,7 +14617,6 @@
     // Charge et rend uniquement la page affichée (p.1) et la page suivante (p.2) en mémoire
     await ensureActiveAndAdjacentPdfPagesLoaded(createdPages[0]);
     await db.savePage(createdPages[0]);
-    await db.saveWorkspaceState({ activeNotebookId: state.activeNotebookId, activePageId: state.activePageId });
 
     updatePdfImportProgressUI(true, 'Import terminé !', 100);
     clearLassoSelection();
@@ -14555,6 +14626,7 @@
     updateUndoRedoButtons();
     renderWorldTextCards();
     fitPageToViewport();
+    await db.saveWorkspaceState(getWorkspaceSnapshotForSave());
     requestRender();
     closeImportPdfModal();
     showToast(`PDF importé (${numPages} page${numPages > 1 ? 's' : ''}) — Calque de fond verrouillé !`);
@@ -14607,11 +14679,13 @@
         }
       }
 
-      const worldW = page.pdfWidth || PAGE_WIDTH;
-      const worldH = page.pdfHeight || PAGE_HEIGHT;
+      const pageBounds = getPageBounds(page);
+      const worldW = pageBounds.width;
+      const worldH = pageBounds.height;
 
       if (!pdfPage) {
-        const blankW = page.pdfOriginalWidth || 595.28;
+        const isLand = worldW > worldH;
+        const blankW = page.pdfOriginalWidth || (isLand ? 841.89 : 595.28);
         const blankH = page.pdfOriginalHeight || Math.round(blankW * (worldH / Math.max(1, worldW)));
         pdfPage = outPdf.addPage([blankW, blankH]);
 
@@ -14989,8 +15063,9 @@
   function generatePageThumbnail(page) {
     const tc = document.createElement('canvas');
     const sc = 0.16;
-    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
-    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    const bounds = getPageBounds(page);
+    const pw = bounds.width;
+    const ph = bounds.height;
     tc.width = Math.max(1, Math.round(pw * sc));
     tc.height = Math.max(1, Math.round(ph * sc));
     const tCtx = tc.getContext('2d');
@@ -15067,7 +15142,7 @@
         }
         targetPage.updatedAt = Date.now();
         await db.savePage(targetPage);
-        await db.saveWorkspaceState({ activeNotebookId: state.activeNotebookId, activePageId: state.activePageId });
+        await db.saveWorkspaceState(getWorkspaceSnapshotForSave());
         if (typeof notifyLocalNotebookMutatedForDriveSync === 'function' && targetPage.notebookId) {
           notifyLocalNotebookMutatedForDriveSync(targetPage.notebookId);
         }
@@ -15780,11 +15855,18 @@
     const p = pages.find((x) => x.id === pageId) || getActivePage();
     if (!p) return null;
     p.rotation = (((p.rotation || 0) + deltaDeg) % 360 + 360) % 360;
-    const oldW = p.pdfWidth || PAGE_WIDTH;
-    const oldH = p.pdfHeight || PAGE_HEIGHT;
+    const curBounds = getPageBounds(p);
+    const oldW = curBounds.width;
+    const oldH = curBounds.height;
     if (Math.abs(deltaDeg) % 180 === 90) {
-      p.pdfWidth = oldH;
-      p.pdfHeight = oldW;
+      if (p.pdfId || p.pdfWidth || p.pdfHeight) {
+        p.pdfWidth = oldH;
+        p.pdfHeight = oldW;
+      } else {
+        p.pageWidth = oldH;
+        p.pageHeight = oldW;
+        p.pageOrientation = oldH > oldW ? 'landscape' : 'portrait';
+      }
       (p.strokes || []).forEach((s) => {
         s.points = (s.points || []).map((pt) => ({
           ...pt,
@@ -16070,6 +16152,9 @@
     cleanupTransientInteractionState(false);
     invalidateStaticInkCache();
 
+    if (prevNbId && prevNbId !== nbId) {
+      rememberActiveNotebookViewport();
+    }
     state.activeNotebookId = nbId;
     const pages = getActiveNotebookPages();
     if (pages.length > 0) state.activePageId = pages[0].id;
@@ -16095,11 +16180,14 @@
     if (prevNbId && prevNbId !== nbId && pdfSearchState.open) {
       runPdfAndNotebookSearch(pdfSearchState.query, { preservePage: false });
     }
+    if (prevNbId && prevNbId !== nbId) {
+      restoreNotebookViewportOrFit(nbId, getActivePage());
+    }
     updateUndoRedoButtons();
     renderWorldTextCards();
     requestRender();
-    // Mémorise le cahier ouvert pour le rouvrir au prochain lancement
-    Promise.resolve(db.saveWorkspaceState({ activeNotebookId: state.activeNotebookId, activePageId: state.activePageId })).catch(() => {});
+    // Mémorise le cahier ouvert et la vue associée pour les rouvrir à l'identique au prochain lancement
+    Promise.resolve(db.saveWorkspaceState(getWorkspaceSnapshotForSave())).catch(() => {});
   }
 
   function selectPage(pageId) {
@@ -20166,7 +20254,8 @@
       dom.exportPopover.classList.add('hidden');
       const p = getActivePage(); if (!p) return;
       const pal = getPaperPalette(p.paperTone);
-      let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}" width="${PAGE_WIDTH}" height="${PAGE_HEIGHT}"><rect width="100%" height="100%" fill="${pal.bg}"/>`;
+      const svgB = getPageBounds(p);
+      let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgB.width} ${svgB.height}" width="${svgB.width}" height="${svgB.height}"><rect width="100%" height="100%" fill="${pal.bg}"/>`;
       (p.shapes || []).forEach((sh) => {
         const op = sh.isHighlighter ? '0.36' : '1';
         const sw = sh.size || 3;
@@ -20827,6 +20916,7 @@
     window.addEventListener('pagehide', () => {
       finalizeActiveDrawingOnCurrentPage();
       flushPendingPageSaves();
+      Promise.resolve(db.saveWorkspaceState(getWorkspaceSnapshotForSave())).catch(() => {});
       cleanupAppResources();
     });
     let fullscreenSyncTimer = null;
@@ -20850,7 +20940,11 @@
           if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
             if (!initialFitDone) {
               initialFitDone = true;
-              fitPageToViewport();
+              if (!state.initialViewportApplied && !initialDbLoadPromise) {
+                fitPageToViewport();
+              } else {
+                requestRender();
+              }
             } else {
               requestRender();
             }
@@ -21095,8 +21189,9 @@
 
   async function generatePageThumbnailAsync(page) {
     const sc = 0.16;
-    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
-    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    const bounds = getPageBounds(page);
+    const pw = bounds.width;
+    const ph = bounds.height;
     const surface = createOffscreenRenderSurface(Math.round(pw * sc), Math.round(ph * sc));
     if (!surface) return generatePageThumbnail(page);
     try {
@@ -24056,8 +24151,12 @@
         paperTone: p.paperTone || 'ivory',
         gridSize: p.gridSize || 28,
         viewMode: p.viewMode || 'infinite',
+        pageSize: p.pageSize || null,
+        pageOrientation: p.pageOrientation || null,
         pageWidth: p.pageWidth || null,
         pageHeight: p.pageHeight || null,
+        templateLanguage: p.templateLanguage || null,
+        customTemplateDataUrl: p.customTemplateDataUrl || null,
         pdfId: p.pdfId || null,
         pdfPageNumber: p.pdfPageNumber || null,
         pdfWidth: p.pdfWidth || null,
@@ -28502,13 +28601,74 @@
     });
   }
 
+  function repairLegacyBoundedPageDimensionsIfNeeded(p) {
+    if (!p || p.pdfId) return false;
+    if (Number.isFinite(p.pageWidth) && p.pageWidth > 0 && Number.isFinite(p.pageHeight) && p.pageHeight > 0) {
+      return false;
+    }
+    if (p.pageSize && p.pageSize !== 'infinite' && typeof getPageDimensionsForSizeAndOrientation === 'function') {
+      const dims = getPageDimensionsForSizeAndOrientation(p.pageSize, p.pageOrientation || 'portrait');
+      if (dims && dims.width > 0 && dims.height > 0) {
+        p.pageWidth = dims.width;
+        p.pageHeight = dims.height;
+        return true;
+      }
+    }
+    if (p.viewMode === 'page') {
+      // Répare les feuilles bornées créées avant la persistance de pageWidth/pageHeight (modèle GoodNotes Standard 834×1079 par défaut)
+      let maxX = 0;
+      let maxY = 0;
+      for (const s of (p.strokes || [])) {
+        for (const pt of (s.points || [])) {
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+      }
+      for (const sh of (p.shapes || [])) {
+        const sx = Math.max(sh.x1 || 0, sh.x2 || 0);
+        const sy = Math.max(sh.y1 || 0, sh.y2 || 0);
+        if (sx > maxX) maxX = sx;
+        if (sy > maxY) maxY = sy;
+      }
+      for (const tb of (p.texts || [])) {
+        const tx = (tb.x || 0) + (tb.width || 220);
+        const ty = (tb.y || 0) + 40;
+        if (tx > maxX) maxX = tx;
+        if (ty > maxY) maxY = ty;
+      }
+      if (maxX <= 842 && maxY <= 1086) {
+        p.pageSize = p.pageSize || 'goodnotes_standard';
+        p.pageOrientation = p.pageOrientation || 'portrait';
+        p.pageWidth = 834;
+        p.pageHeight = 1079;
+        return true;
+      }
+      if (maxX <= 1098 && maxY <= 1550) {
+        p.pageSize = p.pageSize || 'a4';
+        p.pageOrientation = p.pageOrientation || 'portrait';
+        p.pageWidth = 1091;
+        p.pageHeight = 1543;
+        return true;
+      }
+      p.pageWidth = PAGE_WIDTH;
+      p.pageHeight = PAGE_HEIGHT;
+      return true;
+    }
+    return false;
+  }
+
   async function loadFromIndexedDB() {
+    let loadedWs = null;
     try {
       let [notebooks, savedFolders, ws] = await Promise.all([
         db.getAllNotebooks(),
         db.getFolders(),
         db.getWorkspaceState().catch(() => null)
       ]);
+      loadedWs = ws || null;
+      if (ws && ws.viewportByNotebook && typeof ws.viewportByNotebook === 'object') {
+        state.viewportByNotebook = { ...ws.viewportByNotebook };
+      }
       if (Array.isArray(savedFolders)) state.folders = savedFolders;
       if (!notebooks || notebooks.length === 0) {
         const demo = createDemoNotebookAndPages();
@@ -28522,10 +28682,21 @@
       const pagesResults = await Promise.all(
         state.notebooks.map((nb) => db.getPagesForNotebook(nb.id).then((pages) => ({ nbId: nb.id, pages })))
       );
+      const healedPages = [];
       for (const { nbId, pages } of pagesResults) {
         const list = Array.isArray(pages) ? pages : [];
-        list.forEach((p) => { if (!p.viewMode) p.viewMode = 'infinite'; });
+        list.forEach((p) => {
+          if (!p.viewMode) p.viewMode = 'infinite';
+          if (repairLegacyBoundedPageDimensionsIfNeeded(p)) {
+            healedPages.push(p);
+          }
+        });
         state.pagesByNotebook.set(nbId, list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+      }
+      if (healedPages.length > 0) {
+        for (const hp of healedPages) {
+          db.savePage(hp).catch(() => {});
+        }
       }
       // Rouvre le dernier cahier/page actif enregistré, sinon le premier cahier hors corbeille
       const savedNb = ws && ws.activeNotebookId
@@ -28536,6 +28707,9 @@
       const startPages = getActiveNotebookPages();
       const savedPg = savedNb && ws.activePageId ? startPages.find((p) => p.id === ws.activePageId) : null;
       state.activePageId = (savedPg || startPages[0])?.id;
+      if (savedNb && ws && !state.viewportByNotebook[startNb.id] && Number.isFinite(ws.zoom) && ws.zoom > 0 && Number.isFinite(ws.panX) && Number.isFinite(ws.panY)) {
+        state.viewportByNotebook[startNb.id] = { zoom: ws.zoom, panX: ws.panX, panY: ws.panY };
+      }
     } catch (_) {
       if (!state.notebooks || state.notebooks.length === 0) applyDemoStateSynchronously();
     }
@@ -28543,14 +28717,17 @@
     if (dom.canvasViewport && dom.canvasViewport.classList) {
       dom.canvasViewport.classList.remove('app-booting');
     }
-    ensureActiveAndAdjacentPdfPagesLoaded(getActivePage());
+    const activePg = getActivePage();
+    ensureActiveAndAdjacentPdfPagesLoaded(activePg);
     renderNotebooksSidebar();
     renderPagesSidebar();
     loadOpenNotebookTabs();
     syncOpenTabsWithActiveNotebook();
     updateToolbarActiveState();
     renderWorldTextCards();
-    fitPageToViewport();
+    if (!loadedWs || !restoreNotebookViewportOrFit(state.activeNotebookId, activePg)) {
+      fitPageToViewport();
+    }
     requestRender();
   }
 
@@ -34254,6 +34431,11 @@
       getActiveNotebook,
       getActivePage,
       getActiveNotebookPages,
+      getPageBounds,
+      fitPageToViewport,
+      rememberActiveNotebookViewport,
+      getWorkspaceSnapshotForSave,
+      loadFromIndexedDB,
       waitForInitialDbLoad: () => initialDbLoadPromise || Promise.resolve(),
       computeStrokeBounds,
       getCachedStrokePath,
@@ -34639,8 +34821,9 @@
     else if (outH / outW > 1.6) padX += (outH / 1.6 - outW) / 2;
     const rect = { minX: sel.minX - padX, minY: sel.minY - padY, maxX: sel.maxX + padX, maxY: sel.maxY + padY };
     if (page && typeof isBoundedPage === 'function' && isBoundedPage(page)) {
-      const pw = page.pdfWidth || PAGE_WIDTH;
-      const ph = page.pdfHeight || PAGE_HEIGHT;
+      const pb = typeof getPageBounds === 'function' ? getPageBounds(page) : { width: page.pdfWidth || PAGE_WIDTH, height: page.pdfHeight || PAGE_HEIGHT };
+      const pw = pb.width;
+      const ph = pb.height;
       rect.minX = Math.max(rect.minX, Math.min(sel.minX, 0));
       rect.minY = Math.max(rect.minY, Math.min(sel.minY, 0));
       rect.maxX = Math.min(rect.maxX, Math.max(sel.maxX, pw));
@@ -34698,8 +34881,9 @@
       ctx.scale(canvas.width / w, canvas.height / h);
       ctx.translate(-rect.minX, -rect.minY);
 
-      const pw = page.pdfWidth || PAGE_WIDTH;
-      const ph = page.pdfHeight || PAGE_HEIGHT;
+      const pb = typeof getPageBounds === 'function' ? getPageBounds(page) : { width: page.pdfWidth || PAGE_WIDTH, height: page.pdfHeight || PAGE_HEIGHT };
+      const pw = pb.width;
+      const ph = pb.height;
       const isDark = !page.pdfId && (page.paperTone === 'dark' || page.paperTone === 'blueprint');
       ctx.fillStyle = isDark ? '#1e1b1b' : '#ffffff';
       ctx.fillRect(rect.minX, rect.minY, w, h);

@@ -2934,6 +2934,74 @@ async function runTests() {
     return 'Cache bitmap #pdfBgCanvas en Pan (60 hits consécutifs), déplacement Lasso O(1) sans réallocation par frame + Undo et miniatures asynchrones vérifiés.';
   });
 
+  // ------------------------------------------------------------------------
+  // TEST 20 : Persistance exacte de la taille des feuilles (pageSize / pageOrientation / pageWidth / pageHeight) et du zoom au redémarrage
+  // ------------------------------------------------------------------------
+  await runStep('Test 20 : Persistance de la taille des feuilles (Standard, A5 Paysage, réparation legacy) et du zoom après redémarrage', async () => {
+    const created = await api.createNotebookProgrammatically('Cahier A5 Paysage', 'seyes', '#0072ce', {
+      viewMode: 'page',
+      pageSize: 'a5',
+      pageOrientation: 'landscape',
+      pageWidth: 1091,
+      pageHeight: 769,
+      templateLanguage: 'en'
+    });
+    const nb = created.notebook;
+    const p1 = created.firstPage;
+
+    // Ajoute aussi un cahier legacy sans pageWidth/pageHeight pour vérifier l'auto-réparation GoodNotes Standard (834×1079)
+    const legacyCreated = await api.createNotebookProgrammatically('Cahier Legacy Standard', 'grid', '#2563eb', {
+      viewMode: 'page'
+    });
+    const legacyNb = legacyCreated.notebook;
+    const legacyPg = legacyCreated.firstPage;
+    legacyPg.pageSize = null;
+    legacyPg.pageWidth = null;
+    legacyPg.pageHeight = null;
+    await api.db.savePage(legacyPg);
+
+    try {
+      api.selectNotebook(nb.id);
+      const st = api.getState();
+      st.zoom = 1.28;
+      st.panX = 72;
+      st.panY = 64;
+      await api.db.savePage(p1);
+      await api.db.saveWorkspaceState(api.getWorkspaceSnapshotForSave());
+
+      // Simule une fermeture puis réouverture complète de l'application (vidage de la RAM + loadFromIndexedDB)
+      st.notebooks = [];
+      st.pagesByNotebook.clear();
+      st.viewportByNotebook = {};
+      st.zoom = 0.55;
+      st.panX = 0;
+      st.panY = 0;
+
+      await api.loadFromIndexedDB();
+
+      const reloadedPage = api.getActivePage();
+      assert.equal(reloadedPage.id, p1.id, 'La dernière page active doit être restaurée au lancement');
+      assert.equal(reloadedPage.pageSize, 'a5', 'pageSize doit être conservé dans IndexedDB');
+      assert.equal(reloadedPage.pageOrientation, 'landscape', 'pageOrientation doit être conservé dans IndexedDB');
+      assert.equal(reloadedPage.pageWidth, 1091, 'pageWidth doit être conservé exactement (1091 px)');
+      assert.equal(reloadedPage.pageHeight, 769, 'pageHeight doit être conservé exactement (769 px)');
+      assert.equal(reloadedPage.templateLanguage, 'en', 'templateLanguage doit être conservé');
+      const b = api.getPageBounds(reloadedPage);
+      assert.equal(b.width, 1091);
+      assert.equal(b.height, 769);
+      assert.ok(Math.abs(st.zoom - 1.28) < 0.005, `Le niveau de zoom du cahier doit être restauré à l'identique (${st.zoom})`);
+
+      const repairedLegacyList = st.pagesByNotebook.get(legacyNb.id) || [];
+      assert.equal(repairedLegacyList[0].pageWidth, 834, 'Une feuille bornée legacy sans dimensions retrouve sa taille Standard 834×1079');
+      assert.equal(repairedLegacyList[0].pageHeight, 1079);
+    } finally {
+      await api.deleteNotebookById(nb.id);
+      await api.deleteNotebookById(legacyNb.id);
+    }
+
+    return 'Persistance IndexedDB (pageSize, pageOrientation, pageWidth=1091, pageHeight=769), restauration du zoom (1.28) et auto-réparation des feuilles Standard (834×1079) vérifiées.';
+  });
+
   console.log('======================================================================');
   console.log(`🎉 TOUS LES TESTS UNITAIRES SONT PASSÉS AVEC SUCCÈS (${results.length}/${results.length})`);
   console.log('======================================================================');

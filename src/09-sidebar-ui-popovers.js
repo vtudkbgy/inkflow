@@ -32,8 +32,9 @@
   function generatePageThumbnail(page) {
     const tc = document.createElement('canvas');
     const sc = 0.16;
-    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
-    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    const bounds = getPageBounds(page);
+    const pw = bounds.width;
+    const ph = bounds.height;
     tc.width = Math.max(1, Math.round(pw * sc));
     tc.height = Math.max(1, Math.round(ph * sc));
     const tCtx = tc.getContext('2d');
@@ -110,7 +111,7 @@
         }
         targetPage.updatedAt = Date.now();
         await db.savePage(targetPage);
-        await db.saveWorkspaceState({ activeNotebookId: state.activeNotebookId, activePageId: state.activePageId });
+        await db.saveWorkspaceState(getWorkspaceSnapshotForSave());
         if (typeof notifyLocalNotebookMutatedForDriveSync === 'function' && targetPage.notebookId) {
           notifyLocalNotebookMutatedForDriveSync(targetPage.notebookId);
         }
@@ -823,11 +824,18 @@
     const p = pages.find((x) => x.id === pageId) || getActivePage();
     if (!p) return null;
     p.rotation = (((p.rotation || 0) + deltaDeg) % 360 + 360) % 360;
-    const oldW = p.pdfWidth || PAGE_WIDTH;
-    const oldH = p.pdfHeight || PAGE_HEIGHT;
+    const curBounds = getPageBounds(p);
+    const oldW = curBounds.width;
+    const oldH = curBounds.height;
     if (Math.abs(deltaDeg) % 180 === 90) {
-      p.pdfWidth = oldH;
-      p.pdfHeight = oldW;
+      if (p.pdfId || p.pdfWidth || p.pdfHeight) {
+        p.pdfWidth = oldH;
+        p.pdfHeight = oldW;
+      } else {
+        p.pageWidth = oldH;
+        p.pageHeight = oldW;
+        p.pageOrientation = oldH > oldW ? 'landscape' : 'portrait';
+      }
       (p.strokes || []).forEach((s) => {
         s.points = (s.points || []).map((pt) => ({
           ...pt,
@@ -1113,6 +1121,9 @@
     cleanupTransientInteractionState(false);
     invalidateStaticInkCache();
 
+    if (prevNbId && prevNbId !== nbId) {
+      rememberActiveNotebookViewport();
+    }
     state.activeNotebookId = nbId;
     const pages = getActiveNotebookPages();
     if (pages.length > 0) state.activePageId = pages[0].id;
@@ -1138,11 +1149,14 @@
     if (prevNbId && prevNbId !== nbId && pdfSearchState.open) {
       runPdfAndNotebookSearch(pdfSearchState.query, { preservePage: false });
     }
+    if (prevNbId && prevNbId !== nbId) {
+      restoreNotebookViewportOrFit(nbId, getActivePage());
+    }
     updateUndoRedoButtons();
     renderWorldTextCards();
     requestRender();
-    // Mémorise le cahier ouvert pour le rouvrir au prochain lancement
-    Promise.resolve(db.saveWorkspaceState({ activeNotebookId: state.activeNotebookId, activePageId: state.activePageId })).catch(() => {});
+    // Mémorise le cahier ouvert et la vue associée pour les rouvrir à l'identique au prochain lancement
+    Promise.resolve(db.saveWorkspaceState(getWorkspaceSnapshotForSave())).catch(() => {});
   }
 
   function selectPage(pageId) {
@@ -5209,7 +5223,8 @@
       dom.exportPopover.classList.add('hidden');
       const p = getActivePage(); if (!p) return;
       const pal = getPaperPalette(p.paperTone);
-      let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}" width="${PAGE_WIDTH}" height="${PAGE_HEIGHT}"><rect width="100%" height="100%" fill="${pal.bg}"/>`;
+      const svgB = getPageBounds(p);
+      let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgB.width} ${svgB.height}" width="${svgB.width}" height="${svgB.height}"><rect width="100%" height="100%" fill="${pal.bg}"/>`;
       (p.shapes || []).forEach((sh) => {
         const op = sh.isHighlighter ? '0.36' : '1';
         const sw = sh.size || 3;
@@ -5870,6 +5885,7 @@
     window.addEventListener('pagehide', () => {
       finalizeActiveDrawingOnCurrentPage();
       flushPendingPageSaves();
+      Promise.resolve(db.saveWorkspaceState(getWorkspaceSnapshotForSave())).catch(() => {});
       cleanupAppResources();
     });
     let fullscreenSyncTimer = null;
@@ -5893,7 +5909,11 @@
           if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
             if (!initialFitDone) {
               initialFitDone = true;
-              fitPageToViewport();
+              if (!state.initialViewportApplied && !initialDbLoadPromise) {
+                fitPageToViewport();
+              } else {
+                requestRender();
+              }
             } else {
               requestRender();
             }

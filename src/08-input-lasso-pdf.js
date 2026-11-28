@@ -1900,6 +1900,7 @@
       setCanvasInteractingClass(false);
       dom.canvasViewport.classList.remove('panning');
       try { if (typeof e.pointerId === 'number') dom.inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      scheduleSaveWorkspaceViewport();
       if (commitOrResetPullToAdd()) return;
       startPanInertiaLoop();
       return;
@@ -3441,8 +3442,9 @@
     cCtx.scale(effScaleX, effScaleY);
     cCtx.translate(-(b.minX - pad), -(b.minY - pad));
 
-    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
-    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    const boundsForSnap = getPageBounds(page);
+    const pw = boundsForSnap.width;
+    const ph = boundsForSnap.height;
     drawPaperBackground(cCtx, page, pw, ph, true);
     if (page.pdfId) drawLockedPdfBackground(cCtx, page, false);
 
@@ -3983,7 +3985,6 @@
     // Charge et rend uniquement la page affichée (p.1) et la page suivante (p.2) en mémoire
     await ensureActiveAndAdjacentPdfPagesLoaded(createdPages[0]);
     await db.savePage(createdPages[0]);
-    await db.saveWorkspaceState({ activeNotebookId: state.activeNotebookId, activePageId: state.activePageId });
 
     updatePdfImportProgressUI(true, 'Import terminé !', 100);
     clearLassoSelection();
@@ -3993,6 +3994,7 @@
     updateUndoRedoButtons();
     renderWorldTextCards();
     fitPageToViewport();
+    await db.saveWorkspaceState(getWorkspaceSnapshotForSave());
     requestRender();
     closeImportPdfModal();
     showToast(`PDF importé (${numPages} page${numPages > 1 ? 's' : ''}) — Calque de fond verrouillé !`);
@@ -4045,11 +4047,13 @@
         }
       }
 
-      const worldW = page.pdfWidth || PAGE_WIDTH;
-      const worldH = page.pdfHeight || PAGE_HEIGHT;
+      const pageBounds = getPageBounds(page);
+      const worldW = pageBounds.width;
+      const worldH = pageBounds.height;
 
       if (!pdfPage) {
-        const blankW = page.pdfOriginalWidth || 595.28;
+        const isLand = worldW > worldH;
+        const blankW = page.pdfOriginalWidth || (isLand ? 841.89 : 595.28);
         const blankH = page.pdfOriginalHeight || Math.round(blankW * (worldH / Math.max(1, worldW)));
         pdfPage = outPdf.addPage([blankW, blankH]);
 

@@ -87,8 +87,9 @@
 
   async function generatePageThumbnailAsync(page) {
     const sc = 0.16;
-    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
-    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    const bounds = getPageBounds(page);
+    const pw = bounds.width;
+    const ph = bounds.height;
     const surface = createOffscreenRenderSurface(Math.round(pw * sc), Math.round(ph * sc));
     if (!surface) return generatePageThumbnail(page);
     try {

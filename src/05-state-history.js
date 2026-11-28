@@ -229,6 +229,8 @@
     lassoInitialSnapshot: null,
     lassoInitialBounds: null,
     historyByPage: new Map(),
+    viewportByNotebook: {},
+    initialViewportApplied: false,
     newNotebookCover: '#0072ce',
     newNotebookTemplate: {
       paperType: 'grid',
@@ -2000,13 +2002,72 @@
     });
   }
 
+  let workspaceViewportSaveTimer = null;
+
+  function rememberActiveNotebookViewport() {
+    const nbId = state.activeNotebookId;
+    if (!nbId) return;
+    if (!state.viewportByNotebook || typeof state.viewportByNotebook !== 'object') {
+      state.viewportByNotebook = {};
+    }
+    if (Number.isFinite(state.zoom) && state.zoom > 0 && Number.isFinite(state.panX) && Number.isFinite(state.panY)) {
+      state.viewportByNotebook[nbId] = {
+        zoom: Math.round(state.zoom * 10000) / 10000,
+        panX: Math.round(state.panX * 10) / 10,
+        panY: Math.round(state.panY * 10) / 10
+      };
+    }
+  }
+
+  function getWorkspaceSnapshotForSave() {
+    rememberActiveNotebookViewport();
+    return {
+      activeNotebookId: state.activeNotebookId,
+      activePageId: state.activePageId,
+      zoom: state.zoom,
+      panX: state.panX,
+      panY: state.panY,
+      viewportByNotebook: { ...(state.viewportByNotebook || {}) }
+    };
+  }
+
+  function scheduleSaveWorkspaceViewport() {
+    rememberActiveNotebookViewport();
+    if (workspaceViewportSaveTimer) clearTimeout(workspaceViewportSaveTimer);
+    workspaceViewportSaveTimer = setTimeout(() => {
+      workspaceViewportSaveTimer = null;
+      if (typeof db !== 'undefined' && db && typeof db.saveWorkspaceState === 'function') {
+        Promise.resolve(db.saveWorkspaceState(getWorkspaceSnapshotForSave())).catch(() => {});
+      }
+    }, 650);
+  }
+
+  function restoreNotebookViewportOrFit(nbId, page = getActivePage()) {
+    const saved = nbId && state.viewportByNotebook && state.viewportByNotebook[nbId];
+    if (saved && Number.isFinite(saved.zoom) && saved.zoom > 0 && Number.isFinite(saved.panX) && Number.isFinite(saved.panY)) {
+      const { minZoom, maxZoom } = getViewportZoomLimits(page);
+      const z = Math.max(minZoom, Math.min(maxZoom, saved.zoom));
+      const clamped = clampViewportPan(saved.panX, saved.panY, z, page);
+      state.zoom = z;
+      state.panX = clamped.panX;
+      state.panY = clamped.panY;
+      state.initialViewportApplied = true;
+      if (dom.btnZoomReset) dom.btnZoomReset.textContent = `${Math.round(state.zoom * 100)}%`;
+      syncWorldLayerTransform();
+      return true;
+    }
+    fitPageToViewport(false);
+    return false;
+  }
+
   function fitPageToViewport(animate = false) {
     stopViewportAnimations();
     const rect = dom.canvasViewport.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     const page = getActivePage();
-    const pw = (page && page.pdfWidth) ? page.pdfWidth : PAGE_WIDTH;
-    const ph = (page && page.pdfHeight) ? page.pdfHeight : PAGE_HEIGHT;
+    const bounds = getPageBounds(page);
+    const pw = bounds.width;
+    const ph = bounds.height;
     const availW = rect.width - 28;
     const availH = rect.height - 72;
     const targetZoom = isBoundedPage(page)
@@ -2014,6 +2075,7 @@
       : Math.max(0.45, Math.min(1.08, Math.min(availW / pw, availH / ph)));
     const targetPanX = Math.round((rect.width - pw * targetZoom) / 2);
     const targetPanY = Math.max(58, Math.round(58 + Math.max(0, (rect.height - 72 - ph * targetZoom) / 2)));
+    state.initialViewportApplied = true;
     if (animate) {
       animateViewportTo(targetZoom, targetPanX, targetPanY, 220);
       return;
@@ -2021,6 +2083,7 @@
     state.zoom = targetZoom;
     state.panX = targetPanX;
     state.panY = targetPanY;
+    rememberActiveNotebookViewport();
     if (dom.btnZoomReset) dom.btnZoomReset.textContent = `${Math.round(state.zoom * 100)}%`;
     syncWorldLayerTransform();
     requestRender();
@@ -2048,6 +2111,7 @@
     zoomSettleTimer = setTimeout(() => {
       zoomSettleTimer = null;
       isZoomInteracting = false;
+      scheduleSaveWorkspaceViewport();
       if (!state.isPinching && snapBackBoundedViewportIfZoomedOut()) return;
       requestRender();
     }, 135);

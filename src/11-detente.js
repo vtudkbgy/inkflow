@@ -3781,13 +3781,74 @@
     });
   }
 
+  function repairLegacyBoundedPageDimensionsIfNeeded(p) {
+    if (!p || p.pdfId) return false;
+    if (Number.isFinite(p.pageWidth) && p.pageWidth > 0 && Number.isFinite(p.pageHeight) && p.pageHeight > 0) {
+      return false;
+    }
+    if (p.pageSize && p.pageSize !== 'infinite' && typeof getPageDimensionsForSizeAndOrientation === 'function') {
+      const dims = getPageDimensionsForSizeAndOrientation(p.pageSize, p.pageOrientation || 'portrait');
+      if (dims && dims.width > 0 && dims.height > 0) {
+        p.pageWidth = dims.width;
+        p.pageHeight = dims.height;
+        return true;
+      }
+    }
+    if (p.viewMode === 'page') {
+      // Répare les feuilles bornées créées avant la persistance de pageWidth/pageHeight (modèle GoodNotes Standard 834×1079 par défaut)
+      let maxX = 0;
+      let maxY = 0;
+      for (const s of (p.strokes || [])) {
+        for (const pt of (s.points || [])) {
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+      }
+      for (const sh of (p.shapes || [])) {
+        const sx = Math.max(sh.x1 || 0, sh.x2 || 0);
+        const sy = Math.max(sh.y1 || 0, sh.y2 || 0);
+        if (sx > maxX) maxX = sx;
+        if (sy > maxY) maxY = sy;
+      }
+      for (const tb of (p.texts || [])) {
+        const tx = (tb.x || 0) + (tb.width || 220);
+        const ty = (tb.y || 0) + 40;
+        if (tx > maxX) maxX = tx;
+        if (ty > maxY) maxY = ty;
+      }
+      if (maxX <= 842 && maxY <= 1086) {
+        p.pageSize = p.pageSize || 'goodnotes_standard';
+        p.pageOrientation = p.pageOrientation || 'portrait';
+        p.pageWidth = 834;
+        p.pageHeight = 1079;
+        return true;
+      }
+      if (maxX <= 1098 && maxY <= 1550) {
+        p.pageSize = p.pageSize || 'a4';
+        p.pageOrientation = p.pageOrientation || 'portrait';
+        p.pageWidth = 1091;
+        p.pageHeight = 1543;
+        return true;
+      }
+      p.pageWidth = PAGE_WIDTH;
+      p.pageHeight = PAGE_HEIGHT;
+      return true;
+    }
+    return false;
+  }
+
   async function loadFromIndexedDB() {
+    let loadedWs = null;
     try {
       let [notebooks, savedFolders, ws] = await Promise.all([
         db.getAllNotebooks(),
         db.getFolders(),
         db.getWorkspaceState().catch(() => null)
       ]);
+      loadedWs = ws || null;
+      if (ws && ws.viewportByNotebook && typeof ws.viewportByNotebook === 'object') {
+        state.viewportByNotebook = { ...ws.viewportByNotebook };
+      }
       if (Array.isArray(savedFolders)) state.folders = savedFolders;
       if (!notebooks || notebooks.length === 0) {
         const demo = createDemoNotebookAndPages();
@@ -3801,10 +3862,21 @@
       const pagesResults = await Promise.all(
         state.notebooks.map((nb) => db.getPagesForNotebook(nb.id).then((pages) => ({ nbId: nb.id, pages })))
       );
+      const healedPages = [];
       for (const { nbId, pages } of pagesResults) {
         const list = Array.isArray(pages) ? pages : [];
-        list.forEach((p) => { if (!p.viewMode) p.viewMode = 'infinite'; });
+        list.forEach((p) => {
+          if (!p.viewMode) p.viewMode = 'infinite';
+          if (repairLegacyBoundedPageDimensionsIfNeeded(p)) {
+            healedPages.push(p);
+          }
+        });
         state.pagesByNotebook.set(nbId, list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+      }
+      if (healedPages.length > 0) {
+        for (const hp of healedPages) {
+          db.savePage(hp).catch(() => {});
+        }
       }
       // Rouvre le dernier cahier/page actif enregistré, sinon le premier cahier hors corbeille
       const savedNb = ws && ws.activeNotebookId
@@ -3815,6 +3887,9 @@
       const startPages = getActiveNotebookPages();
       const savedPg = savedNb && ws.activePageId ? startPages.find((p) => p.id === ws.activePageId) : null;
       state.activePageId = (savedPg || startPages[0])?.id;
+      if (savedNb && ws && !state.viewportByNotebook[startNb.id] && Number.isFinite(ws.zoom) && ws.zoom > 0 && Number.isFinite(ws.panX) && Number.isFinite(ws.panY)) {
+        state.viewportByNotebook[startNb.id] = { zoom: ws.zoom, panX: ws.panX, panY: ws.panY };
+      }
     } catch (_) {
       if (!state.notebooks || state.notebooks.length === 0) applyDemoStateSynchronously();
     }
@@ -3822,14 +3897,17 @@
     if (dom.canvasViewport && dom.canvasViewport.classList) {
       dom.canvasViewport.classList.remove('app-booting');
     }
-    ensureActiveAndAdjacentPdfPagesLoaded(getActivePage());
+    const activePg = getActivePage();
+    ensureActiveAndAdjacentPdfPagesLoaded(activePg);
     renderNotebooksSidebar();
     renderPagesSidebar();
     loadOpenNotebookTabs();
     syncOpenTabsWithActiveNotebook();
     updateToolbarActiveState();
     renderWorldTextCards();
-    fitPageToViewport();
+    if (!loadedWs || !restoreNotebookViewportOrFit(state.activeNotebookId, activePg)) {
+      fitPageToViewport();
+    }
     requestRender();
   }
 
